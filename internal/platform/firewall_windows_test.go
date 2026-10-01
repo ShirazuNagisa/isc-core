@@ -619,3 +619,115 @@ func TestInspectAgainstRealPowerShell(t *testing.T) {
 
 	t.Logf("真实环境中读到 %d 条 ISC 管理的规则", len(rules))
 }
+
+// TestUnwrapPowerShellError 验证 CLIXML 被还原成人能读的文本。
+//
+// 这一条来自真机：首次跑通"预览 → 应用"闭环时，用户看到的是一整屏
+// CLIXML XML，而真正有用的那句 "Access is denied" 埋在中间。
+// 那段输出看起来像内核崩了，而实际问题只是缺管理员权限。
+func TestUnwrapPowerShellError(t *testing.T) {
+	t.Parallel()
+
+	raw := `#< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj><S S="Error">New-NetFirewallRule : Access is denied. _x000D__x000A_</S><S S="Error">At line:2 char:1_x000D__x000A_</S><S S="Error">+ New-NetFirewallRule -DisplayName 'isc-x-tcp-80' -Group 'ISC ..._x000D__x000A_</S><S S="Error">+ CategoryInfo          : PermissionDenied: (MSFT_NetFirewallRule:root/standardcimv2/MSFT_NetFirewallRule) [New-Ne _x000D__x000A_</S><S S="Error">tFirewallRule], CimException_x000D__x000A_</S><S S="Error">+ FullyQualifiedErrorId : Windows System Error 5,New-NetFirewallRule_x000D__x000A_</S><S S="Error"> _x000D__x000A_</S></Objs>`
+
+	got := unwrapPowerShellError(raw)
+
+	// 必须包含真正的错误。
+	if !strings.Contains(got, "Access is denied") {
+		t.Errorf("没有提取出真正的错误信息:\n%s", got)
+	}
+
+	// **不得**残留 XML 结构 —— 那正是要修掉的东西。
+	for _, bad := range []string{"<Objs", "</S>", "CLIXML", "_x000D_", "_x000A_", "xmlns"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("输出里残留了 %q:\n%s", bad, got)
+		}
+	}
+
+	// 定位噪声要丢掉：它们指向的是我们生成的脚本，对用户没有意义。
+	for _, bad := range []string{"At line:", "FullyQualifiedErrorId", "CategoryInfo"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("输出里残留了定位噪声 %q:\n%s", bad, got)
+		}
+	}
+
+	// 不能太长：一整屏输出与 XML 一样让用户抓不到重点。
+	if len(got) > 300 {
+		t.Errorf("还原后的错误仍然过长（%d 字符）:\n%s", len(got), got)
+	}
+}
+
+func TestUnwrapPowerShellErrorPlainText(t *testing.T) {
+	t.Parallel()
+
+	// 非 CLIXML 的普通错误原样返回。
+	if got := unwrapPowerShellError("普通错误信息"); got != "普通错误信息" {
+		t.Errorf("普通文本应当原样返回，得到 %q", got)
+	}
+	if got := unwrapPowerShellError(""); got != "" {
+		t.Errorf("空输入应当返回空串，得到 %q", got)
+	}
+}
+
+func TestUnwrapPowerShellErrorUnparseable(t *testing.T) {
+	t.Parallel()
+
+	// 是 CLIXML 但没有可识别的错误节点：必须给一句人话，
+	// **不能**把原始 XML 倒出来。
+	got := unwrapPowerShellError("#< CLIXML\n<Objs Version=\"1.1.0.1\"></Objs>")
+	if strings.Contains(got, "<Objs") {
+		t.Errorf("解析不出内容时不该返回原始 XML: %s", got)
+	}
+	if got == "" {
+		t.Error("应当给出一句可读的说明")
+	}
+}
+
+func TestDecodePowerShellText(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"a_x000D__x000A_b": "a b",         // CRLF 转义（空白被折叠）
+		"&lt;tag&gt;":      "<tag>",       // XML 实体
+		"a  b":             "a b",         // 多余空白折叠
+		"_x0041_":          "A",           // 普通字符转义
+		"保留_xZZZZ_原样":      "保留_xZZZZ_原样", // 非法转义原样保留
+	}
+	for in, want := range cases {
+		if got := decodePowerShellText(in); got != want {
+			t.Errorf("decodePowerShellText(%q) = %q，期望 %q", in, got, want)
+		}
+	}
+}
+
+// TestUnwrapPowerShellErrorDropsWrappedContinuation 验证折行的续行片段被丢掉。
+//
+// 真机上发现的：PowerShell 会把长行折成多个 <S> 节点，逐节点过滤
+// 只挡得住第一段，续行片段（"tFirewallRule], CimException"）会留下来。
+// 那段文字毫无意义，却会让用户以为出了别的问题。
+func TestUnwrapPowerShellErrorDropsWrappedContinuation(t *testing.T) {
+	t.Parallel()
+
+	raw := `#< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="Error">New-NetFirewallRule : Access is denied. _x000D__x000A_</S><S S="Error">At line:2 char:1_x000D__x000A_</S><S S="Error">+ New-NetFirewallRule -DisplayName 'isc-jellyfin-tcp-18080' -Group 'ISC ..._x000D__x000A_</S><S S="Error">+ CategoryInfo          : PermissionDenied: (MSFT_NetFirewallRule:root/standardcimv2/MSFT_NetFirewallRule) [New-Ne _x000D__x000A_</S><S S="Error">tFirewallRule], CimException_x000D__x000A_</S><S S="Error">+ FullyQualifiedErrorId : Windows System Error 5,New-NetFirewallRule_x000D__x000A_</S></Objs>`
+
+	got := unwrapPowerShellError(raw)
+
+	if !strings.Contains(got, "Access is denied") {
+		t.Errorf("没有提取出真正的错误:\n%s", got)
+	}
+	// 折行的续行片段必须被丢掉。
+	//
+	// 断言的是**续行本身**而不是单个词：`tFirewallRule` 是
+	// `New-NetFirewallRule` 的子串，用它做断言会在正确输出上失败。
+	for _, bad := range []string{"], CimException", "PermissionDenied", "MSFT_NetFirewallRule"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("输出里残留了折行的续行片段 %q:\n%s", bad, got)
+		}
+	}
+	// 结果必须很短 —— 用户要能一眼看完。
+	if len(got) > 120 {
+		t.Errorf("还原后的错误过长（%d 字符）:\n%s", len(got), got)
+	}
+}

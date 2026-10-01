@@ -257,9 +257,20 @@ func TestEmptyPlanIsSuccessNotError(t *testing.T) {
 	if !res.OK() {
 		t.Errorf("空计划的状态 = %s，期望 applied", res.Status)
 	}
-	// 空计划不该产生日志记录：它什么都没做，记录只会是噪音。
-	if _, ok, _ := j.Get(context.Background(), "p-empty"); ok {
-		t.Error("空计划不应写入日志")
+	// 空计划**仍然要落一条记录**。
+	//
+	// 记录的价值不只是"改了什么"，还包括"用户在那个时刻想做什么"。
+	// 事后排查"我明明点过开放端口，怎么还是不通"时，这条记录能立刻
+	// 排除掉一半可能。
+	rec, ok, _ := j.Get(context.Background(), "p-empty")
+	if !ok {
+		t.Fatal("空计划也应当留下记录 —— 它是用户意图的凭据")
+	}
+	if rec.Status != StatusApplied {
+		t.Errorf("空计划的状态 = %s，期望 applied", rec.Status)
+	}
+	if len(rec.Steps) != 0 {
+		t.Errorf("空计划不该有步骤，得到 %d 个", len(rec.Steps))
 	}
 }
 

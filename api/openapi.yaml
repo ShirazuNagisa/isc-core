@@ -1136,6 +1136,121 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /v1/reach/providers/{name}/plan:
+    parameters:
+      - $ref: "#/components/parameters/ReachProviderName"
+    post:
+      tags: [Reach]
+      operationId: planReachExpose
+      summary: 生成一份"放行端口"的变更计划
+      description: |
+        **不产生任何系统变更** —— 它只计算差异并把计划登记在内核里，
+        返回一份可读的预览。
+
+        确认之后调用 `POST /v1/changes/{planId}/apply` 才会真正执行。
+
+        计划在内核里保留 10 分钟后过期。过期是刻意的：预览里的差异是
+        基于**当时**的系统状态算出来的，放太久之后状态可能已经变了
+        （别人手工加了规则），那时再应用会让实际效果与用户看到的
+        差异不符。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExposeRequest"
+      responses:
+        "200":
+          description: 计划预览
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangePreview"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/changes/pending:
+    get:
+      tags: [Changes]
+      operationId: listPendingChanges
+      summary: 列出待确认的变更计划
+      responses:
+        "200":
+          description: 待确认的计划（最近的在前）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangePreviewList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/changes/{planId}/apply:
+    parameters:
+      - $ref: "#/components/parameters/PlanId"
+    post:
+      tags: [Changes]
+      operationId: applyChange
+      summary: 应用一个已确认的变更计划
+      description: |
+        计划在取出时即被消费，因此**重复调用会返回 404** ——
+        用户双击"应用"不会执行两次。
+
+        失败时内核会**自动按相反顺序撤销已生效的步骤**。若自动回滚
+        本身也失败，状态会是 `rollback_failed`，那意味着系统处于
+        既非原状也非目标的中间态 —— 界面必须显著提示。
+      responses:
+        "200":
+          description: 执行结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRecord"
+        "404":
+          description: 计划不存在或已过期，需要重新生成
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/changes/{planId}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/PlanId"
+    post:
+      tags: [Changes]
+      operationId: rollbackChange
+      summary: 撤销一次已生效的变更
+      description: |
+        它走各后端登记的撤销器，因此**跨越内核重启依然可用**。
+
+        幂等：已经撤销过的计划再撤一次会返回成功。用户重试是常见操作
+        （网络卡了、按钮点重了），把重试当失败会让他以为撤销没生效，
+        进而做出更激进的处置。
+      responses:
+        "200":
+          description: 撤销结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRecord"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: |
+            变更仍处于执行中状态，暂时不能撤销 —— 那个进程可能还在写
+            系统状态，两边同时动手会得到谁也没预料到的结果。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2131,6 +2246,109 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ChangeRecord"
+
+    # ------------------------------------------------------------------
+    # 变更预览与应用
+    # ------------------------------------------------------------------
+
+    ExposeRequest:
+      type: object
+      required: [port]
+      properties:
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        protocol:
+          type: string
+          enum: [tcp, udp]
+          default: tcp
+        label:
+          type: string
+          description: |
+            规则的可读名称，例如服务名。它会出现在系统防火墙界面里，
+            因此应当填一个用户认得出的名字。
+
+            非 ASCII 字符会被丢弃 —— 防火墙规则的名称在不同平台上对
+            字符集的要求不一致，塞进去会变成一条无法创建、也无法删除
+            的幽灵规则。
+
+    ChangePreviewList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangePreview"
+
+    ChangePreview:
+      type: object
+      required: [id, kind, title, risk, diff, steps, empty, created_at, expires_at]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        title:
+          type: string
+        risk:
+          type: string
+          enum: [low, medium, high]
+        diff:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeDiffLine"
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeStepPreview"
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 界面上需要显著提示的内容。
+        notes:
+          type: array
+          items:
+            type: string
+          description: 背景说明。
+        empty:
+          type: boolean
+          description: |
+            无需改动（已是目标状态）。
+
+            界面应当把它显示成"无需改动"而不是"操作失败"：用户点
+            "开放 443"而 443 已经开放时，那不是错误。
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: 超过这个时间计划会失效，需要重新生成。
+
+    ChangeStepPreview:
+      type: object
+      required: [id, title, revertable]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        details:
+          type: string
+        diff:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeDiffLine"
+        revertable:
+          type: boolean
+          description: |
+            这一步出问题时能否撤销。
+
+            界面必须在应用**之前**显示它 —— 用户有权知道"这一步做错了
+            能不能退"。
 
     ChangeRecord:
       type: object

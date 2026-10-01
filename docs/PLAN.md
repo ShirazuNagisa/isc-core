@@ -164,7 +164,69 @@ weight 丢失），并且都没有粉饰。这些已全部进 `docs/PROVIDER-MAT
 | 可达性 API | ✅ | `/v1/reach/providers`、`/v1/reach/providers/{name}/probe`、`/v1/changes` |
 | 三平台防火墙后端 | 🔶 | Windows ✅（PowerShell NetSecurity）；nftables / pf 待做 |
 | 引导式外部验证 | ✅ | `internal/verify/` + `/v1/verify/sessions` + `isc verify`；真机验证 |
+| 变更闭环（预览→应用→撤销） | ✅ | `/v1/reach/providers/{name}/plan`、`/v1/changes/{id}/apply`、`/v1/changes/{id}/rollback`、`isc expose` / `isc changes` / `isc rollback` |
 | 端口冲突检测 / 低端口绑定 | ⬜ | M3-d，未开始 |
+
+### M3 闭环：把已经写好的三块接起来
+
+上一轮结束时有一个**真实缺口**：`reach.Plan`、`change.Runner.Apply`、
+`change.Runner.Rollback` 都实现了，但**没有任何接口能调用它们** ——
+M3 验收标准的第 1、2 条因此无法满足。
+
+#### 核心设计问题：计划里含闭包
+
+"预览 → 应用"要求用户先看到差异再决定，但计划里的步骤持有
+`apply` / `revert` 闭包（它们捕获了平台后端的句柄），那些东西既不能
+序列化，也不能通过 HTTP 传一个来回。
+
+解法：内核生成计划后**留在内存里**，只把可序列化的预览发给客户端；
+用户确认时凭 plan ID 回来取。计划取出即消费，因此双击"应用"不会
+执行两次。
+
+更重要的原因是安全：若改成"客户端把计划传回来"，就等于让客户端能
+构造一份计划让内核**以管理员身份执行任意防火墙操作**。留在内存里
+天然没有这个问题。
+
+计划 10 分钟过期。这也是刻意的：预览里的差异是基于**当时**的系统状态
+算出来的，放太久之后状态可能已经变了，那时再应用会让实际效果与用户
+看到的差异不符。
+
+#### 真机上抓到的体验缺陷
+
+首次跑通闭环时，用户看到的是一整屏 CLIXML XML：
+
+```
+❌ 变更失败，已自动回滚到执行前的状态。
+     原因：platform: 执行防火墙命令失败: #< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+<Obj S="progress" RefId="0">...<S S="Error">New-NetFirewallRule : Access is denied. ...
+```
+
+当 stderr 被重定向时，Windows PowerShell 会把错误写成 CLIXML。那段输出
+**看起来像内核崩了**，而实际问题只是缺管理员权限。
+
+修法：抽出 `<S S="Error">` 的内容、还原 PowerShell 的 `_xHHHH_` 转义、
+丢掉定位行。关键是**按位置截断**而不是逐节点过滤 —— 长行会被折成多个
+节点，逐节点过滤会把续行片段（`tFirewallRule], CimException`）留下来。
+真机上第二次跑才暴露这一点。
+
+修复后：
+
+```
+❌ 变更失败，已自动回滚到执行前的状态。
+   失败步骤：新增 1 条入站规则
+     原因：platform: 创建防火墙规则失败（需要以管理员身份运行）:
+           New-NetFirewallRule : Access is denied.
+```
+
+#### 一处语义调整
+
+空计划（规则已存在）原先不写日志记录，理由是不产生噪音。现在它**会写**：
+记录的价值不只是"改了什么"，还包括"用户在那个时刻想做什么"。事后排查
+"我明明点过开放端口，怎么还是不通"时，这条记录能立刻排除掉一半可能；
+而且接口层需要一个可返回的东西。
+
+
 
 ### M3-e 引导式外部验证
 

@@ -410,6 +410,18 @@ func ruleName(label string, proto platform.Protocol, port int) string {
 	return fmt.Sprintf("%s%s-%s-%d", rulePrefix, name, proto, port)
 }
 
+// RuleLabel 返回给定参数会生成的规则名。
+//
+// 导出它是为了让接口层在写审计日志时用**同一个**名字 —— 若那边自己
+// 拼一个，用户拿着审计里的名字去系统防火墙里找会找不到。
+func RuleLabel(label, proto string, port int) string {
+	p, err := parseProtocol(proto)
+	if err != nil {
+		p = platform.TCP
+	}
+	return ruleName(label, p, port)
+}
+
 func sanitizeName(s string) string {
 	var b strings.Builder
 	// lastDash 用于折叠连续的短横线。

@@ -41,6 +41,10 @@ const (
 	ActionTaskUpdate = "ddns_task.update"
 	ActionTaskDelete = "ddns_task.delete"
 
+	ActionChangePlan     = "change.plan"
+	ActionChangeApply    = "change.apply"
+	ActionChangeRollback = "change.rollback"
+
 	ActionRecordCreate = "dns_record.create"
 	ActionRecordUpdate = "dns_record.update"
 	ActionRecordDelete = "dns_record.delete"

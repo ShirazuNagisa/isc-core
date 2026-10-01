@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -113,15 +114,138 @@ func (p *powershellRunner) Run(ctx context.Context, script string) ([]byte, erro
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("platform: 执行防火墙命令超时（%s）", scriptTimeout)
+			return nil, fmt.Errorf("执行防火墙命令超时（%s）", scriptTimeout)
 		}
-		msg := strings.TrimSpace(stderr.String())
+		msg := unwrapPowerShellError(strings.TrimSpace(stderr.String()))
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("platform: 执行防火墙命令失败: %s", msg)
+		return nil, errors.New(msg)
 	}
 	return []byte(stdout.String()), nil
+}
+
+// unwrapPowerShellError 把 PowerShell 的错误流还原成人能读的文本。
+//
+// # 为什么需要它
+//
+// 当 stderr 被重定向（我们正是这么做的）时，Windows PowerShell 会把
+// 错误写成 **CLIXML** —— 一段带命名空间的 XML，形如：
+//
+//	#< CLIXML
+//	<Objs Version="1.1.0.1" xmlns="...">
+//	  <S S="Error">New-NetFirewallRule : Access is denied. _x000D__x000A_</S>
+//	  <S S="Error">At line:2 char:1_x000D__x000A_</S>
+//	  <S S="Error">+ FullyQualifiedErrorId : ...</S>
+//	</Objs>
+//
+// 把它原样交给用户，他看到的就是一整屏 XML，而真正有用的那句
+// "Access is denied" 埋在中间。真机上实测到过这一幕。
+//
+// 这里把 <S S="Error"> 的内容抽出来、逐条还原，并丢掉 PowerShell 的
+// 定位行（它们指向的是我们生成的脚本，对用户没有意义）。
+func unwrapPowerShellError(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	raw = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#< CLIXML"))
+
+	if !strings.Contains(raw, "<Objs") {
+		// 不是 CLIXML：可能是普通文本，也可能是 PowerShell 7 的输出。
+		return raw
+	}
+
+	msgs := extractCLIXMLErrors(raw)
+	if len(msgs) == 0 {
+		// 解析不出内容时**不返回原始 XML** —— 一整屏 XML 比一句笼统的
+		// 话更糟：它看起来像内核崩了，而实际问题可能只是缺权限。
+		return "PowerShell 返回了无法解析的错误输出（可能与权限或执行策略有关）"
+	}
+	return strings.Join(msgs, " ")
+}
+
+// clixmlErrorRe 匹配 CLIXML 里的错误字符串节点。
+//
+// 用正则而不是完整的 XML 解析：这段输出的结构由 PowerShell 固定生成，
+// 而它偶尔会把非 XML 的内容（例如原生命令的输出）混进来 ——
+// 那种情况下严格解析会整个失败，正则还能把有用的部分捞出来。
+var clixmlErrorRe = regexp.MustCompile(`(?s)<S S="Error">(.*?)</S>`)
+
+// psEscapeRe 匹配 PowerShell 的 _xHHHH_ 控制字符转义。
+var psEscapeRe = regexp.MustCompile(`_x([0-9A-Fa-f]{4})_`)
+
+func extractCLIXMLErrors(raw string) []string {
+	matches := clixmlErrorRe.FindAllStringSubmatch(raw, -1)
+
+	// 按**位置**截断，而不是逐个过滤。
+	//
+	// PowerShell 的错误格式是固定的：
+	//
+	//	<真正的错误信息>
+	//	At line:N char:M
+	//	+ <出错的那一行>
+	//	+ CategoryInfo ...
+	//	+ FullyQualifiedErrorId ...
+	//
+	// 从 "At line:" 或 "+" 开始的全是定位信息。真机上发现：长行会被
+	// PowerShell 折成多个 <S> 节点，逐节点过滤会把续行片段
+	//（"tFirewallRule], CimException"）留下来 —— 那段文字毫无意义，
+	// 却会让用户以为出了别的问题。
+	var out []string
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		text := strings.TrimSpace(decodePowerShellText(m[1]))
+		if text == "" {
+			continue
+		}
+		// 遇到定位信息的开头就停下：后面全是噪声。
+		if isPowerShellNoise(text) {
+			break
+		}
+		if seen[text] {
+			continue
+		}
+		seen[text] = true
+		out = append(out, text)
+	}
+	return out
+}
+
+// decodePowerShellText 还原 CLIXML 里的文本。
+func decodePowerShellText(s string) string {
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", `"`)
+	s = strings.ReplaceAll(s, "&apos;", "'")
+	s = strings.ReplaceAll(s, "&amp;", "&")
+
+	s = psEscapeRe.ReplaceAllStringFunc(s, func(match string) string {
+		hex := match[2 : len(match)-1]
+		v, err := strconv.ParseUint(hex, 16, 32)
+		if err != nil || v > 0x10FFFF {
+			return match
+		}
+		return string(rune(v))
+	})
+
+	// 折叠空白：CLIXML 里的换行会变成一堆空行。
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// isPowerShellNoise 报告这一段是否是定位信息的开头。
+//
+// 它同时是"从这里开始全是噪声"的判据，因此只匹配开头 ——
+// 中间出现这些词是正常的（例如错误信息里提到了 CategoryInfo）。
+func isPowerShellNoise(s string) bool {
+	for _, prefix := range []string{
+		"At line:", "+", "CategoryInfo", "FullyQualifiedErrorId",
+	} {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // powershellPath 定位 Windows PowerShell。
@@ -144,7 +268,7 @@ func powershellPath() (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("platform: 找不到 powershell.exe，无法管理防火墙")
+	return "", errors.New("找不到 powershell.exe，无法管理防火墙")
 }
 
 // encodePowerShell 把脚本编码成 -EncodedCommand 需要的形式。

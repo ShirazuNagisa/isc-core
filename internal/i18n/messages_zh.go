@@ -148,6 +148,11 @@ var messagesZh = map[string]string{
 	"verify.start_failed":      "无法开始外部验证",
 	"verify.session_not_found": "验证会话不存在",
 
+	// --- 系统变更 ---
+	"change.plan_expired":    "计划不存在或已过期，请重新生成",
+	"change.rollback_failed": "撤销失败",
+	"reach.plan_failed":      "无法生成变更计划",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

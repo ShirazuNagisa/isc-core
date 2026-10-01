@@ -42,6 +42,12 @@ type App struct {
 	// out 是标准输出；测试中可替换。
 	out io.Writer
 
+	// in 是标准输入，用于需要交互确认的命令。
+	//
+	// 与 out 一样可替换，这样确认流程能被测试覆盖到 ——
+	// 而"修改系统状态前的确认"恰恰是最需要被测试的一条路径。
+	in io.Reader
+
 	// logHandler 在守护进程模式下创建，供 daemon 接管。
 	logHandler *logx.BusHandler
 
@@ -51,7 +57,7 @@ type App struct {
 
 // New 构造根命令。
 func New() *cobra.Command {
-	app := &App{out: os.Stdout}
+	app := &App{out: os.Stdout, in: os.Stdin}
 
 	root := &cobra.Command{
 		Use:   "isc",
@@ -89,6 +95,9 @@ func New() *cobra.Command {
 		newDdnsCmd(app),
 		newConsoleCmd(app),
 		newVerifyCmd(app),
+		newExposeCmd(app),
+		newChangesCmd(app),
+		newRollbackCmd(app),
 		newDoctorCmd(app),
 	)
 

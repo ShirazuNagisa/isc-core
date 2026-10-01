@@ -152,6 +152,13 @@ type Runner struct {
 	liveMu sync.Mutex
 	live   map[string]Step
 	liveID string
+
+	// pending 保存"已生成但尚未应用"的计划。
+	//
+	// 用独立的锁：pending 的读写比执行频繁得多（用户每次刷新预览都会读），
+	// 与 mu 共用会让一次正在执行的变更把预览请求全部挡住。
+	pendingMu sync.Mutex
+	pending   *Pending
 }
 
 // NewRunner 构造执行器。
@@ -245,8 +252,35 @@ func (r *Runner) Apply(ctx context.Context, plan Plan) (Result, error) {
 
 	res := Result{PlanID: plan.ID}
 
-	// 无需改动的情形不是错误。
+	// 无需改动的情形不是错误 —— 用户点"开放 443"而 443 已经开放时，
+	// 正确的回应是"无需改动"，而不是一个报错。
+	//
+	// 但它**仍然落一条记录**。这是一个刻意的选择：记录的价值不只是
+	// "改了什么"，还包括"用户在那个时刻想做什么"。事后排查"我明明
+	// 点过开放端口，怎么还是不通"时，这条记录能立刻排除掉一半可能。
+	// 早先的版本为了"不产生噪音"跳过了它，代价是接口层拿不到任何
+	// 可返回的东西。
 	if plan.Empty() {
+		rec := Record{
+			PlanID:    plan.ID,
+			Kind:      plan.Kind,
+			Title:     plan.Title,
+			Risk:      plan.Risk,
+			Status:    StatusApplied,
+			Steps:     []StepRecord{},
+			Warnings:  plan.Warnings,
+			Notes:     plan.Notes,
+			Payload:   plan.Payload,
+			CreatedAt: plan.CreatedAt,
+			UpdatedAt: time.Now().UTC(),
+		}
+		if rec.CreatedAt.IsZero() {
+			rec.CreatedAt = rec.UpdatedAt
+		}
+		if err := r.journal.Save(ctx, rec); err != nil {
+			r.log.Warn("无需改动，但记录写入失败", "plan", plan.ID, "err", err)
+		}
+
 		res.Status = StatusApplied
 		r.log.Info("变更无需执行（已是目标状态）", "plan", plan.ID, "kind", plan.Kind)
 		return res, nil

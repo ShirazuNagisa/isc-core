@@ -59,21 +59,42 @@ func (e ChangeDiffLineOp) Valid() bool {
 	}
 }
 
+// Defines values for ChangePreviewRisk.
+const (
+	ChangePreviewRiskHigh   ChangePreviewRisk = "high"
+	ChangePreviewRiskLow    ChangePreviewRisk = "low"
+	ChangePreviewRiskMedium ChangePreviewRisk = "medium"
+)
+
+// Valid indicates whether the value is a known member of the ChangePreviewRisk enum.
+func (e ChangePreviewRisk) Valid() bool {
+	switch e {
+	case ChangePreviewRiskHigh:
+		return true
+	case ChangePreviewRiskLow:
+		return true
+	case ChangePreviewRiskMedium:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChangeRecordRisk.
 const (
-	High   ChangeRecordRisk = "high"
-	Low    ChangeRecordRisk = "low"
-	Medium ChangeRecordRisk = "medium"
+	ChangeRecordRiskHigh   ChangeRecordRisk = "high"
+	ChangeRecordRiskLow    ChangeRecordRisk = "low"
+	ChangeRecordRiskMedium ChangeRecordRisk = "medium"
 )
 
 // Valid indicates whether the value is a known member of the ChangeRecordRisk enum.
 func (e ChangeRecordRisk) Valid() bool {
 	switch e {
-	case High:
+	case ChangeRecordRiskHigh:
 		return true
-	case Low:
+	case ChangeRecordRiskLow:
 		return true
-	case Medium:
+	case ChangeRecordRiskMedium:
 		return true
 	default:
 		return false
@@ -173,6 +194,24 @@ func (e DdnsStatus) Valid() bool {
 	case DdnsStatusSuccess:
 		return true
 	case DdnsStatusUnchanged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExposeRequestProtocol.
+const (
+	Tcp ExposeRequestProtocol = "tcp"
+	Udp ExposeRequestProtocol = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ExposeRequestProtocol enum.
+func (e ExposeRequestProtocol) Valid() bool {
+	switch e {
+	case Tcp:
+		return true
+	case Udp:
 		return true
 	default:
 		return false
@@ -479,6 +518,40 @@ type ChangeList struct {
 	Items []ChangeRecord `json:"items"`
 }
 
+// ChangePreview defines model for ChangePreview.
+type ChangePreview struct {
+	CreatedAt time.Time        `json:"created_at"`
+	Diff      []ChangeDiffLine `json:"diff"`
+
+	// Empty 无需改动（已是目标状态）。
+	//
+	// 界面应当把它显示成"无需改动"而不是"操作失败"：用户点
+	// "开放 443"而 443 已经开放时，那不是错误。
+	Empty bool `json:"empty"`
+
+	// ExpiresAt 超过这个时间计划会失效，需要重新生成。
+	ExpiresAt time.Time `json:"expires_at"`
+	Id        string    `json:"id"`
+	Kind      string    `json:"kind"`
+
+	// Notes 背景说明。
+	Notes *[]string           `json:"notes,omitempty"`
+	Risk  ChangePreviewRisk   `json:"risk"`
+	Steps []ChangeStepPreview `json:"steps"`
+	Title string              `json:"title"`
+
+	// Warnings 界面上需要显著提示的内容。
+	Warnings *[]string `json:"warnings,omitempty"`
+}
+
+// ChangePreviewRisk defines model for ChangePreview.Risk.
+type ChangePreviewRisk string
+
+// ChangePreviewList defines model for ChangePreviewList.
+type ChangePreviewList struct {
+	Items []ChangePreview `json:"items"`
+}
+
 // ChangeRecord defines model for ChangeRecord.
 type ChangeRecord struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -526,6 +599,20 @@ type ChangeStep struct {
 
 // ChangeStepState defines model for ChangeStep.State.
 type ChangeStepState string
+
+// ChangeStepPreview defines model for ChangeStepPreview.
+type ChangeStepPreview struct {
+	Details *string           `json:"details,omitempty"`
+	Diff    *[]ChangeDiffLine `json:"diff,omitempty"`
+	Id      string            `json:"id"`
+
+	// Revertable 这一步出问题时能否撤销。
+	//
+	// 界面必须在应用**之前**显示它 —— 用户有权知道"这一步做错了
+	// 能不能退"。
+	Revertable bool   `json:"revertable"`
+	Title      string `json:"title"`
+}
 
 // Credential defines model for Credential.
 type Credential struct {
@@ -647,6 +734,22 @@ type DdnsTaskInput struct {
 type DdnsTaskList struct {
 	Items []DdnsTask `json:"items"`
 }
+
+// ExposeRequest defines model for ExposeRequest.
+type ExposeRequest struct {
+	// Label 规则的可读名称，例如服务名。它会出现在系统防火墙界面里，
+	// 因此应当填一个用户认得出的名字。
+	//
+	// 非 ASCII 字符会被丢弃 —— 防火墙规则的名称在不同平台上对
+	// 字符集的要求不一致，塞进去会变成一条无法创建、也无法删除
+	// 的幽灵规则。
+	Label    *string                `json:"label,omitempty"`
+	Port     int                    `json:"port"`
+	Protocol *ExposeRequestProtocol `json:"protocol,omitempty"`
+}
+
+// ExposeRequestProtocol defines model for ExposeRequest.Protocol.
+type ExposeRequestProtocol string
 
 // Health defines model for Health.
 type Health struct {
@@ -1311,6 +1414,9 @@ type UpdateDdnsTaskJSONRequestBody = DdnsTaskInput
 // RunNoopJobJSONRequestBody defines body for RunNoopJob for application/json ContentType.
 type RunNoopJobJSONRequestBody = NoopRequest
 
+// PlanReachExposeJSONRequestBody defines body for PlanReachExpose for application/json ContentType.
+type PlanReachExposeJSONRequestBody = ExposeRequest
+
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = SettingsPatch
 
@@ -1328,9 +1434,18 @@ type ServerInterface interface {
 	// ListInterruptedChanges 列出被中断的变更
 	// (GET /v1/changes/interrupted)
 	ListInterruptedChanges(w http.ResponseWriter, r *http.Request)
+	// ListPendingChanges 列出待确认的变更计划
+	// (GET /v1/changes/pending)
+	ListPendingChanges(w http.ResponseWriter, r *http.Request)
 	// GetChange 读取单条变更记录
 	// (GET /v1/changes/{planId})
 	GetChange(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// ApplyChange 应用一个已确认的变更计划
+	// (POST /v1/changes/{planId}/apply)
+	ApplyChange(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// RollbackChange 撤销一次已生效的变更
+	// (POST /v1/changes/{planId}/rollback)
+	RollbackChange(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// ExportConfig 导出配置
 	// (GET /v1/config/export)
 	ExportConfig(w http.ResponseWriter, r *http.Request, params ExportConfigParams)
@@ -1424,6 +1539,9 @@ type ServerInterface interface {
 	// ListReachProviders 列出全部可达方式
 	// (GET /v1/reach/providers)
 	ListReachProviders(w http.ResponseWriter, r *http.Request)
+	// PlanReachExpose 生成一份"放行端口"的变更计划
+	// (POST /v1/reach/providers/{name}/plan)
+	PlanReachExpose(w http.ResponseWriter, r *http.Request, name ReachProviderName)
 	// ProbeReachProvider 探测某种可达方式当前是否可用
 	// (GET /v1/reach/providers/{name}/probe)
 	ProbeReachProvider(w http.ResponseWriter, r *http.Request, name ReachProviderName)
@@ -1575,6 +1693,20 @@ func (siw *ServerInterfaceWrapper) ListInterruptedChanges(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// ListPendingChanges operation middleware
+func (siw *ServerInterfaceWrapper) ListPendingChanges(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPendingChanges(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetChange operation middleware
 func (siw *ServerInterfaceWrapper) GetChange(w http.ResponseWriter, r *http.Request) {
 
@@ -1592,6 +1724,58 @@ func (siw *ServerInterfaceWrapper) GetChange(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetChange(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyChange operation middleware
+func (siw *ServerInterfaceWrapper) ApplyChange(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "planId" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "planId", r.PathValue("planId"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "planId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyChange(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RollbackChange operation middleware
+func (siw *ServerInterfaceWrapper) RollbackChange(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "planId" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "planId", r.PathValue("planId"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "planId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RollbackChange(w, r, planId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2482,6 +2666,32 @@ func (siw *ServerInterfaceWrapper) ListReachProviders(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// PlanReachExpose operation middleware
+func (siw *ServerInterfaceWrapper) PlanReachExpose(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name ReachProviderName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PlanReachExpose(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ProbeReachProvider operation middleware
 func (siw *ServerInterfaceWrapper) ProbeReachProvider(w http.ResponseWriter, r *http.Request) {
 
@@ -2778,6 +2988,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/verify/sessions", wrapper.StartVerifySession)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/verify/sessions/{id}", wrapper.StopVerifySession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/verify/sessions/{id}", wrapper.GetVerifySession)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/reach/providers/{name}/plan", wrapper.PlanReachExpose)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/pending", wrapper.ListPendingChanges)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/changes/{planId}/apply", wrapper.ApplyChange)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/changes/{planId}/rollback", wrapper.RollbackChange)
 
 	return m
 }

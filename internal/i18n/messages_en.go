@@ -147,6 +147,11 @@ var messagesEn = map[string]string{
 	"verify.start_failed":      "Could not start external verification",
 	"verify.session_not_found": "Verification session not found",
 
+	// --- system changes ---
+	"change.plan_expired":    "The plan does not exist or has expired; generate it again",
+	"change.rollback_failed": "Rollback failed",
+	"reach.plan_failed":      "Could not build the change plan",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
