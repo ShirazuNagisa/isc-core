@@ -153,6 +153,8 @@ func (s *Service) ImportDdnsGo(ctx context.Context, body []byte, dryRun bool) (R
 // 用到的槽位不同 —— Cloudflare 只用 secret（API Token）。
 // 早先按顺序映射的版本会让 Cloudflare 拿到空的 id 槽位，导致
 // "导入成功但凭据是空的"，而错误直到真正解析时才暴露。
+//
+// 槽位是 1 基的，零值（忘了声明）会被安全忽略 —— 见 credential.DdnsGoSlot。
 func mapDdnsGoFields(spec provider.Provider, dns ddnsGoDNS) map[string]string {
 	slots := [3]string{
 		strings.TrimSpace(dns.ID),
@@ -162,10 +164,11 @@ func mapDdnsGoFields(spec provider.Provider, dns ddnsGoDNS) map[string]string {
 
 	out := make(map[string]string, len(spec.CredentialFields))
 	for _, f := range spec.CredentialFields {
-		if f.DdnsGoSlot < 0 || f.DdnsGoSlot >= len(slots) {
+		idx := f.DdnsGoSlot - 1 // 1 基 → 0 基
+		if idx < 0 || idx >= len(slots) {
 			continue
 		}
-		if v := slots[f.DdnsGoSlot]; v != "" {
+		if v := slots[idx]; v != "" {
 			out[f.Key] = v
 		}
 	}

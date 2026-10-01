@@ -1,0 +1,141 @@
+package ddnsgo
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Callback struct {
+	DNS        DNS
+	Domains    Domains
+	TTL        string
+	lastIpv4   string
+	lastIpv6   string
+	httpClient *http.Client
+	ipv4Enable bool
+	ipv6Enable bool
+}
+
+// Init 初始化
+func (cb *Callback) Init(dnsConf *DnsConfig, ipv4cache *IpCache, ipv6cache *IpCache) {
+	cb.Domains.Ipv4Cache = ipv4cache
+	cb.Domains.Ipv6Cache = ipv6cache
+	cb.lastIpv4 = ipv4cache.Addr
+	cb.lastIpv6 = ipv6cache.Addr
+	cb.ipv4Enable = dnsConf.Ipv4.Enable
+	cb.ipv6Enable = dnsConf.Ipv6.Enable
+
+	cb.DNS = dnsConf.DNS
+	cb.Domains.GetNewIp(dnsConf)
+	if dnsConf.TTL == "" {
+		// 默认600
+		cb.TTL = "600"
+	} else {
+		cb.TTL = dnsConf.TTL
+	}
+	cb.httpClient = dnsConf.GetHTTPClient()
+}
+
+// AddUpdateDomainRecords 添加或更新IPv4/IPv6记录
+func (cb *Callback) AddUpdateDomainRecords() Domains {
+	if cb.ipv4Enable {
+		cb.addUpdateDomainRecords("A")
+	}
+	if cb.ipv6Enable {
+		cb.addUpdateDomainRecords("AAAA")
+	}
+	return cb.Domains
+}
+
+func (cb *Callback) addUpdateDomainRecords(recordType string) {
+	ipAddr, domains := cb.Domains.GetNewIpResult(recordType)
+
+	if ipAddr == "" {
+		return
+	}
+
+	// 防止多次发送Webhook通知
+	if recordType == "A" {
+		if cb.lastIpv4 == ipAddr {
+			Log("你的IPv4未变化, 未触发 %s 请求", "Callback")
+			return
+		}
+	} else {
+		if cb.lastIpv6 == ipAddr {
+			Log("你的IPv6未变化, 未触发 %s 请求", "Callback")
+			return
+		}
+	}
+
+	for _, domain := range domains {
+		method := "GET"
+		postPara := ""
+		contentType := "application/x-www-form-urlencoded"
+		if cb.DNS.Secret != "" {
+			method = "POST"
+			postPara = cb.replacePara(cb.DNS.Secret, ipAddr, domain, recordType, cb.TTL)
+			if json.Valid([]byte(postPara)) {
+				contentType = "application/json"
+			}
+		}
+		requestURL := cb.replacePara(cb.DNS.ID, ipAddr, domain, recordType, cb.TTL)
+		u, err := url.Parse(requestURL)
+		if err != nil {
+			Log("Callback的URL不正确")
+			return
+		}
+		req, err := http.NewRequest(method, u.String(), strings.NewReader(postPara))
+		if err != nil {
+			Log("异常信息: %v", err)
+			domain.UpdateStatus = UpdatedFailed
+			return
+		}
+		req.Header.Add("content-type", contentType)
+
+		resp, err := cb.httpClient.Do(req)
+		body, err := GetHTTPResponseOrg(resp, err)
+		if err == nil {
+			Log("Callback调用成功, 域名: %s, IP: %s, 返回数据: %s", domain, ipAddr, string(body))
+			domain.UpdateStatus = UpdatedSuccess
+		} else {
+			Log("Callback调用失败, 异常信息: %v", err)
+			domain.UpdateStatus = UpdatedFailed
+		}
+	}
+}
+
+// replacePara 替换参数
+func (cb *Callback) replacePara(orgPara, ipAddr string, domain *Domain, recordType string, ttl string) string {
+	// params 使用 map 以便添加更多参数
+	params := map[string]string{
+		"ip":         ipAddr,
+		"domain":     domain.String(),
+		"recordType": recordType,
+		"ttl":        ttl,
+		"ipv4Addr":   cb.Domains.Ipv4Addr,
+		"ipv6Addr":   cb.Domains.Ipv6Addr,
+		"timestamp":  strconv.FormatInt(time.Now().UTC().Unix(), 10),
+	}
+
+	// 也替换域名的自定义参数
+	for k, v := range domain.GetCustomParams() {
+		if len(v) == 1 {
+			params[k] = v[0]
+		}
+	}
+
+	// 将 map 转换为 [NewReplacer] 所需的参数
+	// map 中的每个元素占用 2 个位置（kv），因此需要预留 2 倍的空间
+	oldnew := make([]string, 0, len(params)*2)
+	for k, v := range params {
+		k = fmt.Sprintf("#{%s}", k)
+		oldnew = append(oldnew, k, v)
+	}
+
+	return strings.NewReplacer(oldnew...).Replace(orgPara)
+}

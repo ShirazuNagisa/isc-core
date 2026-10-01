@@ -458,7 +458,7 @@ type ProviderCapabilities struct {
 	// AllRecordTypes 支持 A/AAAA 之外的记录类型（CNAME/MX/TXT/NS/SRV/CAA 等）。
 	AllRecordTypes bool `json:"all_record_types"`
 
-	// Available 该服务商的实现是否已就绪（目前指"能校验凭据"）。
+	// Available 该服务商的实现是否已就绪。
 	//
 	// 为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
 	// 完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
@@ -468,6 +468,12 @@ type ProviderCapabilities struct {
 
 	// Dns01 可用于 ACME DNS-01 证书校验。
 	Dns01 bool `json:"dns01"`
+
+	// Dynamic 能执行动态解析：把 A/AAAA 记录更新到指定 IP。
+	//
+	// Tier-2 服务商只有这一项能力为 true —— 它们存在的意义就是让
+	// 动态地址能被解析，记录管理交给 Tier-1。
+	Dynamic bool `json:"dynamic"`
 
 	// Proxy 支持 CDN 代理开关（如 Cloudflare 的橙云）。
 	Proxy        bool `json:"proxy"`

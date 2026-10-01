@@ -923,6 +923,7 @@ components:
       description: 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
       required:
         - available
+        - dynamic
         - zone_list
         - record_list
         - record_create
@@ -936,11 +937,18 @@ components:
         available:
           type: boolean
           description: |
-            该服务商的实现是否已就绪（目前指"能校验凭据"）。
+            该服务商的实现是否已就绪。
 
             为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
             完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
             而不是让用户对着一排灰按钮猜原因。
+        dynamic:
+          type: boolean
+          description: |
+            能执行动态解析：把 A/AAAA 记录更新到指定 IP。
+
+            Tier-2 服务商只有这一项能力为 true —— 它们存在的意义就是让
+            动态地址能被解析，记录管理交给 Tier-1。
         zone_list:
           type: boolean
           description: 能列出账号下的 DNS 区域。

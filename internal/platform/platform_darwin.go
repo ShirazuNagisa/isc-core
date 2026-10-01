@@ -25,8 +25,7 @@ func Current(dataRoot string) *Bundle {
 			"pf 后端将在 M3 实现；当前降级为引导模式"),
 		ServiceManager: newUnsupportedServiceManager(
 			"launchd 后端将在 M5 实现"),
-		IPMonitor: newUnsupportedIPMonitor(
-			"getifaddrs 监控后端将在 M2 实现"),
+		IPMonitor:     newPollingIPMonitor(),
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: permissiveLowPortBinder{backend: "darwin-native"},

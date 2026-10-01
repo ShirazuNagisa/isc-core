@@ -34,7 +34,7 @@ func toGenProvider(p provider.Provider) gen.Provider {
 		Name:         p.Name,
 		DisplayName:  p.DisplayName,
 		Tier:         &tier,
-		Capabilities: toGenProviderCapabilities(p.Capabilities),
+		Capabilities: toGenProviderCapabilities(p.Capabilities()),
 		// 一律初始化为空切片而不是 nil：JSON 序列化 nil 切片会得到
 		// null，而客户端普遍按数组处理，null 会让它们在这里分支。
 		CredentialFields: make([]gen.ProviderField, 0, len(p.CredentialFields)),
@@ -56,6 +56,7 @@ func toGenProvider(p provider.Provider) gen.Provider {
 func toGenProviderCapabilities(c provider.Capabilities) gen.ProviderCapabilities {
 	return gen.ProviderCapabilities{
 		Available:      c.Available,
+		Dynamic:        c.Dynamic,
 		ZoneList:       c.ZoneList,
 		RecordList:     c.RecordList,
 		RecordCreate:   c.RecordCreate,

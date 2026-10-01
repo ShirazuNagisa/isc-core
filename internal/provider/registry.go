@@ -12,21 +12,73 @@
 package provider
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"sync"
 
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
+	"github.com/ShirazuNagisa/isc-core/internal/dns"
 )
 
-// Capabilities 描述一家服务商支持哪些操作。
+// Provider 是一家 DNS 服务商的元信息。
+type Provider struct {
+	// Name 是稳定标识，用于凭据的 provider 字段与 ddns-go 的名称对应。
+	Name string
+	// DisplayName 是展示名称。它是专有名词，不参与翻译。
+	DisplayName string
+	// Tier 是能力分层：1 = 完整 CRUD，2 = 仅动态解析。
+	Tier int
+	// CredentialFields 声明凭据字段。
+	//
+	// 每个字段的 DdnsGoSlot 指出它对应 ddns-go 的哪个槽位 ——
+	// 配置导入与运行期调用**共用这一份声明**，避免两处映射逐渐漂移。
+	CredentialFields []credential.FieldSpec
+
+	// Impl 是该服务商在 dns 接口下的实现；为 nil 表示尚未实现。
+	//
+	// 用一个可空字段而不是"恒返回未实现错误的桩"：调用方需要能用
+	// `Impl != nil` 判断这家到底做没做，而不是在运行期试错。
+	Impl dns.Provider
+
+	// Declared 是无法从接口断言推导出来的能力声明。
+	//
+	// 例如"支持自定义 TTL""支持 CDN 代理开关""可用于 DNS-01"——
+	// 这些是服务商 API 的属性，不是 Go 接口的形状。
+	Declared Capabilities
+}
+
+// Capabilities 返回该服务商的实际能力。
 //
-// 全部为 false 表示"元信息已登记但实现尚未就绪"——
-// GUI 应当明确显示"尚未实现"，而不是让用户对着一排灰按钮猜原因。
+// 从 Impl 上做了哪些接口断言推导而来，再叠加 Declared 里那些
+// 接口无法表达的部分。这样"某家不支持删除记录"是**代码事实**，
+// 而不是一份需要人工维护、迟早会过期的能力表。
+func (p Provider) Capabilities() Capabilities {
+	set := dns.Capabilities(p.Impl)
+	return Capabilities{
+		Available:      p.Impl != nil,
+		Dynamic:        set.Dynamic,
+		ZoneList:       set.ZoneList,
+		RecordList:     set.RecordList,
+		RecordCreate:   set.RecordCreate,
+		RecordUpdate:   set.RecordUpdate,
+		RecordDelete:   set.RecordDelete,
+		AllRecordTypes: p.Declared.AllRecordTypes,
+		CustomTTL:      p.Declared.CustomTTL,
+		Proxy:          p.Declared.Proxy,
+		DNS01:          p.Declared.DNS01,
+	}
+}
+
+// Capabilities 描述一家服务商支持哪些操作。
 type Capabilities struct {
-	// Available 表示该服务商的实现是否已就绪（目前指"能校验凭据"）。
+	// Available 表示该服务商的实现是否已就绪。
+	//
+	// 为 false 时，服务商出现在列表里只是为了让配置导入与界面展示完整，
+	// 其能力位一律为 false。GUI 应当明确显示"尚未实现"，
+	// 而不是让用户对着一排灰按钮猜原因。
 	Available bool
+	// Dynamic 能把 A/AAAA 记录更新到指定 IP。
+	Dynamic bool
 	// ZoneList 能列出账号下的 DNS 区域。
 	ZoneList bool
 	// RecordList 能列出区域内的记录。
@@ -45,30 +97,6 @@ type Capabilities struct {
 	Proxy bool
 	// DNS01 可用于 ACME DNS-01 证书校验。
 	DNS01 bool
-}
-
-// Verifier 校验一组凭据是否可用。
-//
-// 实现必须**只做只读调用**：校验凭据时创建或修改任何资源都是错的，
-// 用户点"测试连接"不该产生副作用。
-type Verifier func(ctx context.Context, fields map[string]string) error
-
-// Provider 是一家 DNS 服务商的元信息。
-type Provider struct {
-	// Name 是稳定标识，用于凭据的 provider 字段与 ddns-go 的名称对应。
-	Name string
-	// DisplayName 是展示名称。它是专有名词，不参与翻译。
-	DisplayName string
-	// Tier 是能力分层：1 = 完整 CRUD，2 = 仅动态解析。
-	Tier int
-	// Capabilities 声明实际支持的操作。
-	Capabilities Capabilities
-	// CredentialFields 声明凭据字段。**声明顺序有意义**：
-	// ddns-go 配置只提供位置化的 id / secret / extParam，
-	// 导入时按此顺序映射（见 docs/MIGRATION-from-ddns-go.md）。
-	CredentialFields []credential.FieldSpec
-	// Verify 在实现就绪后非 nil。
-	Verify Verifier
 }
 
 // Registry 是服务商注册表。并发安全。
@@ -126,8 +154,9 @@ func (r *Registry) List() []Provider {
 		out = append(out, byKey[n])
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Capabilities.Available != out[j].Capabilities.Available {
-			return out[i].Capabilities.Available
+		ci, cj := out[i].Capabilities(), out[j].Capabilities()
+		if ci.Available != cj.Available {
+			return ci.Available
 		}
 		if out[i].Tier != out[j].Tier {
 			return out[i].Tier < out[j].Tier
@@ -158,19 +187,20 @@ func Default() *Registry {
 	return r
 }
 
-// anonymousProvider 声明一个"元信息已登记、实现未就绪"的服务商。
+// anonymousProvider 声明一个"元信息已登记"的服务商。
 //
-// 让这些名字出现在注册表里有两个实际作用：
+// 让尚未实现的服务商出现在注册表里有两个实际作用：
 //
 //  1. 导入 ddns-go 配置时能识别出用户用的是哪家，而不是报"未知服务商"
 //     把整个配置丢掉；
 //  2. 界面上能如实显示"这家还没做"，而不是让用户以为是自己填错了。
+//
+// 它不声明任何能力：能力一律从 Impl 的接口断言推导（见 Provider.Capabilities）。
 func anonymousProvider(name, displayName string, tier int, fields []credential.FieldSpec) Provider {
 	return Provider{
 		Name:             name,
 		DisplayName:      displayName,
 		Tier:             tier,
-		Capabilities:     Capabilities{Available: false},
 		CredentialFields: fields,
 	}
 }

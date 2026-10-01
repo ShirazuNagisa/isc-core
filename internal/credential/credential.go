@@ -79,17 +79,36 @@ type FieldSpec struct {
 
 	// DdnsGoSlot 指出该字段对应 ddns-go 凭据模型的哪个槽位：
 	//
-	//	0  dns.id
-	//	1  dns.secret
-	//	2  dns.extparam
-	//	-1 不从 ddns-go 迁移（默认值）
+	//	DdnsGoUnmapped (0)  不从 ddns-go 迁移 —— **零值即此，是安全的默认**
+	//	DdnsGoID       (1)  dns.id
+	//	DdnsGoSecret   (2)  dns.secret
+	//	DdnsGoExtParam (3)  dns.extparam
 	//
-	// 之所以不能靠"字段声明顺序"来推断：ddns-go 的模型永远是
-	// (id, secret, extparam) 三元组，而各服务商真正用到的槽位并不相同 ——
-	// Cloudflare 只用 secret（API Token），id 是空的。按顺序映射会让
-	// 它拿到一个空字符串，迁移静默失败（表现为"导入后凭据是空的"）。
+	// 之所以是 1 基而不是 0 基：Go 的零值是 0，如果 0 表示 "id"，
+	// 那么任何一个**忘了声明槽位**的字段都会静默抢走 id 槽位，
+	// 而症状是"导入的凭据是空的"——极难归因。让零值表示"未映射"，
+	// 忘记声明就只是不参与迁移，一眼可见。
+	//
+	// 之所以不能按"字段声明顺序"推断：ddns-go 的模型永远是
+	// (id, secret, extparam) 三元组，而各服务商真正用到的槽位不同 ——
+	// Cloudflare 只用 secret（API Token），id 是空的。
 	DdnsGoSlot int
 }
+
+// ddns-go 凭据模型的槽位编号。
+//
+// 定义在领域层而不是各个使用方：导入与运行期调用必须用**同一份**声明，
+// 否则两边迟早漂移，表现为"导入的凭据一开始能用，某次升级后突然失效"。
+const (
+	// DdnsGoUnmapped 表示该字段不从 ddns-go 迁移。它是零值。
+	DdnsGoUnmapped = 0
+	// DdnsGoID 对应 ddns-go 的 dns.id。
+	DdnsGoID = 1
+	// DdnsGoSecret 对应 ddns-go 的 dns.secret。
+	DdnsGoSecret = 2
+	// DdnsGoExtParam 对应 ddns-go 的 dns.extparam。
+	DdnsGoExtParam = 3
+)
 
 // Validate 校验凭据是否满足字段定义。
 //

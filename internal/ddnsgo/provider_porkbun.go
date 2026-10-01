@@ -1,0 +1,205 @@
+package ddnsgo
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+const (
+	porkbunEndpoint string = "https://api.porkbun.com/api/json/v3/dns"
+)
+
+type Porkbun struct {
+	DNSConfig  DNS
+	Domains    Domains
+	TTL        string
+	httpClient *http.Client
+}
+type PorkbunDomainRecord struct {
+	Name    *string `json:"name"`    // subdomain
+	Type    *string `json:"type"`    // record type, e.g. A AAAA CNAME
+	Content *string `json:"content"` // value
+	Ttl     *string `json:"ttl"`     // default 300
+}
+
+type PorkbunResponse struct {
+	Status string `json:"status"`
+}
+
+type PorkbunDomainQueryResponse struct {
+	*PorkbunResponse
+	Records []PorkbunDomainRecord `json:"records"`
+}
+
+type PorkbunApiKey struct {
+	AccessKey string `json:"apikey"`
+	SecretKey string `json:"secretapikey"`
+}
+
+type PorkbunDomainCreateOrUpdateVO struct {
+	*PorkbunApiKey
+	*PorkbunDomainRecord
+}
+
+// Init 初始化
+func (pb *Porkbun) Init(conf *DnsConfig, ipv4cache *IpCache, ipv6cache *IpCache) {
+	pb.Domains.Ipv4Cache = ipv4cache
+	pb.Domains.Ipv6Cache = ipv6cache
+	pb.DNSConfig = conf.DNS
+	pb.Domains.GetNewIp(conf)
+	if conf.TTL == "" {
+		// 默认600s
+		pb.TTL = "600"
+	} else {
+		pb.TTL = conf.TTL
+	}
+	pb.httpClient = conf.GetHTTPClient()
+}
+
+// AddUpdateDomainRecords 添加或更新IPv4/IPv6记录
+func (pb *Porkbun) AddUpdateDomainRecords() Domains {
+	pb.addUpdateDomainRecords("A")
+	pb.addUpdateDomainRecords("AAAA")
+	return pb.Domains
+}
+
+func (pb *Porkbun) addUpdateDomainRecords(recordType string) {
+	ipAddr, domains := pb.Domains.GetNewIpResult(recordType)
+
+	if ipAddr == "" {
+		return
+	}
+
+	for _, domain := range domains {
+		var record PorkbunDomainQueryResponse
+		// 获取当前域名信息
+		err := pb.request(
+			porkbunEndpoint+fmt.Sprintf("/retrieveByNameType/%s/%s/%s", domain.DomainName, recordType, domain.SubDomain),
+			&PorkbunApiKey{
+				AccessKey: pb.DNSConfig.ID,
+				SecretKey: pb.DNSConfig.Secret,
+			},
+			&record,
+		)
+
+		if err != nil {
+			Log("查询域名信息发生异常! %s", err)
+			domain.UpdateStatus = UpdatedFailed
+			return
+		}
+		if record.Status == "SUCCESS" {
+			if len(record.Records) > 0 {
+				// 存在，更新
+				pb.modify(&record, domain, recordType, ipAddr)
+			} else {
+				// 不存在，创建
+				pb.create(domain, recordType, ipAddr)
+			}
+		} else {
+			Log("在DNS服务商中未找到根域名: %s", domain.DomainName)
+			domain.UpdateStatus = UpdatedFailed
+		}
+	}
+}
+
+// 创建
+func (pb *Porkbun) create(domain *Domain, recordType string, ipAddr string) {
+	var response PorkbunResponse
+
+	err := pb.request(
+		porkbunEndpoint+fmt.Sprintf("/create/%s", domain.DomainName),
+		&PorkbunDomainCreateOrUpdateVO{
+			PorkbunApiKey: &PorkbunApiKey{
+				AccessKey: pb.DNSConfig.ID,
+				SecretKey: pb.DNSConfig.Secret,
+			},
+			PorkbunDomainRecord: &PorkbunDomainRecord{
+				Name:    &domain.SubDomain,
+				Type:    &recordType,
+				Content: &ipAddr,
+				Ttl:     &pb.TTL,
+			},
+		},
+		&response,
+	)
+
+	if err != nil {
+		Log("新增域名解析 %s 失败! 异常信息: %s", domain, err)
+		domain.UpdateStatus = UpdatedFailed
+		return
+	}
+
+	if response.Status == "SUCCESS" {
+		Log("新增域名解析 %s 成功! IP: %s", domain, ipAddr)
+		domain.UpdateStatus = UpdatedSuccess
+	} else {
+		Log("新增域名解析 %s 失败! 异常信息: %s", domain, response.Status)
+		domain.UpdateStatus = UpdatedFailed
+	}
+}
+
+// 修改
+func (pb *Porkbun) modify(record *PorkbunDomainQueryResponse, domain *Domain, recordType string, ipAddr string) {
+
+	// 相同不修改
+	if len(record.Records) > 0 && *record.Records[0].Content == ipAddr {
+		Log("你的IP %s 没有变化, 域名 %s", ipAddr, domain)
+		return
+	}
+
+	var response PorkbunResponse
+
+	err := pb.request(
+		porkbunEndpoint+fmt.Sprintf("/editByNameType/%s/%s/%s", domain.DomainName, recordType, domain.SubDomain),
+		&PorkbunDomainCreateOrUpdateVO{
+			PorkbunApiKey: &PorkbunApiKey{
+				AccessKey: pb.DNSConfig.ID,
+				SecretKey: pb.DNSConfig.Secret,
+			},
+			PorkbunDomainRecord: &PorkbunDomainRecord{
+				Content: &ipAddr,
+				Ttl:     &pb.TTL,
+			},
+		},
+		&response,
+	)
+
+	if err != nil {
+		Log("更新域名解析 %s 失败! 异常信息: %s", domain, err)
+		domain.UpdateStatus = UpdatedFailed
+		return
+	}
+
+	if response.Status == "SUCCESS" {
+		Log("更新域名解析 %s 成功! IP: %s", domain, ipAddr)
+		domain.UpdateStatus = UpdatedSuccess
+	} else {
+		Log("更新域名解析 %s 失败! 异常信息: %s", domain, response.Status)
+		domain.UpdateStatus = UpdatedFailed
+	}
+}
+
+// request 统一请求接口
+func (pb *Porkbun) request(url string, data interface{}, result interface{}) (err error) {
+	jsonStr := make([]byte, 0)
+	if data != nil {
+		jsonStr, _ = json.Marshal(data)
+	}
+	req, err := http.NewRequest(
+		"POST",
+		url,
+		bytes.NewBuffer(jsonStr),
+	)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := pb.httpClient
+	resp, err := client.Do(req)
+	err = GetHTTPResponse(resp, err, result)
+
+	return
+}

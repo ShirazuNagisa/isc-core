@@ -68,8 +68,16 @@ func (c *Catalog) Lang() Lang { return c.lang }
 // T 按键取值并格式化。
 //
 // key 不存在时返回 key 本身，便于在界面上一眼看出漏翻。
+//
+// 英文目录查不到时会再查移植代码的译文表（messagesEnDdnsGo）。那张表的
+// key 是中文句子 —— 移植过来的 provider 沿用 ddns-go 的"中文原文即消息 key"
+// 约定，因此两类 key 并存。中文侧不需要对应条目：查不到时返回的 key
+// 本身就已经是中文。
 func (c *Catalog) T(key string, args ...any) string {
 	tmpl, ok := c.msgs[key]
+	if !ok && c.lang == En {
+		tmpl, ok = messagesEnDdnsGo[key]
+	}
 	if !ok {
 		return key
 	}
@@ -81,8 +89,27 @@ func (c *Catalog) T(key string, args ...any) string {
 
 // Has 报告 key 是否存在，供测试用来抓漏翻。
 func (c *Catalog) Has(key string) bool {
-	_, ok := c.msgs[key]
-	return ok
+	if _, ok := c.msgs[key]; ok {
+		return true
+	}
+	if c.lang == En {
+		_, ok := messagesEnDdnsGo[key]
+		return ok
+	}
+	// 中文侧：移植代码的 key 就是中文原文本身，因此"存在"等价于
+	// "它是个中文键"。用非 ASCII 判定即可 —— 我们自己新增的 key 一律是
+	// 点分小写标识符，不会误判。
+	return containsNonASCII(key)
+}
+
+// containsNonASCII 报告字符串是否含非 ASCII 字符。
+func containsNonASCII(s string) bool {
+	for _, r := range s {
+		if r > 0x7F {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -121,10 +148,13 @@ func T(key string, args ...any) string {
 }
 
 // Keys 返回全部消息 key，供 i18n 完整性测试使用。
+//
+// 包含两类：本项目的点分标识符，以及移植自 ddns-go 的中文句子键。
 func Keys() []string {
-	out := make([]string, 0, len(messagesZh))
+	out := make([]string, 0, len(messagesZh)+len(messagesEnDdnsGo))
 	for k := range messagesZh {
 		out = append(out, k)
 	}
+	out = append(out, ddnsGoKeys()...)
 	return out
 }

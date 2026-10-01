@@ -129,15 +129,27 @@ func TestProvidersExposeCredentialFields(t *testing.T) {
 		}
 	}
 
-	// Cloudflare 在 M1 已能校验凭据，必须如实报告。
+	// Cloudflare 是 Tier-1 且已接入实现，必须如实报告。
 	cf := byName["cloudflare"]
 	if !cf.Capabilities.Available {
-		t.Error("Cloudflare 的凭据校验已实现，应当报告 available=true")
+		t.Error("Cloudflare 已接入实现，应当报告 available=true")
 	}
-	// Tier-2 尚未实现，也必须如实报告 —— 界面要能显示"尚未实现"，
-	// 而不是让用户对着一排灰按钮猜原因。
-	if byName["porkbun"].Capabilities.Available {
-		t.Error("尚未实现的服务商不应报告 available=true")
+	if !cf.Capabilities.Dynamic {
+		t.Error("Cloudflare 应当具备动态解析能力")
+	}
+
+	// Tier-2 服务商从 M2 起真正可用了（动态更新由移植的代码提供），
+	// 但它们**没有**凭据校验能力 —— 界面必须据此把"测试连接"置灰，
+	// 而不是让用户点了才发现它会去发一次真实请求。
+	pb := byName["porkbun"]
+	if !pb.Capabilities.Available {
+		t.Error("Tier-2 服务商已接入动态解析，应当报告 available=true")
+	}
+	if !pb.Capabilities.Dynamic {
+		t.Error("Tier-2 服务商应当具备动态解析能力")
+	}
+	if pb.Capabilities.RecordDelete || pb.Capabilities.ZoneList {
+		t.Error("Tier-2 服务商不应报告记录管理能力 —— 那会误导界面显示可用的按钮")
 	}
 }
 

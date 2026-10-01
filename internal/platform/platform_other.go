@@ -17,8 +17,7 @@ func Current(dataRoot string) *Bundle {
 			"当前平台不在支持列表内（Windows / Linux / macOS）"),
 		ServiceManager: newUnsupportedServiceManager(
 			"当前平台不在支持列表内（Windows / Linux / macOS）"),
-		IPMonitor: newUnsupportedIPMonitor(
-			"当前平台不在支持列表内（Windows / Linux / macOS）"),
+		IPMonitor:     newPollingIPMonitor(),
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: permissiveLowPortBinder{backend: "unknown"},

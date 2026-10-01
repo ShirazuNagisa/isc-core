@@ -38,6 +38,11 @@ const (
 	// 都需要重写，而不是单个地址更新。
 	TypeIPPrefixChanged = "ip.prefix_changed"
 
+	// TypeDNSRecordUpdated DNS 记录更新成功。
+	TypeDNSRecordUpdated = "dns.record_updated"
+	// TypeDNSUpdateFailed DNS 记录更新失败。
+	TypeDNSUpdateFailed = "dns.update_failed"
+
 	// TypeEventsGap 告知客户端请求的序号已滑出保留窗口，需要重新拉取全量状态。
 	TypeEventsGap = "events.gap"
 

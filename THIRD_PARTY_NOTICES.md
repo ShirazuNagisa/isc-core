@@ -18,20 +18,33 @@ ISC-Core 以 **GPL-3.0** 发布。本项目包含或派生自以下第三方软�
 
 | 本项目路径 | 来源 |
 |---|---|
-| `internal/dns/providers/tier2/` | `dns/*.go`（约 30 家服务商） |
-| `internal/dns/signers/` | `util/aliyun_signer.go`、`huawei_signer.go`、`tencent_cloud_signer.go`、`baidu_signer.go`、`traffic_route_signer.go` |
-| `internal/dns/ipcache/` | `util/ip_cache.go` |
-| `internal/netx/` | `util/net.go`、`net_resolver.go`、`http_client_util.go` |
-| `internal/ipmon/source/` | `config/config.go` 中的 IP 获取逻辑 |
-| `internal/notify/channels/webhook.go` | `config/webhook.go` |
+| `internal/ddnsgo/` | `dns/*.go`（30 家服务商）、`util/*_signer.go`（5 套签名）、`util/ip_cache.go`、`util/http_util.go`、`util/http_client_util.go`、`util/string.go`、`util/escape.go`、`util/copy_url_params.go`、`util/socket_bind_*.go`、`config/domains.go`、`config/netInterface.go` |
+| `internal/ipmon/`（并入 `internal/platform/ipmon.go`） | `config/config.go` 中的 IP 获取逻辑 |
+| `internal/i18n/messages_ddnsgo.go` | `util/messages.go` 中的英文译文（83 条） |
+| `internal/notify/channels/webhook.go`（M5） | `config/webhook.go` |
 
-**已做的修改**（详见各文件头部注释）：
+**移植方式**：由 `scripts/port-ddnsgo.ps1` **机械变换**生成，只做三件事 ——
+统一包名、去掉 `config.` 与 `util.` 前缀、删除指向 ddns-go 自身包的 import。
+**逻辑一行未改**：签名算法、URL、请求体、错误处理、比较条件全部原样保留。
 
-- 替换包路径与导入路径；
-- **剥离包级全局可变状态**（`util.ForceCompareGlobal`、`dns.Ipcache`、`config` 包级缓存单例），改为依赖注入
-  —— 这是必须的，否则并发场景下会产生难以复现的数据竞争（见 `docs/PLAN.md` R11）；
-- 日志输出改为 ISC 的结构化日志接口（`log/slog`）；
-- 用户可见字符串改走 ISC 的 i18n 消息目录。
+其余修改：
+
+- **剥离包级全局可变状态**（`util.ForceCompareGlobal` 被删除；
+  `util.IpCache` 的防抖次数从环境变量 `DDNS_IP_CACHE_TIMES` 改为显式设置）。
+  这是必须的：那两个全局被运行期反复改写并参与逻辑判断，
+  在 ISC 的"定时触发 + 事件触发"并发模型下会产生难以复现的竞争
+  （见 `docs/PLAN.md` R11）。
+- `util.Log` / `util.LogStr` 改为桥接到 ISC 的结构化日志与 i18n；
+  233 处调用点的签名保持不变。
+- **新增 `DnsConfig.Ipv4/Ipv6.ForceAddr` 字段**（ISC 对上游结构唯一的字段新增）：
+  由调用方注入已知地址，而不是让每个 provider 各查一次 —— ISC 有统一的
+  IPMonitor 在跟踪地址与前缀变化。
+- `TencentCloudSigner` 的两个服务名常量（`DnsPod` / `EdgeOne`）在移植后与
+  两个 provider 的结构体同名，改名为 `svcDnsPod` / `svcEdgeOne`。
+
+**验证**：`internal/provider/tier2_test.go` 用 callback 服务商对着本地假服务器
+跑真实的动态更新，串起"具名凭据 → 位置化槽位 → 地址注入 → 域名解析 →
+真实 HTTP → 结果翻译"整条链路。编译通过不足以证明移植成功。
 
 ```
 MIT License
@@ -78,7 +91,9 @@ SOFTWARE.
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause | oapi-codegen/runtime 的间接依赖 |
 | `github.com/remyoudompheng/bigfft` | v0.0.0-20230129092748 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
 | `github.com/spf13/pflag` | v1.0.9 | BSD-3-Clause | cobra 的间接依赖 |
-| `golang.org/x/sys` | v0.48.0 | BSD-3-Clause | 平台系统调用（命名管道、DPAPI、netlink 等） |
+| `golang.org/x/sys` | v0.48.0 | BSD-3-Clause | 平台系统调用（命名管道、DPAPI、ACL 等） |
+| `golang.org/x/net` | v0.59.0 | BSD-3-Clause | IDNA 与 publicsuffix（根域名识别） |
+| `golang.org/x/text` | v0.42.0 | BSD-3-Clause | 国际化文本处理 |
 | `modernc.org/libc` | v1.77.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
 | `modernc.org/mathutil` | v1.7.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
 | `modernc.org/memory` | v1.12.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |

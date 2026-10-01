@@ -16,13 +16,12 @@ import (
 
 // ddns-go 凭据模型的槽位编号。
 //
-// 它们对应 ddns-go 的 DNS.ID / DNS.Secret / DNS.ExtParam。
-// 每个字段用 DdnsGoSlot 显式声明自己取自哪个槽位 —— 不能靠声明顺序
-// 推断，因为各服务商真正用到的槽位不同（见 credential.FieldSpec 的说明）。
+// 直接复用 credential 包里的常量，而不是在本地再定义一套 ——
+// 导入与运行期调用必须用同一份声明，两套常量迟早会漂移。
 const (
-	slotID       = 0
-	slotSecret   = 1
-	slotExtParam = 2
+	slotID       = credential.DdnsGoID
+	slotSecret   = credential.DdnsGoSecret
+	slotExtParam = credential.DdnsGoExtParam
 )
 
 // 通用字段定义。抽出来是为了让各家声明保持一致，
@@ -102,15 +101,12 @@ func builtin() []Provider {
 		// Tier-1：完整记录 CRUD
 		// ------------------------------------------------------------------
 		{
-			Name:        "cloudflare",
-			DisplayName: "Cloudflare",
-			Tier:        1,
-			Capabilities: Capabilities{
-				// M1 只做到"能校验凭据"；记录 CRUD 在 M2 接入。
-				Available: true,
-			},
+			Name:             "cloudflare",
+			DisplayName:      "Cloudflare",
+			Tier:             1,
 			CredentialFields: []credential.FieldSpec{fieldAPIToken},
-			Verify:           NewCloudflareVerifier().Verify,
+			// 实现由 attachImplementations 接上：动态更新来自移植的上游代码，
+			// 凭据校验来自我们自己的只读端点调用。
 		},
 		{
 			Name:        "alidns",
@@ -191,5 +187,9 @@ func builtin() []Provider {
 		out = append(out, anonymousProvider(t.name, t.display, 2, tier2Fields))
 	}
 
-	return out
+	// 接上实现。
+	//
+	// Tier-2 的动态更新来自移植的 ddns-go 代码，因此**从 M2 起它们是真正
+	// 可用的**，不再是"仅登记名称"。Tier-1 的记录 CRUD 在 M2-d 接入。
+	return attachImplementations(out)
 }

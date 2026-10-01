@@ -22,8 +22,7 @@ func Current(dataRoot string) *Bundle {
 			"Windows Defender Firewall 后端将在 M3 实现；当前降级为引导模式"),
 		ServiceManager: newUnsupportedServiceManager(
 			"Windows 服务（SCM）后端将在 M5 实现"),
-		IPMonitor: newUnsupportedIPMonitor(
-			"GetAdaptersAddresses 监控后端将在 M2 实现"),
+		IPMonitor:     newPollingIPMonitor(),
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: permissiveLowPortBinder{backend: "windows-native"},

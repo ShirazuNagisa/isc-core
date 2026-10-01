@@ -26,11 +26,16 @@ func openTestStore(t *testing.T) *Store {
 //
 // 这条要是坏了，症状是"内核第二次启动就报错"，而第一次完全正常 ——
 // 属于最容易被漏测的一类问题。
+//
+// 刻意不断言"迁移数量 == 某个具体数字"：那个数字每加一个迁移都要改一次，
+// 而改的人往往只是把数字改对、并没有真的检查幂等性。这里改为
+// "第二次之后的数量必须与第一次一致" —— 它直接表达要验证的性质。
 func TestMigrationsAreIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "isc.db")
 	ctx := context.Background()
 
+	var baseline int
 	for i := 1; i <= 3; i++ {
 		st, err := Open(ctx, path)
 		if err != nil {
@@ -44,9 +49,11 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		if count == 0 {
 			t.Fatal("迁移记录为空")
 		}
-		// 已应用的版本数不应随打开次数增长。
-		if i > 1 && count != 1 {
-			t.Errorf("第 %d 次打开后迁移记录数为 %d，期望 1（重复执行了迁移）", i, count)
+		if i == 1 {
+			baseline = count
+		} else if count != baseline {
+			t.Errorf("第 %d 次打开后迁移记录数为 %d，首次为 %d —— 迁移被重复执行了",
+				i, count, baseline)
 		}
 		_ = st.Close()
 	}
