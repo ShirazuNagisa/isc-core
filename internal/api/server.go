@@ -13,6 +13,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
+	"github.com/ShirazuNagisa/isc-core/internal/ddns"
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
@@ -70,6 +71,9 @@ type Deps struct {
 
 	// Config 提供配置导入导出与 ddns-go 迁移。
 	Config *configio.Service
+
+	// Tasks 是动态解析任务的领域服务。
+	Tasks *ddns.Service
 }
 
 // Server 实现 gen.ServerInterface。

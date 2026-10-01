@@ -134,6 +134,16 @@ func (c *Client) Health(ctx context.Context) (gen.Health, error) {
 	return h, err
 }
 
+// getInto 发起一次带鉴权的 GET 并解码响应。
+func (c *Client) getInto(ctx context.Context, path string, out any) error {
+	return c.do(ctx, http.MethodGet, path, out)
+}
+
+// post 发起一次带鉴权的 POST。
+func (c *Client) post(ctx context.Context, path string, out any) error {
+	return c.do(ctx, http.MethodPost, path, out)
+}
+
 // Meta 查询元信息与平台能力。
 func (c *Client) Meta(ctx context.Context) (gen.Meta, error) {
 	var m gen.Meta

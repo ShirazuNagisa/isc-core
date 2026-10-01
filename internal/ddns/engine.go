@@ -88,6 +88,13 @@ func NewEngine(
 	}
 }
 
+// SetBus 设置事件总线。
+//
+// 单独一步而不是构造参数：总线的缓冲容量来自设置，而设置在凭据之前
+// 就要加载完（语言与日志级别都靠它），于是构造顺序上总线晚于设置、
+// 早于引擎 —— 与其把构造顺序扭成一个环，不如留一个显式的回填点。
+func (e *Engine) SetBus(bus *event.Bus) { e.bus = bus }
+
 // TaskRun 是一次任务执行的完整结果。
 type TaskRun struct {
 	TaskID string
@@ -99,6 +106,14 @@ type TaskRun struct {
 	Dynamic []dns.DynamicResult
 	// Skipped 为 true 表示本次未与任何服务商通信（地址未变化且未到比对时机）。
 	Skipped bool
+
+	// IPv4 / IPv6 是本次实际使用的地址；为空表示该记录类型没有执行。
+	//
+	// 由引擎填进结果、而不是让调用方从任务对象上读 ——
+	// 任务对象上的 LastIPv4 是**上一次**的值，用它回写等于永远慢一拍，
+	// 界面上会一直显示上一轮的地址。
+	IPv4 string
+	IPv6 string
 }
 
 // RunTask 执行一条任务。
@@ -141,6 +156,13 @@ func (e *Engine) RunTask(ctx context.Context, t Task) (TaskRun, error) {
 			lastErr = fmt.Sprintf("未能获取 %s 地址", recordType)
 			failed++
 			continue
+		}
+
+		// 记录本次实际用的地址，供上层回写任务状态。
+		if dnsType == dns.TypeAAAA {
+			run.IPv6 = addr
+		} else {
+			run.IPv4 = addr
 		}
 
 		// 防抖：地址没变且还没攒够次数时，跳过这次服务商比对。

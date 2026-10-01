@@ -103,6 +103,19 @@ var messagesZh = map[string]string{
 	// --- 设置 ---
 	"settings.updated": "设置已更新",
 
+	// --- 动态解析任务 ---
+	"ddns.task_not_found":    "任务不存在",
+	"ddns.task_created":      "任务已创建",
+	"ddns.task_updated":      "任务已更新",
+	"ddns.task_deleted":      "任务已删除",
+	"ddns.credential_in_use": "该凭据仍被 %d 个任务使用，无法删除",
+	"ddns.triggered":         "已触发执行",
+	"ddns.no_address":        "未能获取 %s 地址",
+	"ddns.updated_count":     "已更新 %d 条记录",
+	"ddns.unchanged":         "记录已是目标值，无需改动",
+	"ddns.skipped":           "地址未变化，本次未与服务商比对",
+	"ddns.detected_change":   "检测到地址变化，触发动态解析",
+
 	// --- 导入导出 ---
 	"config.export.empty":               "没有可导出的配置",
 	"config.import.invalid":             "无法解析导入内容",

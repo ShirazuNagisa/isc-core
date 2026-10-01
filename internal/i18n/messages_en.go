@@ -102,6 +102,19 @@ var messagesEn = map[string]string{
 	// --- settings ---
 	"settings.updated": "Settings updated",
 
+	// --- dynamic DNS tasks ---
+	"ddns.task_not_found":    "Task not found",
+	"ddns.task_created":      "Task created",
+	"ddns.task_updated":      "Task updated",
+	"ddns.task_deleted":      "Task deleted",
+	"ddns.credential_in_use": "This credential is still used by %d task(s) and cannot be deleted",
+	"ddns.triggered":         "Run requested",
+	"ddns.no_address":        "Could not obtain an %s address",
+	"ddns.updated_count":     "Updated %d record(s)",
+	"ddns.unchanged":         "Records already match; nothing to change",
+	"ddns.skipped":           "Address unchanged; skipped the provider comparison",
+	"ddns.detected_change":   "Address change detected; running dynamic DNS",
+
 	// --- import/export ---
 	"config.export.empty":               "There is nothing to export",
 	"config.import.invalid":             "Cannot parse the imported content",

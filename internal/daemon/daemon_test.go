@@ -436,7 +436,7 @@ func TestJobLifecycleOverEventStream(t *testing.T) {
 			if p.JobID != accepted.JobId {
 				continue
 			}
-			if p.Status != string(gen.Succeeded) {
+			if p.Status != string(gen.JobStatusSucceeded) {
 				t.Fatalf("任务状态 = %q, 期望 succeeded", p.Status)
 			}
 			sawFinished = true
@@ -456,7 +456,7 @@ func TestJobLifecycleOverEventStream(t *testing.T) {
 	// 任务详情必须可查，且结果已落库。
 	var job gen.Job
 	h.getJSON("/v1/jobs/"+accepted.JobId, &job)
-	if job.Status != gen.Succeeded {
+	if job.Status != gen.JobStatusSucceeded {
 		t.Errorf("任务详情状态 = %q", job.Status)
 	}
 	if job.Progress != 1 {
@@ -485,12 +485,12 @@ func TestJobCancellation(t *testing.T) {
 	var final gen.Job
 	for time.Now().Before(deadline) {
 		h.getJSON("/v1/jobs/"+accepted.JobId, &final)
-		if final.Status == gen.Canceled {
+		if final.Status == gen.JobStatusCanceled {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if final.Status != gen.Canceled {
+	if final.Status != gen.JobStatusCanceled {
 		t.Fatalf("任务状态 = %q, 期望 canceled", final.Status)
 	}
 	if final.FinishedAt == nil {
@@ -509,7 +509,7 @@ func TestCancelFinishedJobReturns409(t *testing.T) {
 	for time.Now().Before(deadline) {
 		var j gen.Job
 		h.getJSON("/v1/jobs/"+accepted.JobId, &j)
-		if j.Status == gen.Succeeded {
+		if j.Status == gen.JobStatusSucceeded {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)

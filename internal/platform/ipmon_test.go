@@ -176,9 +176,17 @@ func keysOf(m map[string]ifaceSnapshot) []string {
 
 func TestIsVirtualInterface(t *testing.T) {
 	virtual := []string{
-		"docker0", "veth1a2b", "br-abc123", "virbr0", "vmnet8",
+		"docker0", "veth1a2b", "br-abc123", "virbr0",
 		"tun0", "tap0", "wg0", "utun3", "awdl0", "Loopback Pseudo-Interface 1",
 		"vEthernet (Default Switch)", "Bluetooth Network Connection",
+		// 真机上发现的：名称以 VMware 开头而不是 vmnet；
+		// 中文系统上则完全是中文。
+		"VMware Network Adapter VMnet1",
+		"VMware Network Adapter VMnet8",
+		"VirtualBox Host-Only Network",
+		"蓝牙网络连接",
+		"本地连接* 1",
+		"本地连接* 10",
 	}
 	for _, name := range virtual {
 		if !isVirtualInterface(name) {
@@ -191,6 +199,97 @@ func TestIsVirtualInterface(t *testing.T) {
 		if isVirtualInterface(name) {
 			t.Errorf("%q 不应被判定为虚拟网卡", name)
 		}
+	}
+}
+
+// TestIsDelegatedPrefix 钉住"什么才算 ISP 委派的网段"。
+//
+// 这条判据是在真机上才发现必须有的：Windows 把 IPv6 主机地址报成 /128，
+// 而隐私扩展地址默认**每小时轮换**。若把 /128 当成委派前缀，
+// 内核会每小时检测到一次"前缀变化"并触发全量更新 ——
+// 白白消耗服务商配额，用户还会收到莫名其妙的通知。
+func TestIsDelegatedPrefix(t *testing.T) {
+	t.Parallel()
+
+	delegated := []string{
+		"2409:8a50:6a1:7450::/64", // 中国移动家宽的典型委派
+		"240e:3b0:1111:2200::/64", // 中国电信
+		"2408:8000::/56",          // 部分省份委派 /56
+		"2001:db8::/48",
+	}
+	for _, raw := range delegated {
+		if !isDelegatedPrefix(netip.MustParsePrefix(raw)) {
+			t.Errorf("%s 应当被判定为委派前缀", raw)
+		}
+	}
+
+	hostRoutes := []string{
+		"2409:8a50:6a1:7450::50b/128",              // 主机路由
+		"2409:8a50:6a1:7450:246f:5ab4:ba:e604/128", // 隐私扩展地址
+		"2409:8a50:6a1:7450::/72",                  // 比 /64 更具体
+	}
+	for _, raw := range hostRoutes {
+		if isDelegatedPrefix(netip.MustParsePrefix(raw)) {
+			t.Errorf("%s 不应被判定为委派前缀 —— 它是主机路由或细分网段", raw)
+		}
+	}
+
+	if isDelegatedPrefix(netip.MustParsePrefix("192.168.1.0/24")) {
+		t.Error("IPv4 前缀不应被判定为 IPv6 委派前缀")
+	}
+}
+
+// TestHasUsableAddress 验证"只剩链路本地地址的网卡"被滤掉。
+//
+// 这正是中文 Windows 上那一堆虚拟适配器的特征：它们只有 169.254.x /
+// fe80::，而名称随系统语言变化，靠名称列表判断必然漏。
+func TestHasUsableAddress(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		iface InterfaceAddrs
+		want  bool
+	}{
+		{
+			name: "只有 APIPA 与链路本地 —— 典型的无效虚拟网卡",
+			iface: InterfaceAddrs{
+				Name: "本地连接* 1",
+				IPv4: []netip.Addr{netip.MustParseAddr("169.254.209.101")},
+				IPv6: []netip.Addr{netip.MustParseAddr("fe80::1")},
+			},
+			want: false,
+		},
+		{
+			name: "有全局 IPv6",
+			iface: InterfaceAddrs{
+				Name: "WLAN",
+				IPv6: []netip.Addr{netip.MustParseAddr("2409:8a50:6a1:7450::50b")},
+			},
+			want: true,
+		},
+		{
+			name: "有私有 IPv4",
+			iface: InterfaceAddrs{
+				Name: "VMware Network Adapter VMnet1",
+				IPv4: []netip.Addr{netip.MustParseAddr("192.168.50.1")},
+			},
+			want: true,
+		},
+		{
+			name:  "什么都没有",
+			iface: InterfaceAddrs{Name: "eth0"},
+			want:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.iface.HasUsableAddress(); got != tc.want {
+				t.Errorf("HasUsableAddress() = %v, 期望 %v", got, tc.want)
+			}
+		})
 	}
 }
 

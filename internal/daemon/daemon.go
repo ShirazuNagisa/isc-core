@@ -21,6 +21,8 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
+	"github.com/ShirazuNagisa/isc-core/internal/ddns"
+	"github.com/ShirazuNagisa/isc-core/internal/dns"
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
@@ -102,6 +104,13 @@ type Daemon struct {
 	credentials *credential.Service
 	auditor     *audit.Recorder
 	configio    *configio.Service
+
+	taskRepo   *store.Tasks
+	ddnsEngine *ddns.Engine
+	scheduler  *ddns.Scheduler
+	tasks      *ddns.Service
+	// monitorCancel 停掉 IP 监控与调度器的后台 goroutine。
+	monitorCancel context.CancelFunc
 
 	servers   []*http.Server
 	listeners []net.Listener
@@ -215,6 +224,19 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.auditor = audit.NewRecorder(st, d.log)
 	d.configio = configio.New(d.credentials, d.settings, d.registry)
 
+	// 动态解析：引擎负责"做一次"，调度器负责"什么时候做"。
+	//
+	// 注意引用检查的接线顺序：凭据服务需要知道谁在引用它（删除前检查），
+	// 而任务服务又需要凭据服务来解密凭据。用 SetUsageChecker 打破这个环，
+	// 而不是给两边都塞一个可空的相互引用。
+	d.taskRepo = st.Tasks()
+	d.ddnsEngine = ddns.NewEngine(
+		d.taskRepo, credentialResolver{svc: d.credentials}, dynamicLookup(d.registry),
+		d.bundle.IPMonitor, nil, d.log) // bus 稍后设置
+	d.scheduler = ddns.NewScheduler(d.taskRepo, d.ddnsEngine, nil, d.log)
+	d.tasks = ddns.NewService(d.taskRepo, d.ddnsEngine, d.scheduler)
+	d.credentials.SetUsageChecker(d.taskRepo)
+
 	// 7. 清理上一次的残留运行时文件。
 	if err := d.cleanupStaleRuntime(); err != nil {
 		return err
@@ -223,6 +245,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 8. 事件总线与任务引擎。
 	d.bus = event.NewBus(settingsSvc.Get().EventBufferSize)
 	d.opts.LogHandler.SetPublisher(d.bus)
+
+	// 事件总线就绪后回填给动态解析 —— 执行结果要发布事件，
+	// 而总线依赖设置（缓冲容量），设置在更早的一步才加载完。
+	d.ddnsEngine.SetBus(d.bus)
+	d.scheduler.SetBus(d.bus)
+	d.scheduler.SetResultHook(d.recordTaskRun)
 
 	// 任务引擎的父上下文是本次运行的生命周期，而不是调用方的 ctx：
 	// 调用方的 ctx 可能在 HTTP 请求结束时就被取消。
@@ -252,6 +280,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Audit:          d.auditor,
 		AuditWriter:    st,
 		Config:         d.configio,
+		Tasks:          d.tasks,
 	})
 
 	// 11. 建立传输通道
@@ -268,10 +297,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 13. 起服务
 	d.serve(cancelRun)
 
+	// 14. 后台：网卡监控 + 动态解析调度
+	d.startBackground(runCtx)
+
 	d.readyOnce.Do(func() { close(d.ready) })
 	d.log.Info(i18n.T("daemon.started"))
 
-	// 14. 等待退出信号
+	// 15. 等待退出信号
 	<-ctx.Done()
 	d.log.Info(i18n.T("daemon.stopping"))
 
@@ -289,6 +321,127 @@ func specLookup(reg *provider.Registry) credential.SpecLookup {
 			return nil, false
 		}
 		return p.CredentialFields, true
+	}
+}
+
+// dynamicLookup 把服务商注册表适配成 ddns.ProviderLookup。
+func dynamicLookup(reg *provider.Registry) ddns.ProviderLookup {
+	return registryDynamic{reg: reg}
+}
+
+type registryDynamic struct{ reg *provider.Registry }
+
+func (r registryDynamic) DynamicUpdater(name string) (dns.DynamicUpdater, bool) {
+	return r.reg.DynamicUpdater(name)
+}
+
+// credentialResolver 把凭据服务适配成 ddns.CredentialResolver。
+//
+// 需要这一层是因为两边用的是各自的领域类型：credential 包不该知道
+// dns 包的存在（它只负责"把凭据安全地存下来"），而 dns 包也不该知道
+// 凭据是从数据库里解密出来的。转换放在装配处，两个领域保持互不知情。
+type credentialResolver struct{ svc *credential.Service }
+
+func (r credentialResolver) Resolve(ctx context.Context, id string) (dns.Credential, error) {
+	c, err := r.svc.Resolve(ctx, id)
+	if err != nil {
+		return dns.Credential{}, err
+	}
+	return dns.Credential{
+		ID:       c.ID,
+		Provider: c.Provider,
+		Fields:   c.Fields,
+	}, nil
+}
+
+// recordTaskRun 把一次执行结果写回任务。
+//
+// 落库失败只记日志：用户真正关心的是 DNS 记录被更新了，
+// 而不是统计数字漂了一位。
+func (d *Daemon) recordTaskRun(ctx context.Context, t ddns.Task, run ddns.TaskRun) {
+	// 用 run 里的地址而不是 t 上的：t 是执行**之前**读出来的快照，
+	// 它的 LastIPv4 是上一轮的值。用它回写会让界面永远慢一拍。
+	if err := d.ddnsEngine.MarkRun(ctx, t, run, run.IPv4, run.IPv6); err != nil {
+		d.log.Warn("写入任务运行状态失败", "task", t.ID, "err", err)
+	}
+}
+
+// startBackground 启动 IP 监控与调度器。
+//
+// 两件事在这里汇合：
+//
+//	IP 监控 → 事件总线  把网卡变化变成 ip.changed / ip.prefix_changed 事件
+//	调度器  → 订阅总线  收到 IP 事件后立刻跑一次动态解析
+//
+// 中间过一道事件总线而不是直接调用：事件总线上还挂着 WebSocket 订阅者
+// （控制台与下游 GUI），它们需要看到地址变化；而调度器只是消费者之一。
+func (d *Daemon) startBackground(parent context.Context) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	d.monitorCancel = cancel
+
+	go func() {
+		if err := d.scheduler.Run(ctx); err != nil {
+			d.log.Error("调度器退出", "err", err)
+		}
+	}()
+
+	go d.watchInterfaces(ctx)
+
+	// 启动后立刻跑一轮。
+	//
+	// 不做这一步的话，内核重启后要等满一个定时周期（默认 5 分钟）才会
+	// 第一次解析。而用户按下"重启服务"时的期待恰恰是"它马上恢复工作"。
+	//
+	// 延迟 2 秒是为了让启动日志先落完 —— 解析任务的日志混在启动序列里
+	// 会让排查问题时的阅读顺序变得混乱。
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+		d.log.Info("开始首轮动态解析")
+		d.scheduler.RunAll(ctx)
+	}()
+}
+
+// watchInterfaces 把网卡变化发布到事件总线。
+func (d *Daemon) watchInterfaces(ctx context.Context) {
+	monitor := d.bundle.IPMonitor
+	if monitor == nil {
+		return
+	}
+
+	events, err := monitor.Watch(ctx)
+	if err != nil {
+		// 监控不可用不是致命错误：定时轮询仍会兜底。
+		d.log.Warn("启动网卡监控失败，将只使用定时触发", "err", err)
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			// 前缀事件单列：它是本项目的核心信号 ——
+			// 前缀变化意味着该前缀下**所有** AAAA 记录都要重写。
+			typ := event.TypeIPChanged
+			if ev.IsPrefixEvent() {
+				typ = event.TypeIPPrefixChanged
+			}
+			d.bus.Publish(typ, map[string]any{
+				"kind":   string(ev.Kind),
+				"iface":  ev.Iface,
+				"addr":   ev.Addr.String(),
+				"prefix": ev.Prefix.String(),
+				"at":     ev.At,
+			})
+			d.log.Debug("网卡变化", "event", ev.String())
+		}
 	}
 }
 
@@ -415,9 +568,17 @@ func (d *Daemon) writeRuntimeInfo() error {
 func (d *Daemon) shutdown() error {
 	var firstErr error
 
+	// 管理接口先停：让新请求不再进来。
 	if err := runtimeinfo.Remove(d.opts.Paths.RuntimeFile()); err != nil {
 		d.log.Warn("删除运行时文件失败", "err", err)
 		firstErr = err
+	}
+
+	// 停掉网卡监控与调度器，避免它们在收尾过程中又发起一次解析更新 ——
+	// 那会在关闭流程里产生一次到服务商的请求，让关闭看起来"卡住了"。
+	if d.monitorCancel != nil {
+		d.monitorCancel()
+		d.monitorCancel = nil
 	}
 
 	if d.bus != nil {

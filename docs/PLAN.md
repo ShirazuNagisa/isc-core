@@ -60,6 +60,38 @@
 | 重启后凭据可正常解密 | `TestCredentialSurvivesRestart` —— 同一数据目录启动两次 |
 | 能导入真实的 ddns-go 配置 | `TestImportDdnsGoThroughAPI` —— 预览不写入、应用后凭据与密钥正确、未迁移内容有明确警告 |
 
+### M2 完成情况（进行中）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| ddns-go 移植 | ✅ | `internal/ddnsgo/`，8335 行、30 家服务商、5 套签名；由脚本机械变换生成 |
+| 移植可用性验证 | ✅ | `TestCallbackDynamicUpdateEndToEnd` —— 假服务商收到真实请求，串起凭据 → 槽位 → 地址注入 → 域名解析 → HTTP → 结果翻译 |
+| IPMonitor | ✅ | `internal/platform/ipmon.go`，可移植轮询实现；前缀变化与地址变化分开检测 |
+| 动态解析引擎 | ✅ | `internal/ddns/`，按 (任务, 记录类型) 分桶的防抖、任务级缓存失效 |
+| 调度器 | ✅ | 定时 + 事件触发 + 1 秒合流；任务级防重入 |
+| 任务 API | ✅ | `/v1/ddns-tasks` 全套 + `/v1/ip/current`；凭据删除前的引用检查 |
+| CLI | ✅ | `isc ip`、`isc ddns list`、`isc ddns run` |
+| 端到端验收 | ✅ | `TestDynamicDNSEndToEnd` —— 经命名管道走真实 HTTP |
+| 真机验证 | ✅ | 中国移动家宽实测：识别出 `2409:8a50:6a1:7450::/64` 委派前缀 |
+| Tier-1 全量记录 CRUD | ⬜ | M2-d，未开始 |
+| 验证控制台 SPA | ⬜ | M2-e，未开始 |
+
+### M2 真机验证抓到的三个问题
+
+这三个都是**只有跑在真实机器上才会暴露**的，单元测试的构造数据里不会出现：
+
+1. **`/128` 主机路由被当成了委派前缀。** Windows 把 IPv6 主机地址报成 `/128`，
+   而隐私扩展地址默认**每小时轮换**。若不区分，内核会每小时检测到一次
+   "前缀变化"并触发全量更新 —— 白白消耗服务商配额，用户还会收到莫名通知。
+   修法：只把 `/64` 及更粗的前缀视为委派网段（`isDelegatedPrefix`）。
+2. **虚拟网卡识别靠英文名称前缀，在中文 Windows 上完全失效。**
+   真机上出现了 `蓝牙网络连接`、`本地连接* 1`、`VMware Network Adapter VMnet1`
+   （以 `VMware` 开头，不是 `vmnet`）。修法：改用"有没有可用地址"作为
+   主判据（`HasUsableAddress`），名称列表退为辅助 —— 语言无关。
+3. **`primary_ipv4` 取了第一个 IPv4，而真机上第一个是 `169.254.x`（APIPA）。**
+   把自分配地址当成"当前公网地址"展示会直接误导用户。
+   修法：只取非链路本地、非私有的地址。
+
 
 
 本机没有 MSVC 工具链。为保证三平台交叉编译与 CI 简单可靠，**内核禁止引入任何需要 cgo 的依赖**。这直接决定了：
@@ -80,7 +112,7 @@
 |---|---|---|---|
 | M0 | 地基 | 工具链、骨架、平台接口 + stub、OpenAPI 管线、daemon + 传输 + token、事件总线 + WS + job、CLI 骨架、CI、许可证审计 | ✅ **已完成**：三平台 `CGO_ENABLED=0 go build ./...` 通过；`isc status` 经命名管道拿到版本；CI 全绿 |
 | M1 | 配置与凭据 | SQLite schema + 迁移、`SecretStore` 三平台、配置 CRUD API、YAML 导入导出、审计日志 | ✅ **已完成**：接口增删改凭据；库内为密文（含 WAL）；重启后读回正常；ddns-go 配置导入成功 |
-| M2 | 动态解析闭环 | ddns-go 移植（Tier-2 30 家 + 签名 + IP 获取 + ipcache + webhook）、`IPMonitor` 三平台 + 前缀事件、调度器、Tier-1 五家全量 CRUD | 真机 IPv6 前缀变化 → AAAA 自动更新；控制台可增删改任意记录类型 |
+| M2 | 动态解析闭环 | ddns-go 移植（Tier-2 30 家 + 签名 + IP 获取 + ipcache + webhook）、`IPMonitor` 三平台 + 前缀事件、调度器、Tier-1 五家全量 CRUD | 🔶 **进行中**：移植、IPMonitor、调度器、任务 API 已完成；Tier-1 CRUD 待做 |
 | M3 | 可达性 | 三平台 `Firewall` 后端 + 计划/预览/应用/回滚、引导式外部验证、端口冲突检测、低端口绑定、`isc doctor` | 新机从零到「手机 4G/5G 打开测试页」全流程走通，且可一键回滚 |
 | M4 | 反代 + 自动 HTTPS | certmagic + libdns 适配器、反向代理（域名 / SNI 路由 + 非标端口入口）、证书续期 + 事件 | 家宽单个非标端口 + 两个域名指向两个本地服务，HTTPS 全绿，证书自动续 |
 | M5 | 打磨与打包 | 控制台补全、三平台服务安装/自启/崩溃重启、安装包与签名、文档与故障排查手册 | 三平台双击安装即可运行 |

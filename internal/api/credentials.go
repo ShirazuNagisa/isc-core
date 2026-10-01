@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -147,6 +148,7 @@ func decodeCredentialInput(w http.ResponseWriter, r *http.Request, s *Server) (c
 // 集中在一处而不是散在各 handler 里：状态码与错误码的映射是契约的一部分，
 // 分散实现迟早会出现"同一个错误在不同端点返回不同状态码"。
 func (s *Server) credentialError(w http.ResponseWriter, r *http.Request, err error, target string) {
+	var inUse *credential.InUseError
 	switch {
 	case errors.Is(err, credential.ErrNotFound):
 		writeProblem(w, r, s.Log, http.StatusNotFound,
@@ -154,6 +156,13 @@ func (s *Server) credentialError(w http.ResponseWriter, r *http.Request, err err
 	case errors.Is(err, credential.ErrDuplicateLabel):
 		writeProblem(w, r, s.Log, http.StatusConflict,
 			CodeConflict, "credential.duplicate", target)
+	case errors.As(err, &inUse):
+		// 409 而不是 500：这是"当前状态下不允许该操作"，不是程序错误。
+		// 消息里带上引用数量，用户才知道要先处理什么 ——
+		// 一个光秃秃的"操作失败"会让人完全不知道从哪下手。
+		writeProblem(w, r, s.Log, http.StatusConflict,
+			CodeConflict, "ddns.credential_in_use",
+			fmt.Sprintf("该凭据仍被 %d 个任务使用", inUse.Count))
 	case errors.Is(err, credential.ErrUnknownProvider),
 		errors.Is(err, credential.ErrLabelEmpty),
 		errors.Is(err, credential.ErrProviderEmpty),

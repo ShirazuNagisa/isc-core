@@ -592,7 +592,7 @@ func TestAuditRecordsWrites(t *testing.T) {
 	if !hasAuditAction(list, "credential.create") {
 		t.Errorf("缺少 credential.create 审计，实际: %v", auditActions(list))
 	}
-	if !hasAuditResult(list, gen.Failure) {
+	if !hasAuditResult(list, gen.AuditResultFailure) {
 		t.Errorf("失败的操作也应当留痕，实际: %v", auditActions(list))
 	}
 	if !hasAuditTarget(list, c.Id) {
@@ -700,7 +700,7 @@ func TestJobsSurviveRestart(t *testing.T) {
 	for time.Now().Before(deadline) {
 		var j gen.Job
 		first.getJSON("/v1/jobs/"+accepted.JobId, &j)
-		if j.Status == gen.Succeeded {
+		if j.Status == gen.JobStatusSucceeded {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -715,7 +715,7 @@ func TestJobsSurviveRestart(t *testing.T) {
 	if j.Id != accepted.JobId {
 		t.Errorf("重启后任务 ID 不匹配: %q != %q", j.Id, accepted.JobId)
 	}
-	if j.Status != gen.Succeeded {
+	if j.Status != gen.JobStatusSucceeded {
 		t.Errorf("重启后任务状态 = %q, 期望 succeeded", j.Status)
 	}
 	if j.Result == nil {

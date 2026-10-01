@@ -135,6 +135,32 @@ func (r *Registry) Get(name string) (Provider, bool) {
 	return p, ok
 }
 
+// DynamicUpdater 返回某家服务商的动态解析实现。
+//
+// 用类型断言而不是在元信息里存一个布尔位：能力的有无是**代码事实**，
+// 断言一次即可确定，不需要一份需要人工维护、迟早会过期的能力表。
+//
+// 返回 found=false 覆盖三种情况：服务商不存在、未接入实现、
+// 实现不支持动态解析。
+func (r *Registry) DynamicUpdater(name string) (dns.DynamicUpdater, bool) {
+	p, ok := r.Get(name)
+	if !ok || p.Impl == nil {
+		return nil, false
+	}
+	updater, ok := p.Impl.(dns.DynamicUpdater)
+	return updater, ok
+}
+
+// Verifier 返回某家服务商的凭据校验实现。
+func (r *Registry) Verifier(name string) (dns.Verifier, bool) {
+	p, ok := r.Get(name)
+	if !ok || p.Impl == nil {
+		return nil, false
+	}
+	v, ok := p.Impl.(dns.Verifier)
+	return v, ok
+}
+
 // List 返回全部服务商。
 //
 // 排序规则：已实现的排前面，其次按 Tier 升序，最后按名称 ——

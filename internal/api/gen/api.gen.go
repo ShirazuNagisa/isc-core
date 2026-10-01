@@ -16,19 +16,64 @@ import (
 
 // Defines values for AuditResult.
 const (
-	Denied  AuditResult = "denied"
-	Failure AuditResult = "failure"
-	Success AuditResult = "success"
+	AuditResultDenied  AuditResult = "denied"
+	AuditResultFailure AuditResult = "failure"
+	AuditResultSuccess AuditResult = "success"
 )
 
 // Valid indicates whether the value is a known member of the AuditResult enum.
 func (e AuditResult) Valid() bool {
 	switch e {
-	case Denied:
+	case AuditResultDenied:
 		return true
-	case Failure:
+	case AuditResultFailure:
 		return true
-	case Success:
+	case AuditResultSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DdnsSourceGetType.
+const (
+	Cmd          DdnsSourceGetType = "cmd"
+	NetInterface DdnsSourceGetType = "netInterface"
+	Url          DdnsSourceGetType = "url"
+)
+
+// Valid indicates whether the value is a known member of the DdnsSourceGetType enum.
+func (e DdnsSourceGetType) Valid() bool {
+	switch e {
+	case Cmd:
+		return true
+	case NetInterface:
+		return true
+	case Url:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DdnsStatus.
+const (
+	DdnsStatusEmpty     DdnsStatus = ""
+	DdnsStatusFailed    DdnsStatus = "failed"
+	DdnsStatusSuccess   DdnsStatus = "success"
+	DdnsStatusUnchanged DdnsStatus = "unchanged"
+)
+
+// Valid indicates whether the value is a known member of the DdnsStatus enum.
+func (e DdnsStatus) Valid() bool {
+	switch e {
+	case DdnsStatusEmpty:
+		return true
+	case DdnsStatusFailed:
+		return true
+	case DdnsStatusSuccess:
+		return true
+	case DdnsStatusUnchanged:
 		return true
 	default:
 		return false
@@ -55,25 +100,25 @@ func (e HealthStatus) Valid() bool {
 
 // Defines values for JobStatus.
 const (
-	Canceled  JobStatus = "canceled"
-	Failed    JobStatus = "failed"
-	Pending   JobStatus = "pending"
-	Running   JobStatus = "running"
-	Succeeded JobStatus = "succeeded"
+	JobStatusCanceled  JobStatus = "canceled"
+	JobStatusFailed    JobStatus = "failed"
+	JobStatusPending   JobStatus = "pending"
+	JobStatusRunning   JobStatus = "running"
+	JobStatusSucceeded JobStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the JobStatus enum.
 func (e JobStatus) Valid() bool {
 	switch e {
-	case Canceled:
+	case JobStatusCanceled:
 		return true
-	case Failed:
+	case JobStatusFailed:
 		return true
-	case Pending:
+	case JobStatusPending:
 		return true
-	case Running:
+	case JobStatusRunning:
 		return true
-	case Succeeded:
+	case JobStatusSucceeded:
 		return true
 	default:
 		return false
@@ -257,6 +302,92 @@ type CredentialList struct {
 	NextCursor *string      `json:"next_cursor,omitempty"`
 }
 
+// DdnsSource defines model for DdnsSource.
+type DdnsSource struct {
+	// Domains 要更新的域名。支持两种写法：
+	//
+	//   www.example.com   自动识别根域名
+	//   www:example.com   显式指定"子域名:根域名"
+	//
+	// 后者用于 publicsuffix 无法正确判断的域名。
+	Domains []string `json:"domains"`
+
+	// Enable 为 false 时该记录类型不参与解析。
+	Enable bool `json:"enable"`
+
+	// GetType netInterface  从网卡读取（走内核的地址快照，已过滤不可用于公网的地址）
+	// url           通过外部接口查询，可填多个并用逗号分隔
+	// cmd           执行命令并从输出中抓取
+	GetType DdnsSourceGetType `json:"get_type"`
+
+	// Selector 仅 IPv6 使用：地址选择器。
+	//
+	//   "@2"        取第 2 个（从 1 开始）
+	//   "^240e:.*"  正则筛选，取第一个匹配的
+	//   留空        取第一个
+	Selector *string `json:"selector,omitempty"`
+
+	// Value 网卡名 / URL 列表 / 命令，含义由 get_type 决定。
+	Value string `json:"value"`
+}
+
+// DdnsSourceGetType netInterface  从网卡读取（走内核的地址快照，已过滤不可用于公网的地址）
+// url           通过外部接口查询，可填多个并用逗号分隔
+// cmd           执行命令并从输出中抓取
+type DdnsSourceGetType string
+
+// DdnsStatus 空串表示从未执行过。
+//
+// unchanged 与 success 的区别很重要：前者表示"记录本来就是对的"，
+// 不该触发通知；后者表示"真的改动了"，值得告诉用户。
+type DdnsStatus string
+
+// DdnsTask defines model for DdnsTask.
+type DdnsTask struct {
+	CreatedAt    time.Time `json:"created_at"`
+	CredentialId string    `json:"credential_id"`
+	Enabled      bool      `json:"enabled"`
+
+	// HttpInterface 发送请求时绑定的网卡名；为空表示默认网卡。
+	HttpInterface *string    `json:"http_interface,omitempty"`
+	Id            string     `json:"id"`
+	Ipv4          DdnsSource `json:"ipv4"`
+	Ipv6          DdnsSource `json:"ipv6"`
+	Label         string     `json:"label"`
+	LastIpv4      *string    `json:"last_ipv4,omitempty"`
+	LastIpv6      *string    `json:"last_ipv6,omitempty"`
+
+	// LastMessage 上次执行的说明（已本地化）。
+	LastMessage *string    `json:"last_message,omitempty"`
+	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
+
+	// LastStatus 空串表示从未执行过。
+	//
+	// unchanged 与 success 的区别很重要：前者表示"记录本来就是对的"，
+	// 不该触发通知；后者表示"真的改动了"，值得告诉用户。
+	LastStatus *DdnsStatus `json:"last_status,omitempty"`
+
+	// Ttl 记录生存时间（秒）。空串表示使用服务商默认值。
+	Ttl       *string   `json:"ttl,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// DdnsTaskInput defines model for DdnsTaskInput.
+type DdnsTaskInput struct {
+	CredentialId  string      `json:"credential_id"`
+	Enabled       *bool       `json:"enabled,omitempty"`
+	HttpInterface *string     `json:"http_interface,omitempty"`
+	Ipv4          *DdnsSource `json:"ipv4,omitempty"`
+	Ipv6          *DdnsSource `json:"ipv6,omitempty"`
+	Label         string      `json:"label"`
+	Ttl           *string     `json:"ttl,omitempty"`
+}
+
+// DdnsTaskList defines model for DdnsTaskList.
+type DdnsTaskList struct {
+	Items []DdnsTask `json:"items"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	// Status degraded 表示存活但至少有子系统不可用。
@@ -267,6 +398,15 @@ type Health struct {
 
 // HealthStatus degraded 表示存活但至少有子系统不可用。
 type HealthStatus string
+
+// IPStatus defines model for IPStatus.
+type IPStatus struct {
+	// Interfaces 参与解析的网卡（已排除回环与虚拟网卡）。
+	Interfaces    []InterfaceAddrs `json:"interfaces"`
+	PrimaryIpv4   *string          `json:"primary_ipv4,omitempty"`
+	PrimaryIpv6   *string          `json:"primary_ipv6,omitempty"`
+	PrimaryPrefix *string          `json:"primary_prefix,omitempty"`
+}
 
 // ImplState defines model for ImplState.
 type ImplState struct {
@@ -303,6 +443,24 @@ type ImportSummary struct {
 	TasksCreated       *int `json:"tasks_created,omitempty"`
 	TasksSkipped       *int `json:"tasks_skipped,omitempty"`
 	TasksUpdated       *int `json:"tasks_updated,omitempty"`
+}
+
+// InterfaceAddrs defines model for InterfaceAddrs.
+type InterfaceAddrs struct {
+	// GlobalIpv6 可用于公网访问的 IPv6 地址（已排除链路本地、ULA、回环）。
+	// 动态解析只该用这些地址。
+	GlobalIpv6 *[]string `json:"global_ipv6,omitempty"`
+	Index      *int      `json:"index,omitempty"`
+	Ipv4       *[]string `json:"ipv4,omitempty"`
+
+	// Ipv6 全部 IPv6 地址（含链路本地，供排查用）。
+	Ipv6 *[]string `json:"ipv6,omitempty"`
+	IsUp *bool     `json:"is_up,omitempty"`
+	Name string    `json:"name"`
+
+	// Prefixes 该网卡的 IPv6 委派前缀，例如 240e:3b0:1234:5600::/64。
+	// **这是 ISP 重拨后真正变化的东西。**
+	Prefixes *[]string `json:"prefixes,omitempty"`
 }
 
 // Job defines model for Job.
@@ -547,6 +705,9 @@ type CredentialId = string
 // Cursor defines model for Cursor.
 type Cursor = string
 
+// DdnsTaskId defines model for DdnsTaskId.
+type DdnsTaskId = string
+
 // JobId defines model for JobId.
 type JobId = string
 
@@ -624,6 +785,12 @@ type CreateCredentialJSONRequestBody = CredentialInput
 // UpdateCredentialJSONRequestBody defines body for UpdateCredential for application/json ContentType.
 type UpdateCredentialJSONRequestBody = CredentialInput
 
+// CreateDdnsTaskJSONRequestBody defines body for CreateDdnsTask for application/json ContentType.
+type CreateDdnsTaskJSONRequestBody = DdnsTaskInput
+
+// UpdateDdnsTaskJSONRequestBody defines body for UpdateDdnsTask for application/json ContentType.
+type UpdateDdnsTaskJSONRequestBody = DdnsTaskInput
+
 // RunNoopJobJSONRequestBody defines body for RunNoopJob for application/json ContentType.
 type RunNoopJobJSONRequestBody = NoopRequest
 
@@ -662,6 +829,24 @@ type ServerInterface interface {
 	// UpdateCredential 修改凭据
 	// (PATCH /v1/credentials/{id})
 	UpdateCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
+	// ListDdnsTasks 列出动态解析任务
+	// (GET /v1/ddns-tasks)
+	ListDdnsTasks(w http.ResponseWriter, r *http.Request)
+	// CreateDdnsTask 新建动态解析任务
+	// (POST /v1/ddns-tasks)
+	CreateDdnsTask(w http.ResponseWriter, r *http.Request)
+	// DeleteDdnsTask 删除任务
+	// (DELETE /v1/ddns-tasks/{id})
+	DeleteDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
+	// GetDdnsTask 任务详情
+	// (GET /v1/ddns-tasks/{id})
+	GetDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
+	// UpdateDdnsTask 修改任务
+	// (PATCH /v1/ddns-tasks/{id})
+	UpdateDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
+	// RunDdnsTask 立即执行一次任务
+	// (POST /v1/ddns-tasks/{id}/run)
+	RunDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
 	// RunNoopJob 提交一个空转任务（仅用于管线自检）
 	// (POST /v1/debug/noop)
 	RunNoopJob(w http.ResponseWriter, r *http.Request)
@@ -671,6 +856,9 @@ type ServerInterface interface {
 	// GetHealth 存活检查
 	// (GET /v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// GetCurrentIP 读取当前网卡地址与 IPv6 前缀
+	// (GET /v1/ip/current)
+	GetCurrentIP(w http.ResponseWriter, r *http.Request)
 	// ListJobs 任务列表
 	// (GET /v1/jobs)
 	ListJobs(w http.ResponseWriter, r *http.Request, params ListJobsParams)
@@ -1026,6 +1214,138 @@ func (siw *ServerInterfaceWrapper) UpdateCredential(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListDdnsTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListDdnsTasks(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDdnsTasks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDdnsTask(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id DdnsTaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDdnsTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) GetDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id DdnsTaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDdnsTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id DdnsTaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDdnsTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) RunDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id DdnsTaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunDdnsTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RunNoopJob operation middleware
 func (siw *ServerInterfaceWrapper) RunNoopJob(w http.ResponseWriter, r *http.Request) {
 
@@ -1078,6 +1398,20 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCurrentIP operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentIP(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCurrentIP(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1407,6 +1741,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config/import", wrapper.DescribeImport)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/config/import", wrapper.ImportConfig)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/config/import/ddns-go", wrapper.ImportDdnsGoConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/ip/current", wrapper.GetCurrentIP)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/ddns-tasks", wrapper.ListDdnsTasks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/ddns-tasks", wrapper.CreateDdnsTask)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.DeleteDdnsTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.GetDdnsTask)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.UpdateDdnsTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/ddns-tasks/{id}/run", wrapper.RunDdnsTask)
 
 	return m
 }

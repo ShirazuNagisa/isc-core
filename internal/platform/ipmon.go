@@ -299,12 +299,17 @@ func snapshotInterface(iface net.Interface) (InterfaceAddrs, error) {
 			out.IPv4 = append(out.IPv4, addr)
 		case addr.Is6():
 			out.IPv6 = append(out.IPv6, addr)
-			// 只保留可用于公网访问的地址所对应的前缀。
+			// 只保留**委派前缀**，不保留主机路由。
 			//
-			// 链路本地地址（fe80::/10）也有 /64 前缀，但把它当成
-			// "委派前缀"毫无意义 —— 它永远不可能出现在 AAAA 记录里，
-			// 却会在每次网卡抖动时产生大量无意义的前缀事件。
-			if IsGlobalIPv6(addr) {
+			// 这一步是必须的，而且是在真机上才发现的：Windows 把 IPv6
+			// 主机地址报成 /128，于是"用地址自身的前缀长度"会得到一个
+			// /128 "前缀"。而 Windows 的隐私扩展地址默认**每小时轮换**，
+			// 那意味着内核会每小时检测到一次"前缀变化"并触发全量更新 ——
+			// 白白消耗服务商配额，还会让用户收到莫名其妙的通知。
+			//
+			// ISP 委派的网段在实践中是 /56 ~ /64，因此以 /64 为界：
+			// 比 /64 更具体的都不是委派前缀。
+			if isDelegatedPrefix(prefix) && IsGlobalIPv6(addr) {
 				if !prefixSeen[prefix] {
 					prefixSeen[prefix] = true
 					out.Prefixes = append(out.Prefixes, prefix)
@@ -315,15 +320,51 @@ func snapshotInterface(iface net.Interface) (InterfaceAddrs, error) {
 	return out, nil
 }
 
+// maxDelegatedPrefixBits 是"委派前缀"的最大长度。
+//
+// 依据：ISP 向家宽委派的网段在实践中是 /56 ~ /64（中国电信/联通/移动
+// 的家宽工单通常写 /60 或 /64，路由器再切成 /64 下发）。
+// 比 /64 更具体的条目要么是主机路由（/128），要么是路由器内部的细分，
+// 都不是"整个网段变了"这个信号。
+const maxDelegatedPrefixBits = 64
+
+// isDelegatedPrefix 报告一个 IPv6 前缀是否可能是 ISP 委派的网段。
+func isDelegatedPrefix(p netip.Prefix) bool {
+	if !p.Addr().Is6() || p.Addr().Is4In6() {
+		return false
+	}
+	return p.Bits() >= 0 && p.Bits() <= maxDelegatedPrefixBits
+}
+
+// HasUsableAddress 报告接口是否有任何可用于解析的地址。
+//
+// "可用"的定义刻意宽松：全局 IPv6，或者非链路本地的 IPv4。
+// 用它过滤掉那些只剩 169.254.x / fe80:: 的接口 —— 那类接口
+// （断开的以太网、蓝牙网络连接、Wi-Fi Direct 虚拟适配器）
+// 在各语言版本的 Windows 上名称完全不同，靠名称前缀判断必然漏。
+func (i InterfaceAddrs) HasUsableAddress() bool {
+	if len(i.GlobalIPv6()) > 0 {
+		return true
+	}
+	for _, a := range i.IPv4 {
+		if !a.IsLinkLocalUnicast() && !a.IsLoopback() {
+			return true
+		}
+	}
+	return false
+}
+
 // indexSnapshots 把快照列表按接口名索引。
 func indexSnapshots(list []InterfaceAddrs) map[string]ifaceSnapshot {
 	out := make(map[string]ifaceSnapshot, len(list))
 	for _, i := range list {
-		// 回环与虚拟接口不参与变化检测。
+		// 回环、虚拟、以及没有任何可用地址的接口不参与变化检测。
 		//
-		// 它们的变化（Docker 网桥增删、VPN 连接断开）与"公网地址变了"
-		// 毫无关系，放进来只会制造噪音事件，让用户收到莫名其妙的解析通知。
-		if i.IsLoopback || i.IsVirtual {
+		// 最后一类很关键：断开状态的 "$ 本地连接* 1" 这类虚拟适配器
+		// 在各语言版本的 Windows 上名称完全不同，靠名称判断必然漏网，
+		// 而它们的地址（169.254.x / fe80::）变化与"公网地址变了"
+		// 毫无关系。
+		if i.IsLoopback || i.IsVirtual || !i.HasUsableAddress() {
 			continue
 		}
 		snap := ifaceSnapshot{
@@ -345,16 +386,25 @@ func indexSnapshots(list []InterfaceAddrs) map[string]ifaceSnapshot {
 	return out
 }
 
-// virtualInterfacePrefixes 是虚拟/隧道网卡的名称前缀。
+// virtualInterfacePrefixes 是虚拟/隧道网卡的名称片段。
 //
-// 判断依据是名称而不是驱动信息：跨平台拿不到统一的"这是虚拟网卡"标志，
-// 而名称前缀在实践中足够可靠，且误判的后果只是"该网卡的变化不触发解析更新"，
-// 用户可以手动指定网卡绕过。
+// ⚠️ 这个判据是**尽力而为**，不是可靠依据：Windows 会本地化网卡名称
+// （中文系统上是"蓝牙网络连接""本地连接* 1"），而各家虚拟化软件
+// 的命名风格也各不相同（"VMware Network Adapter VMnet1" 以 VMware 开头，
+// 不是 vmnet）。
+//
+// 因此它只是第一道筛子，真正的兜底是 hasUsableAddress：
+// 虚拟网卡通常只有私有地址或链路本地地址，会被那道筛子挡掉。
+// 两道筛子叠加后，界面上剩下的基本就是真正能用的上联网卡。
 var virtualInterfacePrefixes = []string{
 	// Linux
 	"docker", "veth", "br-", "virbr", "vmnet", "tun", "tap", "wg", "zt",
-	// Windows
-	"loopback", "bluetooth", "vethernet", "hyper-v",
+	// Windows（英文）
+	"loopback", "bluetooth", "vethernet", "hyper-v", "wi-fi direct",
+	// Windows（中文）—— 名称随系统语言变化，只能逐个列出
+	"蓝牙", "本地连接*", "虚拟", "回环",
+	// 虚拟化软件
+	"vmware", "virtualbox", "host-only", "vbox",
 	// macOS
 	"utun", "awdl", "llw", "bridge", "ap1", "gif", "stf",
 }
@@ -363,7 +413,7 @@ var virtualInterfacePrefixes = []string{
 func isVirtualInterface(name string) bool {
 	lower := strings.ToLower(name)
 	for _, p := range virtualInterfacePrefixes {
-		if strings.HasPrefix(lower, p) {
+		if strings.HasPrefix(lower, p) || strings.Contains(lower, p) {
 			return true
 		}
 	}

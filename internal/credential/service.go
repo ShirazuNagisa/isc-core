@@ -27,6 +27,18 @@ type Service struct {
 	secrets *secret.Manager
 	specs   SpecLookup
 	log     *slog.Logger
+
+	// usage 用于在删除前检查凭据是否仍被引用。
+	//
+	// 允许为 nil（表示"没有引用者"）。做成可注入的钩子而不是直接依赖
+	// ddns 包：凭据不该知道"谁在用我" —— 那个知识属于使用方。
+	// 将来加入证书、通知通道等新引用者时，本层不用改。
+	usage UsageChecker
+}
+
+// UsageChecker 报告某凭据被引用的次数。
+type UsageChecker interface {
+	CountByCredential(ctx context.Context, credentialID string) (int, error)
 }
 
 // NewService 构造凭据服务。
@@ -35,6 +47,23 @@ func NewService(repo Repository, secrets *secret.Manager, specs SpecLookup, log 
 		log = slog.Default()
 	}
 	return &Service{repo: repo, secrets: secrets, specs: specs, log: log}
+}
+
+// SetUsageChecker 设置引用检查器。
+//
+// 单独一步而不是构造参数：引用者（动态解析任务）的构造依赖凭据服务，
+// 放进构造函数会形成循环。
+func (s *Service) SetUsageChecker(c UsageChecker) { s.usage = c }
+
+// InUseError 表示凭据仍被引用，无法删除。
+type InUseError struct {
+	// Count 是引用它的对象数量。
+	Count int
+}
+
+// Error 实现 error。
+func (e *InUseError) Error() string {
+	return fmt.Sprintf("credential: 凭据仍被 %d 个任务使用", e.Count)
 }
 
 // List 返回凭据列表（Fields 为明文）。
@@ -155,7 +184,20 @@ func (s *Service) Update(ctx context.Context, id string, incoming Credential) (C
 }
 
 // Delete 删除凭据。
+//
+// 删除前检查引用：给出"仍被 N 个任务使用"这样的明确提示，而不是让用户
+// 删完之后发现某些任务莫名开始报错。数据库侧刻意**没有**加外键级联 ——
+// 静默级联删除会让"我的解析任务去哪了"变成一个查不明白的问题。
 func (s *Service) Delete(ctx context.Context, id string) error {
+	if s.usage != nil {
+		n, err := s.usage.CountByCredential(ctx, id)
+		if err != nil {
+			return fmt.Errorf("credential: 检查引用失败: %w", err)
+		}
+		if n > 0 {
+			return &InUseError{Count: n}
+		}
+	}
 	return s.repo.Delete(ctx, id)
 }
 

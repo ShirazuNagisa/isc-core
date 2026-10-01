@@ -37,6 +37,10 @@ tags:
     description: DNS 服务商元信息与能力矩阵
   - name: Credentials
     description: DNS 服务商凭据（加密存储）
+  - name: IP
+    description: 本机地址与 IPv6 前缀
+  - name: DdnsTasks
+    description: 动态解析任务
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -594,6 +598,159 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # IP 状态
+  # ---------------------------------------------------------------------------
+
+  /v1/ip/current:
+    get:
+      tags: [IP]
+      operationId: getCurrentIP
+      summary: 读取当前网卡地址与 IPv6 前缀
+      description: |
+        返回全部物理网卡的地址，以及**可用于公网访问的 IPv6 地址所对应的前缀**。
+
+        前缀是本产品的核心概念：ISP 重拨后变化的是整个 /64 前缀，
+        该前缀下的所有 AAAA 记录都要重写，而不是只改一个地址。
+
+        回环与虚拟网卡（Docker 网桥、VPN 隧道等）被排除 ——
+        它们的变化与"公网地址变了"毫无关系。
+      responses:
+        "200":
+          description: 当前地址状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IPStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 动态解析任务
+  # ---------------------------------------------------------------------------
+
+  /v1/ddns-tasks:
+    get:
+      tags: [DdnsTasks]
+      operationId: listDdnsTasks
+      summary: 列出动态解析任务
+      responses:
+        "200":
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DdnsTaskList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    post:
+      tags: [DdnsTasks]
+      operationId: createDdnsTask
+      summary: 新建动态解析任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DdnsTaskInput"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DdnsTask"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/ddns-tasks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DdnsTaskId"
+
+    get:
+      tags: [DdnsTasks]
+      operationId: getDdnsTask
+      summary: 任务详情
+      responses:
+        "200":
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DdnsTask"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    patch:
+      tags: [DdnsTasks]
+      operationId: updateDdnsTask
+      summary: 修改任务
+      description: |
+        修改后内核会**清空该任务的防抖缓存**，使下一次执行必定与服务商比对。
+
+        没有这一步的话，用户改了域名却发现"半天没生效" ——
+        因为防抖逻辑认为地址没变、还没到比对时机。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DdnsTaskInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DdnsTask"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [DdnsTasks]
+      operationId: deleteDdnsTask
+      summary: 删除任务
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/ddns-tasks/{id}/run:
+    parameters:
+      - $ref: "#/components/parameters/DdnsTaskId"
+    post:
+      tags: [DdnsTasks]
+      operationId: runDdnsTask
+      summary: 立即执行一次任务
+      description: |
+        忽略防抖缓存，立刻执行一次。用于"配好了想马上验证"。
+
+        返回 202 与任务 ID：一次执行可能包含多个域名的更新，
+        在服务商限流时可能耗时数秒，做成同步会让界面卡住。
+      responses:
+        "202":
+          description: 已开始执行
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -617,6 +774,14 @@ components:
       in: path
       required: true
       description: 凭据 ID
+      schema:
+        type: string
+        minLength: 1
+    DdnsTaskId:
+      name: id
+      in: path
+      required: true
+      description: 动态解析任务 ID
       schema:
         type: string
         minLength: 1
@@ -1165,3 +1330,180 @@ components:
           type: integer
         settings_updated:
           type: integer
+
+    # ------------------------------------------------------------------
+    # IP 状态
+    # ------------------------------------------------------------------
+
+    IPStatus:
+      type: object
+      required: [interfaces]
+      properties:
+        interfaces:
+          type: array
+          description: 参与解析的网卡（已排除回环与虚拟网卡）。
+          items:
+            $ref: "#/components/schemas/InterfaceAddrs"
+        # 便捷字段：多数用户只有一个上联网卡，界面上直接展示它即可。
+        primary_ipv4:
+          type: string
+        primary_ipv6:
+          type: string
+        primary_prefix:
+          type: string
+
+    InterfaceAddrs:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        index:
+          type: integer
+        ipv4:
+          type: array
+          items:
+            type: string
+        ipv6:
+          type: array
+          description: 全部 IPv6 地址（含链路本地，供排查用）。
+          items:
+            type: string
+        global_ipv6:
+          type: array
+          description: |
+            可用于公网访问的 IPv6 地址（已排除链路本地、ULA、回环）。
+            动态解析只该用这些地址。
+          items:
+            type: string
+        prefixes:
+          type: array
+          description: |
+            该网卡的 IPv6 委派前缀，例如 240e:3b0:1234:5600::/64。
+            **这是 ISP 重拨后真正变化的东西。**
+          items:
+            type: string
+        is_up:
+          type: boolean
+
+    # ------------------------------------------------------------------
+    # 动态解析任务
+    # ------------------------------------------------------------------
+
+    DdnsTask:
+      type: object
+      required: [id, credential_id, label, enabled, ipv4, ipv6, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        credential_id:
+          type: string
+        label:
+          type: string
+        enabled:
+          type: boolean
+        ipv4:
+          $ref: "#/components/schemas/DdnsSource"
+        ipv6:
+          $ref: "#/components/schemas/DdnsSource"
+        ttl:
+          type: string
+          description: 记录生存时间（秒）。空串表示使用服务商默认值。
+        http_interface:
+          type: string
+          description: 发送请求时绑定的网卡名；为空表示默认网卡。
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+        # --- 运行状态（只读，由内核写入） ---
+        last_run_at:
+          type: string
+          format: date-time
+        last_status:
+          $ref: "#/components/schemas/DdnsStatus"
+        last_message:
+          type: string
+          description: 上次执行的说明（已本地化）。
+        last_ipv4:
+          type: string
+        last_ipv6:
+          type: string
+
+    DdnsStatus:
+      type: string
+      enum: ["", success, unchanged, failed]
+      description: |
+        空串表示从未执行过。
+
+        unchanged 与 success 的区别很重要：前者表示"记录本来就是对的"，
+        不该触发通知；后者表示"真的改动了"，值得告诉用户。
+
+    DdnsSource:
+      type: object
+      required: [enable, get_type, value, domains]
+      properties:
+        enable:
+          type: boolean
+          description: 为 false 时该记录类型不参与解析。
+        get_type:
+          type: string
+          enum: [netInterface, url, cmd]
+          description: |
+            netInterface  从网卡读取（走内核的地址快照，已过滤不可用于公网的地址）
+            url           通过外部接口查询，可填多个并用逗号分隔
+            cmd           执行命令并从输出中抓取
+        value:
+          type: string
+          description: 网卡名 / URL 列表 / 命令，含义由 get_type 决定。
+        domains:
+          type: array
+          items:
+            type: string
+          description: |
+            要更新的域名。支持两种写法：
+
+              www.example.com   自动识别根域名
+              www:example.com   显式指定"子域名:根域名"
+
+            后者用于 publicsuffix 无法正确判断的域名。
+        selector:
+          type: string
+          description: |
+            仅 IPv6 使用：地址选择器。
+
+              "@2"        取第 2 个（从 1 开始）
+              "^240e:.*"  正则筛选，取第一个匹配的
+              留空        取第一个
+
+    DdnsTaskInput:
+      type: object
+      required: [credential_id, label]
+      properties:
+        credential_id:
+          type: string
+        label:
+          type: string
+          minLength: 1
+        enabled:
+          type: boolean
+        ipv4:
+          $ref: "#/components/schemas/DdnsSource"
+        ipv6:
+          $ref: "#/components/schemas/DdnsSource"
+        ttl:
+          type: string
+        http_interface:
+          type: string
+
+    DdnsTaskList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DdnsTask"
