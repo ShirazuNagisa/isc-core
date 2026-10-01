@@ -41,6 +41,10 @@ tags:
     description: 本机地址与 IPv6 前缀
   - name: DdnsTasks
     description: 动态解析任务
+  - name: Zones
+    description: DNS 区域（Tier-1 服务商）
+  - name: Records
+    description: DNS 记录管理（Tier-1 服务商）
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -751,6 +755,164 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # DNS 区域与记录（Tier-1 服务商）
+  # ---------------------------------------------------------------------------
+
+  /v1/credentials/{id}/zones:
+    parameters:
+      - $ref: "#/components/parameters/CredentialId"
+    get:
+      tags: [Zones]
+      operationId: listZones
+      summary: 列出该凭据可管理的 DNS 区域
+      description: |
+        路径里带上凭据 ID 而不是把区域 ID 做成全局唯一：区域存在于服务商
+        那边，内核不持久化它们。若把 (凭据, 区域) 压成一个本地 ID，
+        就得维护一份缓存并处理它过期的问题 —— 而每次实时查询既简单又准确。
+
+        `capabilities.zone_list` 为 false 的服务商会返回 400，
+        而不是一个空列表：空列表会让用户以为"我这个账号下没有域名"。
+      responses:
+        "200":
+          description: 区域列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZoneList"
+        "400":
+          description: 该服务商不支持列出区域
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/credentials/{id}/zones/{zoneId}/records:
+    parameters:
+      - $ref: "#/components/parameters/CredentialId"
+      - $ref: "#/components/parameters/ZoneId"
+    get:
+      tags: [Records]
+      operationId: listRecords
+      summary: 列出区域内的 DNS 记录
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: 按记录类型过滤。
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: false
+          description: 按记录名精确过滤（完整域名）。
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 记录列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    post:
+      tags: [Records]
+      operationId: createRecord
+      summary: 新增 DNS 记录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordInput"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/credentials/{id}/zones/{zoneId}/records/{recordId}:
+    parameters:
+      - $ref: "#/components/parameters/CredentialId"
+      - $ref: "#/components/parameters/ZoneId"
+      - $ref: "#/components/parameters/RecordId"
+    get:
+      tags: [Records]
+      operationId: getRecord
+      summary: 读取单条记录
+      responses:
+        "200":
+          description: 记录详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    put:
+      tags: [Records]
+      operationId: updateRecord
+      summary: 修改 DNS 记录
+      description: |
+        用 PUT 而不是 PATCH：请求体是**完整的记录**，服务商那边也是
+        整体替换语义。用 PATCH 的话，"清空备注"这类操作需要显式传 null，
+        而各家对 null 的处理不一致，容易产生歧义。
+
+        注意：部分服务商（如 GoDaddy）的记录没有独立 ID，
+        且"同名同类型"可以有多条值。那类服务商的删除语义会退化为
+        "删除该名字该类型的全部记录" —— 详见 `docs/PROVIDER-MATRIX.md`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordInput"
+      responses:
+        "200":
+          description: 修改后的记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Records]
+      operationId: deleteRecord
+      summary: 删除 DNS 记录
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -782,6 +944,22 @@ components:
       in: path
       required: true
       description: 动态解析任务 ID
+      schema:
+        type: string
+        minLength: 1
+    ZoneId:
+      name: zoneId
+      in: path
+      required: true
+      description: 服务商侧的 DNS 区域 ID
+      schema:
+        type: string
+        minLength: 1
+    RecordId:
+      name: recordId
+      in: path
+      required: true
+      description: 服务商侧的记录 ID
       schema:
         type: string
         minLength: 1
@@ -1088,6 +1266,7 @@ components:
       description: 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
       required:
         - available
+        - verify
         - dynamic
         - zone_list
         - record_list
@@ -1103,6 +1282,16 @@ components:
           type: boolean
           description: |
             该服务商的实现是否已就绪。
+
+        verify:
+          type: boolean
+          description: |
+            能否校验凭据（"测试连接"）。
+
+            为 false 时界面必须把"测试连接"藏起来或置灰，而不是让用户
+            点了才发现这家服务商根本没有只读的校验端点。阿里云 / 腾讯云 /
+            华为云 / GoDaddy 当前都没有 —— 用"列一次域名"来冒充会要求
+            额外的权限，把只有 DNS 编辑权限的最小权限账号误判为无效。
 
             为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
             完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
@@ -1507,3 +1696,90 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DdnsTask"
+
+    # ------------------------------------------------------------------
+    # DNS 区域与记录
+    # ------------------------------------------------------------------
+
+    ZoneList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Zone"
+
+    Zone:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: 服务商侧的区域 ID，用于后续的记录操作。
+        name:
+          type: string
+          description: 区域名，例如 example.com（**不含结尾的点**）。
+
+    Record:
+      type: object
+      required: [id, name, type, content]
+      properties:
+        id:
+          type: string
+          description: |
+            服务商侧的记录 ID。
+
+            注意：少数服务商（如 GoDaddy）没有记录 ID，此时内核会合成一个
+            稳定标识。合成 ID 在记录内容变化后会失效 —— 详见
+            `docs/PROVIDER-MATRIX.md`。
+        name:
+          type: string
+          description: 完整记录名，例如 www.example.com。
+        type:
+          type: string
+          description: 记录类型，例如 A / AAAA / CNAME / MX / TXT / NS / SRV / CAA。
+        content:
+          type: string
+        ttl:
+          type: integer
+          description: 生存时间（秒）。0 表示使用服务商默认值。
+        proxied:
+          type: boolean
+          description: CDN 代理开关。仅部分服务商的部分记录类型支持。
+        comment:
+          type: string
+        priority:
+          type: integer
+          description: MX / SRV 记录的优先级。
+
+    RecordInput:
+      type: object
+      required: [name, type, content]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+        content:
+          type: string
+        ttl:
+          type: integer
+          minimum: 0
+        proxied:
+          type: boolean
+        comment:
+          type: string
+        priority:
+          type: integer
+
+    RecordList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"

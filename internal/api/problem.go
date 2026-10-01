@@ -22,6 +22,16 @@ const (
 	CodeJobNotFound      = "job_not_found"
 	CodeJobNotCancelable = "job_not_cancelable"
 	CodeConflict         = "conflict"
+	// CodeUnsupported 表示该服务商不支持此操作。
+	//
+	// 与 CodeInvalidRequest 分开：后者是"你提交的内容有问题"，
+	// 前者是"这家服务商做不到这件事"。用户对二者的处置完全不同 ——
+	// 一个要改输入，一个要换服务商或换个做法。
+	CodeUnsupported = "unsupported"
+	// CodeUpstreamError 表示服务商拒绝了这次操作。
+	//
+	// detail 里带服务商的原始说明 —— 那恰恰是用户能据此行动的信息。
+	CodeUpstreamError = "upstream_error"
 )
 
 // problemTypeBase 是错误类型 URI 的前缀。

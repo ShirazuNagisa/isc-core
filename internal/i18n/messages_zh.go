@@ -126,6 +126,14 @@ var messagesZh = map[string]string{
 	"config.import.skipped":             "跳过第 %d 条：%s",
 	"config.import.webhook_unsupported": "ddns-go 的 webhook 配置暂未迁移（通知中心将在 M4 接入）",
 
+	// --- DNS 记录管理 ---
+	"dns.unsupported":       "该服务商不支持此操作",
+	"dns.record_not_found":  "DNS 记录不存在",
+	"dns.upstream_error":    "服务商拒绝了这次操作",
+	"dns.zone_not_found":    "DNS 区域不存在",
+	"dns.invalid_record":    "记录内容不合法",
+	"dns.too_many_requests": "服务商限流，请稍后再试",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

@@ -56,6 +56,7 @@ func (p Provider) Capabilities() Capabilities {
 	set := dns.Capabilities(p.Impl)
 	return Capabilities{
 		Available:      p.Impl != nil,
+		Verify:         set.Verify,
 		Dynamic:        set.Dynamic,
 		ZoneList:       set.ZoneList,
 		RecordList:     set.RecordList,
@@ -77,6 +78,13 @@ type Capabilities struct {
 	// 其能力位一律为 false。GUI 应当明确显示"尚未实现"，
 	// 而不是让用户对着一排灰按钮猜原因。
 	Available bool
+	// Verify 能校验凭据是否可用（"测试连接"）。
+	//
+	// 为 false 时界面必须把"测试连接"藏起来或置灰，而不是让用户点了
+	// 才发现服务商根本没有只读的校验端点。有几家（阿里云 / 腾讯云 /
+	// 华为云）确实没有 —— 用"列一次域名"来冒充会要求额外的权限，
+	// 把只有 DNS 编辑权限的最小权限账号误判为无效。
+	Verify bool
 	// Dynamic 能把 A/AAAA 记录更新到指定 IP。
 	Dynamic bool
 	// ZoneList 能列出账号下的 DNS 区域。
@@ -159,6 +167,18 @@ func (r *Registry) Verifier(name string) (dns.Verifier, bool) {
 	}
 	v, ok := p.Impl.(dns.Verifier)
 	return v, ok
+}
+
+// Lookup 返回某家服务商的实现。
+//
+// 与 Get 的区别：Get 返回完整的元信息（含字段定义），Lookup 只返回
+// 可用的实现。dns.Service 只需要后者 —— 它不做表单渲染。
+func (r *Registry) Lookup(name string) (dns.Provider, bool) {
+	p, ok := r.Get(name)
+	if !ok || p.Impl == nil {
+		return nil, false
+	}
+	return p.Impl, true
 }
 
 // List 返回全部服务商。

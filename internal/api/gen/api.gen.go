@@ -617,10 +617,6 @@ type ProviderCapabilities struct {
 	AllRecordTypes bool `json:"all_record_types"`
 
 	// Available 该服务商的实现是否已就绪。
-	//
-	// 为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
-	// 完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
-	// 而不是让用户对着一排灰按钮猜原因。
 	Available bool `json:"available"`
 	CustomTtl bool `json:"custom_ttl"`
 
@@ -639,6 +635,18 @@ type ProviderCapabilities struct {
 	RecordDelete bool `json:"record_delete"`
 	RecordList   bool `json:"record_list"`
 	RecordUpdate bool `json:"record_update"`
+
+	// Verify 能否校验凭据（"测试连接"）。
+	//
+	// 为 false 时界面必须把"测试连接"藏起来或置灰，而不是让用户
+	// 点了才发现这家服务商根本没有只读的校验端点。阿里云 / 腾讯云 /
+	// 华为云 / GoDaddy 当前都没有 —— 用"列一次域名"来冒充会要求
+	// 额外的权限，把只有 DNS 编辑权限的最小权限账号误判为无效。
+	//
+	// 为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
+	// 完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
+	// 而不是让用户对着一排灰按钮猜原因。
+	Verify bool `json:"verify"`
 
 	// ZoneList 能列出账号下的 DNS 区域。
 	ZoneList bool `json:"zone_list"`
@@ -666,6 +674,50 @@ type ProviderField struct {
 	// Secret 为 true 时该字段是敏感值：读取时被掩码，界面应使用密码输入框，
 	// 且不参与日志与导出（除非显式要求导出明文）。
 	Secret bool `json:"secret"`
+}
+
+// Record defines model for Record.
+type Record struct {
+	Comment *string `json:"comment,omitempty"`
+	Content string  `json:"content"`
+
+	// Id 服务商侧的记录 ID。
+	//
+	// 注意：少数服务商（如 GoDaddy）没有记录 ID，此时内核会合成一个
+	// 稳定标识。合成 ID 在记录内容变化后会失效 —— 详见
+	// `docs/PROVIDER-MATRIX.md`。
+	Id string `json:"id"`
+
+	// Name 完整记录名，例如 www.example.com。
+	Name string `json:"name"`
+
+	// Priority MX / SRV 记录的优先级。
+	Priority *int `json:"priority,omitempty"`
+
+	// Proxied CDN 代理开关。仅部分服务商的部分记录类型支持。
+	Proxied *bool `json:"proxied,omitempty"`
+
+	// Ttl 生存时间（秒）。0 表示使用服务商默认值。
+	Ttl *int `json:"ttl,omitempty"`
+
+	// Type 记录类型，例如 A / AAAA / CNAME / MX / TXT / NS / SRV / CAA。
+	Type string `json:"type"`
+}
+
+// RecordInput defines model for RecordInput.
+type RecordInput struct {
+	Comment  *string `json:"comment,omitempty"`
+	Content  string  `json:"content"`
+	Name     string  `json:"name"`
+	Priority *int    `json:"priority,omitempty"`
+	Proxied  *bool   `json:"proxied,omitempty"`
+	Ttl      *int    `json:"ttl,omitempty"`
+	Type     string  `json:"type"`
+}
+
+// RecordList defines model for RecordList.
+type RecordList struct {
+	Items []Record `json:"items"`
 }
 
 // Settings defines model for Settings.
@@ -699,6 +751,20 @@ type SettingsPatchLang string
 // SettingsPatchLogLevel defines model for SettingsPatch.LogLevel.
 type SettingsPatchLogLevel string
 
+// Zone defines model for Zone.
+type Zone struct {
+	// Id 服务商侧的区域 ID，用于后续的记录操作。
+	Id string `json:"id"`
+
+	// Name 区域名，例如 example.com（**不含结尾的点**）。
+	Name string `json:"name"`
+}
+
+// ZoneList defines model for ZoneList.
+type ZoneList struct {
+	Items []Zone `json:"items"`
+}
+
 // CredentialId defines model for CredentialId.
 type CredentialId = string
 
@@ -713,6 +779,12 @@ type JobId = string
 
 // Limit defines model for Limit.
 type Limit = int
+
+// RecordId defines model for RecordId.
+type RecordId = string
+
+// ZoneId defines model for ZoneId.
+type ZoneId = string
 
 // ListAuditParams defines parameters for ListAudit.
 type ListAuditParams struct {
@@ -755,6 +827,15 @@ type ListCredentialsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListRecordsParams defines parameters for ListRecords.
+type ListRecordsParams struct {
+	// Type 按记录类型过滤。
+	Type *string `form:"type,omitempty" json:"type,omitempty"`
+
+	// Name 按记录名精确过滤（完整域名）。
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
 // SubscribeEventsParams defines parameters for SubscribeEvents.
 type SubscribeEventsParams struct {
 	// LastEventId 客户端已收到的最后一个事件序号，用于断线补发。
@@ -784,6 +865,12 @@ type CreateCredentialJSONRequestBody = CredentialInput
 
 // UpdateCredentialJSONRequestBody defines body for UpdateCredential for application/json ContentType.
 type UpdateCredentialJSONRequestBody = CredentialInput
+
+// CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
+type CreateRecordJSONRequestBody = RecordInput
+
+// UpdateRecordJSONRequestBody defines body for UpdateRecord for application/json ContentType.
+type UpdateRecordJSONRequestBody = RecordInput
 
 // CreateDdnsTaskJSONRequestBody defines body for CreateDdnsTask for application/json ContentType.
 type CreateDdnsTaskJSONRequestBody = DdnsTaskInput
@@ -829,6 +916,24 @@ type ServerInterface interface {
 	// UpdateCredential 修改凭据
 	// (PATCH /v1/credentials/{id})
 	UpdateCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
+	// ListZones 列出该凭据可管理的 DNS 区域
+	// (GET /v1/credentials/{id}/zones)
+	ListZones(w http.ResponseWriter, r *http.Request, id CredentialId)
+	// ListRecords 列出区域内的 DNS 记录
+	// (GET /v1/credentials/{id}/zones/{zoneId}/records)
+	ListRecords(w http.ResponseWriter, r *http.Request, id CredentialId, zoneId ZoneId, params ListRecordsParams)
+	// CreateRecord 新增 DNS 记录
+	// (POST /v1/credentials/{id}/zones/{zoneId}/records)
+	CreateRecord(w http.ResponseWriter, r *http.Request, id CredentialId, zoneId ZoneId)
+	// DeleteRecord 删除 DNS 记录
+	// (DELETE /v1/credentials/{id}/zones/{zoneId}/records/{recordId})
+	DeleteRecord(w http.ResponseWriter, r *http.Request, id CredentialId, zoneId ZoneId, recordId RecordId)
+	// GetRecord 读取单条记录
+	// (GET /v1/credentials/{id}/zones/{zoneId}/records/{recordId})
+	GetRecord(w http.ResponseWriter, r *http.Request, id CredentialId, zoneId ZoneId, recordId RecordId)
+	// UpdateRecord 修改 DNS 记录
+	// (PUT /v1/credentials/{id}/zones/{zoneId}/records/{recordId})
+	UpdateRecord(w http.ResponseWriter, r *http.Request, id CredentialId, zoneId ZoneId, recordId RecordId)
 	// ListDdnsTasks 列出动态解析任务
 	// (GET /v1/ddns-tasks)
 	ListDdnsTasks(w http.ResponseWriter, r *http.Request)
@@ -1205,6 +1310,263 @@ func (siw *ServerInterfaceWrapper) UpdateCredential(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCredential(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListZones operation middleware
+func (siw *ServerInterfaceWrapper) ListZones(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListZones(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRecords operation middleware
+func (siw *ServerInterfaceWrapper) ListRecords(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "zoneId" -------------
+	var zoneId ZoneId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "zoneId", r.PathValue("zoneId"), &zoneId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zoneId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRecordsParams
+
+	// ------------- Optional query parameter "type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "type", r.URL.Query(), &params.Type, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRecords(w, r, id, zoneId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRecord operation middleware
+func (siw *ServerInterfaceWrapper) CreateRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "zoneId" -------------
+	var zoneId ZoneId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "zoneId", r.PathValue("zoneId"), &zoneId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zoneId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRecord(w, r, id, zoneId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRecord operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "zoneId" -------------
+	var zoneId ZoneId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "zoneId", r.PathValue("zoneId"), &zoneId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zoneId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "recordId" -------------
+	var recordId RecordId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordId", r.PathValue("recordId"), &recordId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "recordId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRecord(w, r, id, zoneId, recordId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRecord operation middleware
+func (siw *ServerInterfaceWrapper) GetRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "zoneId" -------------
+	var zoneId ZoneId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "zoneId", r.PathValue("zoneId"), &zoneId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zoneId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "recordId" -------------
+	var recordId RecordId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordId", r.PathValue("recordId"), &recordId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "recordId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecord(w, r, id, zoneId, recordId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRecord operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "zoneId" -------------
+	var zoneId ZoneId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "zoneId", r.PathValue("zoneId"), &zoneId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zoneId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "recordId" -------------
+	var recordId RecordId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordId", r.PathValue("recordId"), &recordId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "recordId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRecord(w, r, id, zoneId, recordId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1748,6 +2110,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.GetDdnsTask)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.UpdateDdnsTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/ddns-tasks/{id}/run", wrapper.RunDdnsTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}/zones", wrapper.ListZones)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records", wrapper.ListRecords)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records", wrapper.CreateRecord)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records/{recordId}", wrapper.DeleteRecord)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records/{recordId}", wrapper.GetRecord)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records/{recordId}", wrapper.UpdateRecord)
 
 	return m
 }

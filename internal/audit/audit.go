@@ -41,6 +41,10 @@ const (
 	ActionTaskUpdate = "ddns_task.update"
 	ActionTaskDelete = "ddns_task.delete"
 
+	ActionRecordCreate = "dns_record.create"
+	ActionRecordUpdate = "dns_record.update"
+	ActionRecordDelete = "dns_record.delete"
+
 	ActionConfigImport       = "config.import"
 	ActionConfigImportDdnsGo = "config.import.ddnsgo"
 	ActionConfigExport       = "config.export"

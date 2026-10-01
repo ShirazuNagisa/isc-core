@@ -125,6 +125,14 @@ var messagesEn = map[string]string{
 	"config.import.skipped":             "Skipped entry %d: %s",
 	"config.import.webhook_unsupported": "ddns-go webhook settings are not migrated yet (the notification centre lands in M4)",
 
+	// --- DNS record management ---
+	"dns.unsupported":       "This provider does not support the operation",
+	"dns.record_not_found":  "DNS record not found",
+	"dns.upstream_error":    "The provider rejected the request",
+	"dns.zone_not_found":    "DNS zone not found",
+	"dns.invalid_record":    "The record content is invalid",
+	"dns.too_many_requests": "The provider is rate limiting; try again later",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

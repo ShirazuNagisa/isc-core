@@ -56,6 +56,7 @@ func toGenProvider(p provider.Provider) gen.Provider {
 func toGenProviderCapabilities(c provider.Capabilities) gen.ProviderCapabilities {
 	return gen.ProviderCapabilities{
 		Available:      c.Available,
+		Verify:         c.Verify,
 		Dynamic:        c.Dynamic,
 		ZoneList:       c.ZoneList,
 		RecordList:     c.RecordList,

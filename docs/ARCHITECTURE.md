@@ -26,30 +26,68 @@
 │  └───────────────────────────────────────────────────────────────┘   │
 │                                                                      │
 │  ┌── 领域层 ─────────────────────────────────────────────────────┐   │
-│  │  dns/       自研 Provider 接口 + libdns 双向适配器              │   │
-│  │             providers/tier1（全量 CRUD）                       │   │
-│  │             providers/tier2（照搬 ddns-go，仅 A/AAAA 更新）      │   │
-│  │  ipmon/     IP 与 IPv6 前缀监控（三平台）                       │   │
-│  │  sched/     调度器（定时 + 事件触发 + 防抖 + 重试）              │   │
-│  │  reach/     ReachabilityProvider 插件（ipv6-native / frp / …）  │   │
-│  │  proxy/     反向代理（域名 / SNI 路由 + 非标端口入口）           │   │
-│  │  acme/      certmagic + DNS-01 证书签发与续期                   │   │
-│  │  notify/    通知中心（通道 Provider + 去重 + 静默期）            │   │
+│  │  dns/       自研 Provider 接口 + 记录管理服务                   │   │
+│  │             service.go 按能力分发（ZoneLister / RecordLister …）│   │
+│  │  ddnsgo/    **移植自 ddns-go** 的 30 家服务商实现（机械变换）    │   │
+│  │             + 5 套签名 + IP 缓存 + IP 获取三方式                │   │
+│  │  provider/  服务商元信息注册表（字段定义 + 能力位）             │   │
+│  │    tier2.go      把移植实现适配成 dns.DynamicUpdater           │   │
+│  │    tier1impl.go  接上记录管理并注入动态解析（合成一个对象）      │   │
+│  │    tier1/        Tier-1 五家的完整记录 CRUD（为 ISC 新写）      │   │
+│  │  ddns/      动态解析任务：实体 + 引擎 + 调度器 + 服务           │   │
+│  │  ipmon/     （并入 platform/ipmon.go）IP 与 IPv6 前缀监控       │   │
+│  │  credential/ 凭据实体 + 服务（加解密、掩码、引用检查）          │   │
+│  │  configio/  配置导入导出 + ddns-go 迁移                        │   │
 │  │  audit/     审计日志                                            │   │
+│  │  settings/  运行时设置                                          │   │
+│  │  reach/     可达性插件（M3）                                     │   │
+│  │  proxy/     反向代理（M4）                                       │   │
+│  │  acme/      certmagic + DNS-01（M4）                            │   │
+│  │  notify/    通知中心（M4）                                       │   │
 │  └───────────────────────────────────────────────────────────────┘   │
 │                                                                      │
 │  ┌── 基础设施层 ─────────────────────────────────────────────────┐   │
 │  │  store/     SQLite（modernc.org/sqlite）+ 迁移框架              │   │
-│  │  secret/    SecretStore（DPAPI / Keychain / Secret Service）    │   │
-│  │  i18n/      消息目录（zh-CN / en）                              │   │
-│  │  logx/      slog + 环形缓冲 + 事件流桥接                        │   │
+│  │  secret/    主密钥 + AES-256-GCM 信封                           │   │
+│  │  i18n/      消息目录（zh-CN / en + 移植代码的译文）             │   │
+│  │  logx/      slog + 事件总线桥接                                 │   │
+│  │  event/     事件总线（单调序号 + 环形缓冲 + 断线补发）           │   │
+│  │  job/       异步任务引擎                                        │   │
+│  │  paths/     数据目录解析                                        │   │
+│  │  runtimeinfo/ runtime.json（客户端发现内核的唯一入口）           │   │
 │  └───────────────────────────────────────────────────────────────┘   │
 │                                                                      │
 │  ┌── 平台适配层（build tag，三平台各一份实现）────────────────────┐   │
-│  │  platform/  Firewall │ ServiceManager │ IPMonitor               │   │
-│  │             SecretStore │ Transport │ LowPortBinder             │   │
+│  │  platform/  Firewall（M3）│ ServiceManager（M5）               │   │
+│  │             IPMonitor（可移植轮询）│ SecretStore（DPAPI/Keychain）│  │
+│  │             Transport（命名管道 / Unix 套接字）│ LowPortBinder   │   │
 │  └───────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────┘
+```
+
+### 关于 ddnsgo 包的边界
+
+`internal/ddnsgo/` 是**照搬的上游代码**（8335 行，由 `scripts/port-ddnsgo.ps1`
+机械变换生成），`internal/provider/tier2.go` 是**我们写的**适配层。
+保持这条边界的原因：
+
+- 上游升级时只需重跑移植脚本，适配层不受影响；
+- ISC 的接口演进不用去动那 8000 多行；
+- MIT 归属说明可以精确指向一个包，而不是散落各处。
+
+### 关于 Tier-1 与 Tier-2 的能力合成
+
+Tier-1 的五家（Cloudflare / 阿里云 / 腾讯云 / DNSPod / 华为云 / GoDaddy）
+在移植代码里**也有**动态解析实现，而记录管理是为 ISC 新写的。两者必须
+合成**一个对象**，否则 `Capabilities()` 推导出的能力位只会反映其中一个，
+界面上会出现"支持列记录但不支持动态解析"这种与实际不符的组合。
+
+合成通过 `tier1.dynamicDelegate` 完成：Tier-1 实现内嵌一个转发器，
+装配层把移植过来的动态解析实现注入进去。
+
+> ⚠️ 注意：这里**不能**用 `struct { dns.Provider; dns.DynamicUpdater }`
+> 那种"嵌入接口"的写法 —— 嵌入接口只提升该接口自己的方法，
+> 记录增删改查的方法全都传不出来。必须是内嵌**具体结构**。
 ```
 
 **控制流方向**：接口层 → 领域层 → 基础设施层 / 平台适配层。领域层之间通过接口通信，不直接互相依赖（例如 `acme` 依赖 `dns.Provider` 接口，不依赖具体 provider 包）。

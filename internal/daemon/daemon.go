@@ -109,6 +109,7 @@ type Daemon struct {
 	ddnsEngine *ddns.Engine
 	scheduler  *ddns.Scheduler
 	tasks      *ddns.Service
+	dnsService *dns.Service
 	// monitorCancel 停掉 IP 监控与调度器的后台 goroutine。
 	monitorCancel context.CancelFunc
 
@@ -237,6 +238,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.tasks = ddns.NewService(d.taskRepo, d.ddnsEngine, d.scheduler)
 	d.credentials.SetUsageChecker(d.taskRepo)
 
+	// 记录管理（Tier-1 服务商）。
+	//
+	// 它复用同一个 credentialResolver：那个适配器的签名同时满足
+	// ddns.CredentialResolver 与 dns.CredentialResolver，
+	// 因此不必写两遍 —— 这是把两个领域的接口定义成相同形状的好处。
+	d.dnsService = dns.NewService(credentialResolver{svc: d.credentials}, d.registry.Lookup)
+
 	// 7. 清理上一次的残留运行时文件。
 	if err := d.cleanupStaleRuntime(); err != nil {
 		return err
@@ -281,6 +289,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		AuditWriter:    st,
 		Config:         d.configio,
 		Tasks:          d.tasks,
+		DNS:            d.dnsService,
 	})
 
 	// 11. 建立传输通道

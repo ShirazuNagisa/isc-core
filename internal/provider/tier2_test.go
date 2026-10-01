@@ -383,9 +383,27 @@ func TestCloudflareHasVerifyButTier2DoesNot(t *testing.T) {
 		if !caps.Available || !caps.Dynamic {
 			t.Errorf("Cloudflare 能力位不对: %+v", caps)
 		}
-		// M2 阶段尚未实现记录 CRUD，必须如实报告为 false。
-		if caps.RecordDelete || caps.ZoneList {
-			t.Errorf("M2 阶段尚未实现记录管理，不应报告为可用: %+v", caps)
+		// Cloudflare 是已接入记录管理的 Tier-1，这些能力必须为 true。
+		// 这条断言同时守着"合并逻辑没把动态解析顶掉"与
+		// "记录管理确实接上了"两件事。
+		if !caps.ZoneList || !caps.RecordList || !caps.RecordCreate ||
+			!caps.RecordUpdate || !caps.RecordDelete {
+			t.Errorf("Cloudflare 应具备完整记录管理能力: %+v", caps)
+		}
+	}
+
+	// Tier-2 服务商必须**只**有动态解析能力 —— 它们不该报告记录管理，
+	// 那会误导界面显示一堆点了就报错的按钮。
+	for _, p := range Default().List() {
+		if p.Name != "callback" {
+			continue
+		}
+		caps := p.Capabilities()
+		if !caps.Dynamic {
+			t.Errorf("callback 应具备动态解析能力: %+v", caps)
+		}
+		if caps.ZoneList || caps.RecordCreate || caps.RecordDelete {
+			t.Errorf("Tier-2 服务商不应报告记录管理能力: %+v", caps)
 		}
 	}
 }

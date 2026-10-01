@@ -189,7 +189,12 @@ func builtin() []Provider {
 
 	// 接上实现。
 	//
-	// Tier-2 的动态更新来自移植的 ddns-go 代码，因此**从 M2 起它们是真正
-	// 可用的**，不再是"仅登记名称"。Tier-1 的记录 CRUD 在 M2-d 接入。
-	return attachImplementations(out)
+	// 顺序有讲究：
+	//  1. attachImplementations 接上移植代码提供的动态解析（Tier-2 全部 +
+	//     Tier-1 五家 —— 它们也在上游的支持列表里）；
+	//  2. attachTier1 把新写的记录管理能力**合并**进去，而不是覆盖。
+	//
+	// 顺序反过来的话，Tier-1 五家的动态解析会被记录管理实现顶掉，
+	// 界面上会看到"支持列记录但不支持动态解析"这种与实际不符的组合。
+	return attachTier1(attachImplementations(out))
 }

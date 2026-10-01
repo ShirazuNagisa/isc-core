@@ -14,6 +14,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
 	"github.com/ShirazuNagisa/isc-core/internal/ddns"
+	"github.com/ShirazuNagisa/isc-core/internal/dns"
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
@@ -74,6 +75,9 @@ type Deps struct {
 
 	// Tasks 是动态解析任务的领域服务。
 	Tasks *ddns.Service
+
+	// DNS 是记录管理的领域服务（Tier-1 服务商）。
+	DNS *dns.Service
 }
 
 // Server 实现 gen.ServerInterface。
