@@ -1,0 +1,19 @@
+# oapi-codegen 配置 —— 把 api/openapi.yaml 生成到 internal/api/gen/
+#
+# 生成物**必须提交进仓库**：CI 会重新生成并检查 git diff 是否为空，
+# 以此保证 spec 与实现不漂移（见 docs/DECISIONS.md D07）。
+package: gen
+output: internal/api/gen/api.gen.go
+generate:
+  # 数据模型
+  models: true
+  # 基于标准库 net/http 的服务端接口（不引入路由框架）
+  std-http-server: true
+# 注意：**不要**开启 embedded-spec。
+# 它会把 github.com/getkin/kin-openapi 拖进生产二进制的依赖树
+# （仅为了把 spec 解析成 openapi3.T 对象），代价与收益不成比例。
+# 我们改为在 internal/api 中直接 go:embed 原始 YAML 提供 /v1/openapi.yaml。
+# 见 docs/PLAN.md §0 关于依赖克制的约束。
+output-options:
+  # 保留全部 schema（M0 阶段接口少，避免生成物在里程碑间反复增删）
+  skip-prune: true

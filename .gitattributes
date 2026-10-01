@@ -1,0 +1,46 @@
+# 行尾规范化。
+#
+# 为什么必须有这个文件：项目在 Windows 上开发、在 Linux / macOS 上构建与测试。
+# Git 在 Windows 上默认开启 core.autocrlf，会把 shell 脚本、Makefile 也写成
+# CRLF —— 结果是 CI 上的 Linux runner 执行 scripts/*.sh 时报
+# "/bin/sh^M: bad interpreter"，而本机完全看不出问题。
+#
+# 策略：统一以 LF 存储，检出时也保持 LF。Windows 上的 .bat / .ps1 用 CRLF。
+
+# 默认：自动判定文本文件，检出为 LF
+* text=auto eol=lf
+
+# 必须在任何平台上保持 LF —— 否则无法执行
+*.sh            text eol=lf
+Makefile        text eol=lf
+*.mk            text eol=lf
+Dockerfile      text eol=lf
+*.env           text eol=lf
+
+# Windows 专有脚本保持 CRLF
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# 源码与文档
+*.go            text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.mod           text eol=lf
+*.sum           text eol=lf
+
+# 二进制：不做任何转换
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.exe           binary
+*.dll           binary
+*.zip           binary
+
+# 生成物：GitHub 语言统计里不计入，避免"生成代码占了大半个仓库"的错觉
+internal/api/gen/*.go linguist-generated=true
+go.sum                linguist-generated=true

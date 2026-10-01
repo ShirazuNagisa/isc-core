@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 默认最小权限：CI 只需要读代码。
+permissions:
+  contents: read
+
+env:
+  # 本项目硬约束：构建产物不得依赖 cgo（见 docs/PLAN.md §0）。
+  # 这样三平台交叉编译与发布都不需要 C 工具链。
+  CGO_ENABLED: "0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 交叉编译矩阵
+  #
+  # 存在意义见 docs/DECISIONS.md D11 与 docs/PLAN.md R2：
+  # 内核是一套 Go 代码，必须保证**任何时刻**所有目标平台都能编译通过，
+  # 未实现的平台后端靠 stub 兜底。某个平台"先不管"是不允许的。
+  # ---------------------------------------------------------------------------
+  matrix-build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: freebsd, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 交叉编译
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...
+
+      - name: 确认没有 cgo 依赖
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          # CGO_ENABLED=0 时若有依赖需要 cgo，构建会直接失败。
+          # 这里额外打印一次，便于在日志里确认约束确实生效。
+          echo "CGO_ENABLED=$CGO_ENABLED"
+
+  # ---------------------------------------------------------------------------
+  # 测试
+  #
+  # 分两组：
+  #   - 三平台原生测试，CGO_ENABLED=0，验证产品构建形态下行为正确；
+  #   - 在 Linux / macOS 上额外开 cgo 跑 -race。
+  #     Windows 开发机没有 C 工具链，竞态检测只能在 CI 的这一组里做。
+  # ---------------------------------------------------------------------------
+  test:
+    name: test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -count=1
+
+      - name: gofmt 检查
+        if: runner.os != 'Windows'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未格式化："
+            echo "$unformatted"
+            exit 1
+          fi
+
+  race:
+    name: race (linux, cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 竞态检测需要 cgo，因此这里显式覆盖全局的 CGO_ENABLED=0。
+      # 这只影响测试，不影响发布产物的构建形态。
+      - name: go test -race
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./... -count=1
+
+  # ---------------------------------------------------------------------------
+  # 契约漂移检查
+  #
+  # api/openapi.yaml 是接口的唯一真理（docs/DECISIONS.md D07）。
+  # 生成物必须与它同步提交，否则"契约优先"就退化成口号。
+  # ---------------------------------------------------------------------------
+  spec-drift:
+    name: openapi 生成物同步
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 重新生成
+        run: make generate-go
+
+      - name: 检查是否有未提交的差异
+        run: |
+          if ! git diff --quiet -- internal/api/gen; then
+            echo "::error::internal/api/gen 与 api/openapi.yaml 不同步。"
+            echo "请在本机运行 'make generate' 并提交结果。"
+            git --no-pager diff --stat -- internal/api/gen
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # i18n 完整性
+  #
+  # 文案硬编码检查在 M1 引入；当前先做 key 集合一致性
+  # （由 internal/i18n 的单元测试保证，这里只是显式跑一次）。
+  # ---------------------------------------------------------------------------
+  i18n:
+    name: i18n 完整性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go test ./internal/i18n/... -count=1 -v

@@ -1,0 +1,447 @@
+# ISC 架构决策记录（ADR）
+
+> 本文档记录 ISC-Core 立项阶段逐条确认的架构决策。每条包含：**背景 → 结论 → 理由 → 后果/约束**。
+> 修改任何一条决策前，请先在本文件追加一条新记录说明为何推翻，而不是直接改写历史。
+
+- 项目：ISC（接入编排器 / Ingress Service Conductor）
+- 内核仓库：`github.com/ShirazuNagisa/isc-core`
+- 协议：GPL-3.0
+- 决策日期：立项阶段（M0 之前）
+
+---
+
+## 目录
+
+| # | 决策点 | 结论 |
+|---|---|---|
+| [D01](#d01-职责边界) | 职责边界 | 接入编排器，不托管业务服务生命周期 |
+| [D02](#d02-可达性策略) | 可达性 | 纯 IPv6 原生 MVP + `ReachabilityProvider` 可插拔抽象 |
+| [D03](#d03-进程形态) | 进程形态 | 独立守护进程 + 本地 API |
+| [D04](#d04-dns-能力分层) | DNS 能力 | 分层：Tier-1 全量 CRUD / Tier-2 照搬 ddns-go |
+| [D05](#d05-tier-1-厂商名单) | Tier-1 名单 | Cloudflare、阿里云、腾讯云·DNSPod、华为云、GoDaddy |
+| [D06](#d06-存储与凭据) | 存储 | SQLite（纯 Go）+ OS 钥匙串加密凭据 + YAML 导入导出 |
+| [D07](#d07-api-契约形式) | 契约 | OpenAPI 3.1 契约优先 |
+| [D08](#d08-调用与推送模型) | 调用模型 | 快同步 + 慢异步 job + WebSocket 事件流 |
+| [D09](#d09-管理接口安全边界) | 安全边界 | 仅本机（命名管道/UDS 优先）+ 强制随机 token |
+| [D10](#d10-系统变更模型) | 系统变更 | 计划→预览→应用→回滚 + 引导式外部验证 |
+| [D11](#d11-平台推进策略) | 平台 | 一套代码，三平台适配层同步做 |
+| [D12](#d12-内核与-gui-的边界) | GUI | 内核无 GUI，只提供接口 |
+| [D13](#d13-验证控制台形态) | 验证控制台 | 真·API 客户端 SPA |
+| [D14](#d14-反向代理与证书) | 反代+证书 | 内置反代 + ACME DNS-01 自动 HTTPS |
+| [D15](#d15-provider-抽象层) | Provider 抽象 | 自研接口 + 双向 libdns 适配器 |
+| [D16](#d16-里程碑切分) | 里程碑 | 6 个，地基优先 |
+| [D17](#d17-仓库与许可证) | 仓库 | GitHub 公开 + GPLv3 |
+| [D18](#d18-通知与告警) | 通知 | 多通道通知中心 + 去重静默 |
+| [D19](#d19-cli-范围) | CLI | 完整 CLI + 交互式引导 + `--json` |
+| [D20](#d20-数据目录与运行模式) | 数据目录 | 系统级服务 + 标准系统目录 |
+| [D21](#d21-文案与多语言) | 语言 | 第一天就 i18n：zh-CN + en |
+
+---
+
+## D01 职责边界
+
+**背景**　"把电脑用作可供公网访问的服务器"存在三种截然不同的产品形态。
+
+**结论**　ISC 是**接入编排器**：只负责"让外部能访问到本机"。业务服务（Jellyfin / Minecraft / nginx / SSH）由用户自行安装，ISC 不托管其生命周期。
+
+**理由**　托管业务服务（应用市场 + 服务管理器）的跨平台差异极大，工作量翻 2~3 倍，且会把项目拖入与 1Panel / 宝塔的同质竞争，而 ISC 真正的差异化在"无公网 IPv4 的家宽如何被公网访问"。
+
+**后果**
+- 内核不提供"一键安装应用"能力；GUI 阶段也不做。
+- 内核必须把"可达性"做到极致（这是它存在的全部理由）。
+- 端口/防火墙/证书/反代属于内核职责；进程守护业务服务不属于。
+
+---
+
+## D02 可达性策略
+
+**背景**　国内家宽普遍无独立公网 IPv4，仅有动态 IPv6。需求是"仅用动态 IPv6 + 动态域名解析"实现公网访问。同时存在多个现实约束：
+
+- 家宽重拨后 IPv6 **前缀（/64）会变**，不是单个地址变；
+- 国内家宽普遍**封禁入站 80/443**（部分省份连 8080 也封）；
+- 家用路由器 **IPv6 防火墙默认丢弃入站**，而 UPnP-IGD 只管 IPv4，对 IPv6 无效；
+- 访问端若只有 IPv4（公司网、部分公共 WiFi），纯 IPv6 走不通。
+
+**结论**　MVP 只实现 **IPv6 原生**一种可达方式，但从第一天起把"可达方式"抽象为 `ReachabilityProvider` 接口。frp / Cloudflare Tunnel / 端口映射等都是后续插件，内核不改。
+
+**理由**　先把唯一能确定走通的路径做扎实，避免在隧道与打洞上过早发散。
+
+**后果**
+- `internal/reach/` 必须从 M0/M3 就存在接口定义，即使只有 `ipv6-native` 一个实现。
+- `isc doctor` 必须能区分"本机没通"与"运营商封了端口"。
+- IPv6 前缀跟踪是一等公民，不是 AAAA 记录的附属功能。
+
+---
+
+## D03 进程形态
+
+**背景**　内核与 GUI 的解耦质量、"应用响应速度"、以及服务可靠性三者在此交汇。
+
+**结论**　**独立守护进程 + 本地 API**。`isc-core` 是独立二进制，可安装为系统服务常驻；GUI 是纯客户端，通过命名管道 / Unix socket / 回环 HTTP + Bearer token 连接。
+
+**理由**
+- GUI 崩溃或关闭不影响 DDNS 定时任务 —— 服务器场景的硬要求；
+- 核心常驻才能保证可靠性（开机自启、崩溃重启）；
+- 以系统服务身份运行才能静默绑定低端口、修改防火墙；
+- GUI 技术栈可随时更换，且不继承 GPL（见 D17）。
+
+**后果**
+- 需要服务安装流程与提权时机设计（安装时一次性提权）。
+- 需要"GUI 如何发现内核"的机制：`runtime.json`（pid / 传输地址 / 随机 token）。
+- 禁止把内核作为 Go 库链接进任何 GUI（架构红线，见 D17）。
+
+---
+
+## D04 DNS 能力分层
+
+**背景**　ddns-go 的 34 个 provider 文件**只实现了"把 A/AAAA 记录新增或更新到当前 IP"**，查询/新增/修改逻辑写死在 A/AAAA 上；没有通用记录 CRUD、没有删除、没有 CNAME/MX/TXT/SRV/CAA、没有区域列表。`proxied`、`comment` 等 Cloudflare 特性是通过自定义查询参数 hack 进去的。
+
+**结论**　**分层能力**：
+- **Tier-1**：完整记录 CRUD（列区域、列记录、建/改/删、A/AAAA/CNAME/MX/TXT/NS/SRV/CAA、TTL、Cloudflare 代理开关）；
+- **Tier-2**：直接照搬 ddns-go，只做 A/AAAA 动态更新。
+
+用 Capability 接口声明能力位，GUI 据此自动置灰不支持的功能。
+
+**理由**　30 家 × 全量 CRUD 的工作量是分层方案的 4~6 倍，且每家 API 的签名、错误码、分页差异极大，维护成本高。国内用户的真实需求高度集中在少数几家。
+
+**后果**
+- `internal/dns/providers/tier1/` 与 `tier2/` 分开组织。
+- Provider 接口需支持能力协商（`Capabilities() CapabilitySet`）。
+- 文档需明确列出每家的能力矩阵。
+
+---
+
+## D05 Tier-1 厂商名单
+
+**结论**　Cloudflare、阿里云 DNS、腾讯云 / DNSPod、华为云 DNS、GoDaddy。
+
+**理由**　覆盖国内自建服务器用户绝大多数；五家 API 风格差异足够大（Bearer Token / 阿里云 RPC 签名 / 腾讯云 TC3 签名 / 华为云签名 / GoDaddy 简易 REST），能一次性验证抽象层的通用性。前四家同时满足 ACME DNS-01 证书签发需要。
+
+**后果**
+- 这五家必须实现 `dns.Provider` 的完整能力集。
+- ddns-go 中已有的签名代码（`util/aliyun_signer.go`、`huawei_signer.go`、`tencent_cloud_signer.go`）应直接复用而非重写。
+- 其余厂商能力矩阵在文档中标注"仅动态解析"。
+
+---
+
+## D06 存储与凭据
+
+**背景**　ISC 会把**能重写整个 DNS 区域的凭据**存在本机，而它自己又是个对公网暴露的服务器。凭据被盗 ≈ 域名被劫持。
+
+**结论**　**嵌入式 SQLite（`modernc.org/sqlite`，纯 Go 无 cgo）+ OS 钥匙串加密凭据 + YAML 导入导出**。
+
+- 主密钥存 OS 钥匙串：Windows DPAPI / macOS Keychain / Linux Secret Service；
+- 无钥匙串时回退到 0600 权限文件，并明确告警；
+- 支持 YAML 导入导出，用于备份、迁移与 ddns-go 配置导入。
+
+**理由**
+- 应用要管理大量实体（凭据/区域/记录/任务/服务/证书/规则/计划/任务/事件/审计），关系型查询与分页是刚需；
+- 纯 Go SQLite 保证交叉编译不受 cgo 影响（关键：本机无 MSVC 工具链）；
+- 明文凭据与"把电脑暴露到公网"的安全诉求直接冲突。
+
+**后果**
+- 需要密钥版本号字段以支持轮换（`key_version`）。
+- 导出 YAML 时必须明确提示是否包含明文凭据（默认不含）。
+- 需要 schema 迁移框架。
+
+---
+
+## D07 API 契约形式
+
+**结论**　**OpenAPI 3.1 契约优先**。`api/openapi.yaml` 是唯一真理；`oapi-codegen` 生成 Go server 接口与模型；`openapi-typescript` 生成前端类型与客户端。
+
+**理由**　接口数量轻松过百（5 家 Tier-1 CRUD + 可达性插件 + 防火墙 + 证书 + 任务 + 事件流）。手写 TS 类型到第 30 个接口就会开始漂移，而 GUI 是后做的，漂移代价全部由 GUI 承担。契约优先还能让编译期发现"实现漏了哪个接口"。
+
+**后果**
+- 改接口必须先改 spec。
+- CI 必须包含"生成物漂移检查"（重新生成后 git diff 必须为空）。
+- 自带 Scalar / Swagger UI 便于调试。
+
+---
+
+## D08 调用与推送模型
+
+**背景**　DNS-01 证书签发要等 TXT 记录传播 + CA 轮询，典型 30 秒到 3 分钟；IPv6 前缀检测、provider 凭据校验、防火墙应用也都是秒级到分钟级。做成同步 REST 会导致 GUI 超时或假死。
+
+**结论**　**快查询同步 + 慢操作异步 job + WebSocket 事件流**。
+
+- 快查询（列表 / 详情 / 配置）保持同步 `GET`；
+- 所有可能慢的操作返回 `202 Accepted` + `jobId`，进度通过任务接口或事件流获取；
+- 内置事件总线，一条 WebSocket 推送 `job.progress` / `job.finished` / `ip.changed` / `cert.renewed` / `reachability.changed` / `log.appended` / `config.changed`；
+- 事件带单调递增序号 + 环形缓冲，断线重连可按 `lastEventId` 补发；
+- 多客户端（CLI + 控制台 + GUI）同时连接互不干扰。
+
+**理由**　这是"响应速度"与"能力完整"唯一能同时满足的模型。
+
+**后果**
+- 任务状态必须持久化（进程重启后任务可查询/可恢复）。
+- 事件序号需要持久化水位，否则重启后补发语义不清。
+- 需要任务取消与超时语义。
+
+---
+
+## D09 管理接口安全边界
+
+**背景**　ISC 内核掌握能重写整个 DNS 区域的凭据，还能改防火墙、绑低端口；同时它装在一台准备对公网开放的机器上。它的本地管理接口是一条"只要拿到就能接管你域名"的通道。ddns-go 的"Web UI + 账号密码 + 禁止公网访问开关"在本项目威胁模型下不足。
+
+**结论**　**仅本机 + 强制 token**。
+
+- 默认只监听回环；优先走命名管道（Windows，用 SDDL 限定仅当前用户 + 管理员）/ Unix socket（0600）；
+- 首次启动生成随机 token 写入 `runtime.json`（仅当前用户可读）；
+- 所有请求强制带 token，即使是回环；
+- 内核管理面绝不对外暴露；
+- v1 明确不做远程管理，但认证中间件留接口（未来可插 mTLS / OIDC）。
+
+**后果**
+- `runtime.json` 所在目录的 ACL 必须收紧。
+- 控制台与 CLI 共用同一 token 发现逻辑。
+- 若未来要做远程管理，必须新开一条独立监听 + 独立认证链，不得复用本地管道。
+
+**实现现状（M0）**
+
+- Windows：命名管道安全描述符 `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;IU)`——
+  受保护 DACL，不含 `Everyone` / `Anonymous` / `Network logon`，
+  因此 `\\host\pipe\isc-core` 形式的远程连接会被拒绝（网络登录的令牌不含
+  INTERACTIVE SID）。
+- `run/` 目录同样使用**受保护的** DACL（切断从 `C:\ProgramData` 的继承，
+  否则 `Users` 的宽泛权限会继续生效），授权范围收敛到三个明确 SID：
+  `SYSTEM` / `BUILTIN\Administrators` / `INTERACTIVE`。
+- 令牌比较使用 `crypto/subtle` 常数时间算法；空令牌视为配置错误，
+  拒绝所有请求而不是放行。
+- WebSocket 场景下浏览器无法设置自定义请求头，因此额外支持用
+  `Sec-WebSocket-Protocol: isc.token.<token>` 承载令牌，避免把令牌放进
+  查询串（那会让它落进访问日志与历史记录）。
+
+**⚠️ 已知局限（必须有意识地接受，而不是忽略）**
+
+`runtime.json` 含访问令牌，因此**"可读"等价于"可控制内核"**。
+在多用户共享的机器上，任何交互登录的用户都能读到令牌，进而控制一个以
+SYSTEM 运行、能够修改防火墙的服务 —— 这是一条本地提权路径。
+
+目标场景是家用单用户机器，此时 `INTERACTIVE` 就是机主本人，不构成问题。
+但把它当作"已经安全了"是错的。
+
+**根治方案（已设计，排在 M5 之后）**
+
+识别命名管道客户端所属的会话，只放行**控制台会话**的用户与管理员：
+
+1. `GetNamedPipeClientProcessId` 取得客户端 PID；
+2. 打开该进程令牌，取出其会话 ID；
+3. 与 `WTSGetActiveConsoleSessionId` 比对 —— 只有坐在物理控制台前的那个人
+   才算数，远程桌面与后台服务一律拒绝。
+
+这比"按 SID 白名单"更贴合语义，也不需要管理员预先配置谁被授权。
+在此之前，文档必须如实说明该局限。
+
+---
+
+## D10 系统变更模型
+
+**背景**　ISC 要改防火墙、装服务、绑端口、写证书。改系统 = 有副作用 = 有出事概率。同时存在验证闭环问题：改完之后 ISC 其实**不知道自己是不是真的通了**，因为验证必须从"外面"看；本机 `curl localhost` 永远成功，毫无意义。
+
+**结论**　**计划 → 预览 → 应用 → 可回滚** + **引导式外部验证**。
+
+- 所有系统级变更先产出人类可读的"变更计划"（要改什么、为什么、影响哪些端口），用户确认后才应用；
+- 落库审计，支持一键回滚；
+- 平台后端：Windows Defender Firewall（netsh / COM）、Linux nftables 为主并探测 ufw、macOS pf；
+- **明确不碰**：系统代理、系统 DNS 设置、路由表、任何驱动；
+- 验证闭环：应用后生成一次性验证链接，引导用户用手机 4G/5G 打开，结果回写数据库；不依赖第三方探测服务。
+
+**理由**　服务以 SYSTEM / root 运行时，一个 bug 就是系统级事故。可预览 + 可回滚把"出错"从灾难降级为操作。
+
+**后果**
+- `internal/plan/` 是 M0 就要有的框架，不是 M3 才补。
+- 每个平台后端都必须实现 `Plan() -> Change` / `Apply(Change)` / `Rollback(Change)` 三段式。
+- 引导式验证需要一次性 URL 与回调，涉及一个短暂的本机监听端口。
+
+---
+
+## D11 平台推进策略
+
+**背景**　防火墙后端、服务安装、IPv6 地址枚举、前缀变化监听在三个平台上是四套独立代码，macOS 的 pf 与 Windows Defender Firewall 无可复用性。
+
+**结论**　**一套 Go 代码**（`GOOS` 条件编译），**三平台适配层同步做**。共享代码占比约 90%。
+
+**澄清**　不存在"Windows 内核 / Linux 内核"两份代码。平台差异全部收敛在 `internal/platform/` 下的接口 + 每平台一个实现文件，用 build tag 切换。未实现的后端可降级为"引导模式"（告诉用户该放行什么，但不代其动手）。
+
+**平台适配面**
+
+| 接口 | Windows | Linux | macOS |
+|---|---|---|---|
+| `Firewall` | Defender Firewall (COM/netsh) | nftables（探测 ufw） | pf |
+| `ServiceManager` | SCM | systemd | launchd |
+| `IPMonitor` | `GetAdaptersAddresses` + 轮询 | netlink (`RTM_NEWADDR`) | `getifaddrs` + 路由 socket |
+| `SecretStore` | DPAPI | Secret Service | Keychain |
+| `Transport` | 命名管道 | Unix socket | Unix socket |
+| `LowPortBinder` | 无限制 | `CAP_NET_BIND_SERVICE` | 无限制 |
+
+**后果**
+- 必须保持**纯 Go**（无 cgo），否则三平台交叉编译与 CI 复杂度爆炸。SQLite 选型即因此（D06）。
+- 三平台始终保证 `go build ./...` 通过 —— 用 stub 实现兜底。
+- 每个平台后端需要一套**一致性测试套件**，确保行为语义一致。
+- macOS 无法在开发机验证，需要 GitHub Actions `macos-latest` + 真机/VM。
+
+---
+
+## D12 内核与 GUI 的边界
+
+**结论**　内核**没有 GUI**，也不内嵌 Web UI 作为产品界面。内核只提供：完整接口面（OpenAPI）、CLI、以及一个**仅供验证**的浏览器控制台。
+
+**理由**　产品 GUI 由项目所有者后续独立开发，内核只负责提供契约。这样内核可以完全独立演进而无需等待 GUI。
+
+**后果**
+- 内核不得包含任何产品级 UI 依赖。
+- `--console` 提供的控制台明确标注为验证工具。
+- 接口的稳定性与文档质量直接决定下游 GUI 的开发成本。
+
+---
+
+## D13 验证控制台形态
+
+**结论**　**真·API 客户端 SPA**（Vite + React/Svelte + `openapi-typescript` 生成的客户端），走 HTTP + token，**不直接调用内核内部函数**。内核用 `--console` 开关提供，默认关闭。
+
+**理由**　只有真正走 HTTP 层，控制台才能验证契约；否则等下游 GUI 接进来才发现接口不好用。它同时是契约的"活文档"：跑得通就说明 spec 与实现一致；其中的调用代码可被下游 GUI 直接复用。
+
+**后果**
+- 控制台代码不得 import 任何内核内部包。
+- 控制台的构建产物需要嵌入内核二进制（`go:embed`）或由 `--console-dir` 指定。
+- 控制台必须覆盖跨接口流程（配置 → 启动 → 验证可达），而不只是单接口调试。
+
+---
+
+## D14 反向代理与证书
+
+**背景**　国内家宽普遍封 80/443，通常只剩**一个**可用非标端口。没有反代则一个端口只能对一个服务。而 DNS-01 证书校验正好需要 DNS 服务商凭据 —— 这个凭据 ISC 手里已经有了。
+
+**结论**　内核**内置反向代理 + ACME DNS-01 自动 HTTPS**。
+
+**理由**
+- 家宽封 80/443 时，只用一个非标端口就能发布任意多个服务（靠 SNI / 域名路由）；
+- DNS-01 不依赖 80 端口，是封端口环境下唯一可行的签发方式；
+- 与 Tier-1 凭据天然咬合。
+
+**后果**
+- 反代实现基于标准库 `net/http/httputil.ReverseProxy` + `tls.Config.GetCertificate`，不引入 Caddy 的巨型依赖树。
+- 证书管理用 `certmagic` + libdns 适配器。
+- **安全约束**：严格限制上游地址（SSRF 防护）、禁止开放代理、清理转发请求头、禁止 CONNECT 转发。
+
+---
+
+## D15 Provider 抽象层
+
+**背景**　`libdns` 的接口本身就是 CRUD（`ZoneLister` / `RecordGetter` / `RecordAppender` / `RecordSetter` / `RecordDeleter`），且 `certmagic` 原生消费该接口。但 libdns 的国内厂商 provider 多为社区维护、版本偏 beta（如 `libdns/alidns` 仍为 `v1.0.4-libdns.v1.beta1`），而 ddns-go 的国内厂商实现被海量用户验证过。GoDaddy 无官方 libdns provider。
+
+**结论**　**自研 `dns.Provider` 接口 + 双向 libdns 适配器**。
+
+- 自研接口能力模型参考 libdns，用 Capability 位声明支持的能力；
+- Tier-1 手写，直接复用 ddns-go 的签名代码，**不押注 beta 库**；
+- Tier-2 照搬 ddns-go；
+- 另写一层双向胶水（约 200 行）：
+  - 我们的 Provider → libdns（给 certmagic 用）；
+  - libdns provider → 我们的接口（白捐 40+ 家 provider）。
+
+**后果**
+- 需要维护适配器的一致性测试。
+- 引入 libdns provider 时需检查其许可证与 GPLv3 的兼容性（多数为 MIT，兼容）。
+- 接口演进的主动权保留在自己手里。
+
+---
+
+## D16 里程碑切分
+
+**结论**　6 个里程碑，**地基优先**。
+
+| # | 内容 |
+|---|---|
+| M0 | 地基：工具链、仓库骨架、平台接口 + stub、OpenAPI 管线、daemon + 传输 + token、事件总线 + WS + job 最小版、CLI 骨架、CI、许可证审计 |
+| M1 | 配置与凭据：SQLite schema + 迁移、`SecretStore` 三平台、配置 CRUD API + YAML 导入导出（含 ddns-go 迁移）、审计日志 |
+| M2 | 动态解析闭环：ddns-go 移植（Tier-2 + 签名 + IP 获取 + ipcache + webhook）、`IPMonitor` 三平台 + 前缀变化事件、调度器、Tier-1 五家全量 CRUD |
+| M3 | 可达性：三平台 `Firewall` 后端 + 计划/预览/应用/回滚、引导式外部验证、端口冲突检测、低端口绑定、`isc doctor` |
+| M4 | 反代 + 自动 HTTPS：certmagic + libdns 适配器、反代（域名/SNI 路由 + 非标端口入口）、证书续期 + 事件 |
+| M5 | 打磨与打包：控制台补全、三平台服务安装/自启/崩溃重启、安装包与签名、文档 |
+
+**理由**　每步都有硬验收标准，避免"什么都做了一点但都不可用"。
+
+**后果**　M3 之前看不到完整的"手机能访问"效果，需要接受这个延迟。
+
+---
+
+## D17 仓库与许可证
+
+**结论**　**GitHub 公开仓库 + GPL-3.0**，module 路径 `github.com/ShirazuNagisa/isc-core`。
+
+**理由**　项目所有者指定。
+
+**后果与约束**
+1. **MIT 代码可以进 GPLv3 项目**（宽松 → 严格是允许的），因此照搬 ddns-go 没问题，但**必须保留 MIT 声明**，`THIRD_PARTY_NOTICES.md` 是硬要求（`Copyright (c) 2020 jeessy`）。
+2. GPLv3 **没有** AGPL 的"网络条款"，自用与分发二进制无额外义务。
+3. ⚠️ **架构红线**：下游 GUI 通过 HTTP/WS 与内核通信，是两个独立进程，通常不构成衍生作品，GUI 可自选协议。**若把内核作为 Go 库链接进 GUI，整个 GUI 将继承 GPLv3。** 此红线必须写入 README。
+4. M0 必须包含**依赖许可证审计**：`certmagic` 为 Apache-2.0、`modernc.org/sqlite` 为 BSD-3、libdns providers 多为 MIT，均与 GPLv3 兼容，但需逐条确认，尤其小众 provider。
+5. GitHub 用户名一旦变更，旧 module 路径全部失效（`go get` 404）。**`ShirazuNagisa` 定下后不再改动。**
+
+---
+
+## D18 通知与告警
+
+**背景**　"把电脑当服务器"最怕的不是它坏，而是**它悄悄坏了你不知道**：前缀变了没更新、证书过期、端口被运营商封。而 ISP 重拨可能一天数次，不做去重就会刷屏。
+
+**结论**　**多通道通知中心 + 去重静默**。
+
+- 通道做成 Provider：Webhook（JSON 模板，兼容 ddns-go webhook 配置，可直接迁移）、SMTP 邮件、Telegram、企业微信/钉钉/飞书机器人、Bark / Server酱等；
+- 触发点：IP/前缀变化、解析连续失败、证书即将过期/续期失败、端口不可达、内核异常；
+- 自带去重 + 静默期 + 频率限制。
+
+**后果**
+- 通知通道配置需加密存储（含 webhook 密钥 / SMTP 密码）。
+- 需要通知历史与"已发送"状态去重表。
+
+---
+
+## D19 CLI 范围
+
+**背景**　项目没有 GUI，且 GUI 是后做的。在内核开发全过程中，CLI 与控制台是唯一的手和眼睛。
+
+**结论**　**完整 CLI + 交互式引导 + `--json`**。
+
+- `isc init`：交互式向导（选网卡 → 填域名 → 填凭据 → 选端口 → 生成变更计划 → 应用）；
+- 完整子命令：`daemon run|install|uninstall`、`status`、`domain`、`record`、`reach`、`cert`、`notify`、`log tail`、`config export|import`、`doctor`；
+- 所有子命令支持 `--json` 输出，直接可被脚本与未来的 GUI 复用。
+
+**理由**　若无完整 CLI，M2 阶段验证 5 家 Tier-1 的 CRUD 只能靠手点控制台，无法进 CI、无法批量回归。
+
+**后果**
+- CLI 必须是"通过本地 API 通信的客户端"，而不是直接调用内核内部函数（与 D13 同理）。
+- 构建产物为单二进制，`isc` 同时是 CLI 与守护进程入口（`isc daemon run`）。
+
+---
+
+## D20 数据目录与运行模式
+
+**背景**　服务必须能在无人登录时运行（服务器的基本要求），且要能改防火墙、绑低端口。Windows 上用户级进程改防火墙每次都要弹 UAC。
+
+**结论**　**系统级服务 + 标准系统目录**。
+
+| 平台 | 配置 | 数据 | 服务 |
+|---|---|---|---|
+| Windows | `%ProgramData%\ISC\` | `%ProgramData%\ISC\` | Windows 服务（LocalSystem 或专用虚拟账户） |
+| Linux | `/etc/isc/` | `/var/lib/isc/` | systemd |
+| macOS | `/Library/Application Support/ISC/` | 同左 | launchd |
+
+`runtime.json` 所在目录用 ACL 限定仅本机用户可读。日志：journald（Linux）/ 文件 + 事件流（Windows、macOS）。
+
+**后果**
+- `isc install` 需要管理员权限。
+- 需要处理"服务账户与交互用户不同"导致的路径与权限问题。
+
+---
+
+## D21 文案与多语言
+
+**结论**　**第一天就做 i18n**：zh-CN（默认）+ en。所有面向用户的文案（API 错误、CLI 输出、通知模板、控制台）走消息目录。
+
+**理由**　GPLv3 + GitHub 公开意味着会有陌生用户；而目标场景（国内家宽 IPv6、阿里云/腾讯云/华为云）用户基本是中文用户，纯英文会明显降低可用性。事后补 i18n 是全局手术，比改 module 路径更痛。ddns-go 已有可借鉴的 i18n 结构（`util/messages.go` + `Lang` + `InitLogLang`）。
+
+**后果**
+- 禁止硬编码用户可见字符串（CI 需要检查）。
+- 消息 key 需要命名规范与去重机制。
+- 控制台需要接入语言切换。
