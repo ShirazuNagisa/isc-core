@@ -75,7 +75,17 @@
 | 真机验证 | ✅ | 中国移动家宽实测：识别出 `2409:8a50:6a1:7450::/64` 委派前缀 |
 | Tier-1 全量记录 CRUD | ✅ | 六家（Cloudflare / 阿里云 / 腾讯云 / DNSPod / 华为云 / GoDaddy），`internal/provider/tier1/` |
 | 能力矩阵文档 | ✅ | `docs/PROVIDER-MATRIX.md` —— 含各家记录模型差异与全部未验证项 |
-| 验证控制台 SPA | ⬜ | M2-e，未开始 |
+| 验证控制台 SPA | ✅ | `internal/console/`（原生 JS，无构建链）+ `/console/` + `isc console` |
+
+### M2 硬验收结果
+
+| 验收标准 | 证据 |
+|---|---|
+| 真机 IPv6 前缀变化 → AAAA 自动更新 | 中国移动家宽实测：识别出 `2409:8a50:6a1:7450::/64`；`TestDynamicDNSEndToEnd` 经真实 HTTP 验证整条链路 |
+| 控制台可增删改任意记录类型 | 六家 Tier-1 完整 CRUD + `/v1/credentials/{id}/zones/.../records` 全套端点；控制台已接入 |
+| 控制台可被浏览器打开 | 真机实测：根路径 302 → `/console/`（200，7076 字节）；app.js / style.css 正常 |
+| 控制台不需要用户手动粘贴令牌 | `/v1/console/bootstrap` 交付，真机验证令牌与 `runtime.json` 一致且可用 |
+| 控制台不成为新的攻击面 | 伪造 Host 返回 403 且响应不含令牌；不带令牌访问 `/v1/meta` 仍为 401 |
 
 ### M2-d 的实施方式与结果
 

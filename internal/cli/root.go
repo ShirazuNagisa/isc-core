@@ -87,6 +87,7 @@ func New() *cobra.Command {
 		newDaemonCmd(app),
 		newIPCmd(app),
 		newDdnsCmd(app),
+		newConsoleCmd(app),
 	)
 
 	return root

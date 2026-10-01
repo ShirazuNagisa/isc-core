@@ -134,6 +134,11 @@ var messagesZh = map[string]string{
 	"dns.invalid_record":    "记录内容不合法",
 	"dns.too_many_requests": "服务商限流，请稍后再试",
 
+	// --- 验证控制台 ---
+	"console.title":            "ISC 验证控制台",
+	"console.host_not_allowed": "请求的 Host 不是本机地址，已拒绝",
+	"console.token_missing":    "未能取得访问令牌，请确认通过 127.0.0.1 打开控制台",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

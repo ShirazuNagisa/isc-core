@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  禁止外部资源。
+
+  控制台跑在本机回环上，引用任何外部 CDN 都会把"本机管理界面"的
+  加载行为暴露给第三方，也会让离线环境下的控制台变成一片空白。
+  所有样式与脚本都来自这个二进制自己。
+-->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; form-action 'none'; base-uri 'none'">
+<title>ISC 验证控制台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">ISC</span>
+    <span class="subtitle">验证控制台</span>
+  </div>
+  <div class="meta" id="topMeta">
+    <span class="pill" id="pillVersion">—</span>
+    <span class="pill" id="pillConn">连接中…</span>
+  </div>
+</header>
+
+<div id="bootError" class="boot-error" hidden></div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="overview" class="active">概览</button>
+  <button data-tab="ip">IP 与前缀</button>
+  <button data-tab="credentials">凭据</button>
+  <button data-tab="tasks">动态解析</button>
+  <button data-tab="records">DNS 记录</button>
+  <button data-tab="events">事件流</button>
+  <button data-tab="raw">原始接口</button>
+</nav>
+
+<main>
+
+<!-- ==================== 概览 ==================== -->
+<section id="tab-overview" class="tab-panel active">
+  <h2>内核状态</h2>
+  <div class="grid" id="overviewCards"></div>
+
+  <h2>平台能力</h2>
+  <p class="hint">
+    每一项都来自内核的<strong>代码事实</strong>（接口断言），不是配置。
+    「引导模式」表示该平台后端尚未实现，相关功能会降级而不是假装成功。
+  </p>
+  <table class="data" id="capTable">
+    <thead><tr><th>能力</th><th>可用</th><th>后端</th><th>说明</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<!-- ==================== IP 与前缀 ==================== -->
+<section id="tab-ip" class="tab-panel">
+  <h2>本机地址与 IPv6 前缀</h2>
+  <p class="hint">
+    <strong>前缀</strong>是这套系统的核心概念：ISP 重拨后变化的是整个
+    <code>/64</code> 前缀，该前缀下的<strong>所有</strong> AAAA 记录都要重写，
+    而不是只改一个地址。
+    列表里只会出现 <code>/64</code> 及更粗的前缀 —— Windows 会把 IPv6 主机地址
+    报成 <code>/128</code>，而隐私扩展地址每小时轮换，把它当委派前缀会造成
+    每小时一次的无意义全量更新。
+  </p>
+  <div class="row">
+    <button id="ipRefresh">刷新</button>
+  </div>
+  <div class="grid" id="ipPrimary"></div>
+  <div id="ipList"></div>
+</section>
+
+<!-- ==================== 凭据 ==================== -->
+<section id="tab-credentials" class="tab-panel">
+  <h2>DNS 服务商凭据</h2>
+  <p class="hint">
+    凭据加密存储在主密钥保护的信封里。列表中只显示掩码值 ——
+    内核<strong>不会</strong>把明文凭据发回界面。
+  </p>
+  <div class="row">
+    <button id="credRefresh">刷新</button>
+    <button id="credNew" class="primary">新建凭据</button>
+  </div>
+  <div id="credForm" class="form-card" hidden></div>
+  <div id="credList"></div>
+</section>
+
+<!-- ==================== 动态解析 ==================== -->
+<section id="tab-tasks" class="tab-panel">
+  <h2>动态解析任务</h2>
+  <p class="hint">
+    一条任务 = 一组凭据 + 一组域名 + 一组地址来源。
+    地址变化会被立即触发，另有定时轮询兜底。
+    <br>
+    勾选任务的「立即执行」会<strong>清空防抖缓存</strong>，因此必定与服务商比对一次。
+  </p>
+  <div class="row">
+    <button id="taskRefresh">刷新</button>
+    <button id="taskNew" class="primary">新建任务</button>
+  </div>
+  <div id="taskForm" class="form-card" hidden></div>
+  <div id="taskList"></div>
+</section>
+
+<!-- ==================== DNS 记录 ==================== -->
+<section id="tab-records" class="tab-panel">
+  <h2>DNS 记录管理</h2>
+  <p class="hint">
+    仅 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / DNSPod / 华为云 / GoDaddy）。
+    <br>
+    <strong>注意各家的记录模型不同</strong>：华为云的一条记录属于一个「记录集」，
+    GoDaddy 的记录没有独立 ID —— 它们的删除会波及同名的其它值。
+    详见 <code>docs/PROVIDER-MATRIX.md</code>。
+  </p>
+  <div class="row">
+    <label>凭据 <select id="recCred"></select></label>
+    <label>区域 <select id="recZone" disabled><option>（先选凭据）</option></select></label>
+    <button id="recLoad">加载记录</button>
+    <button id="recNew" class="primary" disabled>新增记录</button>
+  </div>
+  <div id="recCapNote" class="hint"></div>
+  <div id="recForm" class="form-card" hidden></div>
+  <div id="recList"></div>
+</section>
+
+<!-- ==================== 事件流 ==================== -->
+<section id="tab-events" class="tab-panel">
+  <h2>事件流</h2>
+  <p class="hint">
+    通过 WebSocket 实时推送。浏览器无法为 WebSocket 设置请求头，
+    因此令牌走 <code>Sec-WebSocket-Protocol</code> 子协议传递。
+    <br>
+    断线重连时会带上 <code>lastEventId</code> 补发漏掉的事件；
+    若补发链已断（环形缓冲被覆盖），会收到一条 <code>events.gap</code>
+    而不是静默丢事件。
+  </p>
+  <div class="row">
+    <button id="evConnect">连接</button>
+    <button id="evDisconnect" disabled>断开</button>
+    <button id="evClear">清空</button>
+    <label class="inline"><input type="checkbox" id="evFollow" checked> 自动滚动</label>
+  </div>
+  <div id="evLog" class="event-log"></div>
+</section>
+
+<!-- ==================== 原始接口 ==================== -->
+<section id="tab-raw" class="tab-panel">
+  <h2>原始接口调用</h2>
+  <p class="hint">
+    直接对内核发一次请求并看到<strong>原始响应</strong>。
+    验证功能的最后一道手段 —— 界面有 bug 时，这里仍然可信。
+    <br>
+    契约原文：<a href="/v1/openapi.yaml" target="_blank" rel="noopener">/v1/openapi.yaml</a>
+  </p>
+  <div class="row">
+    <label>方法 <select id="rawMethod">
+      <option>GET</option><option>POST</option><option>PATCH</option>
+      <option>PUT</option><option>DELETE</option>
+    </select></label>
+    <label class="grow">路径 <input id="rawPath" value="/v1/meta" spellcheck="false"></label>
+    <button id="rawSend" class="primary">发送</button>
+  </div>
+  <label class="block">请求体（JSON，可留空）
+    <textarea id="rawBody" rows="6" spellcheck="false"></textarea>
+  </label>
+  <div class="raw-out">
+    <div class="raw-status" id="rawStatus">—</div>
+    <pre id="rawResult"></pre>
+  </div>
+</section>
+
+</main>
+
+<footer class="statusbar">
+  <span id="statusText">就绪</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

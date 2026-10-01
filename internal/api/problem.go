@@ -32,6 +32,10 @@ const (
 	//
 	// detail 里带服务商的原始说明 —— 那恰恰是用户能据此行动的信息。
 	CodeUpstreamError = "upstream_error"
+	// CodeForbidden 表示请求被安全策略拒绝。
+	//
+	// 目前只有一种情形：Host 头不是本机地址（DNS rebinding 防护）。
+	CodeForbidden = "forbidden"
 )
 
 // problemTypeBase 是错误类型 URI 的前缀。

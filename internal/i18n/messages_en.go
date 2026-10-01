@@ -133,6 +133,11 @@ var messagesEn = map[string]string{
 	"dns.invalid_record":    "The record content is invalid",
 	"dns.too_many_requests": "The provider is rate limiting; try again later",
 
+	// --- verification console ---
+	"console.title":            "ISC Verification Console",
+	"console.host_not_allowed": "The request Host is not a loopback address; rejected",
+	"console.token_missing":    "Could not obtain an access token; open the console via 127.0.0.1",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

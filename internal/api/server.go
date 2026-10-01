@@ -124,10 +124,18 @@ func (s *Server) Routes() http.Handler {
 	// 契约原文：供验证控制台与 Scalar UI 使用。
 	mux.HandleFunc("GET /v1/openapi.yaml", s.handleOpenAPISpec)
 
+	// 验证控制台（静态资源 + 令牌引导）。
+	s.MountConsole(mux)
+
 	return Chain(mux,
 		RequestID(),
 		Recover(s.Log),
 		LogRequests(s.Log),
+		// Host 校验必须在鉴权之前：它挡的是 DNS rebinding ——
+		// 那种请求带着正确的令牌（浏览器自动附带），因此靠鉴权拦不住。
+		func(next http.Handler) http.Handler {
+			return LoopbackGuard(s.Log, next)
+		},
 		func(next http.Handler) http.Handler {
 			return AuthMiddleware(s.Token, s.Log, next)
 		},

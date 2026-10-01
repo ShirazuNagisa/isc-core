@@ -34,6 +34,11 @@ type harness struct {
 	endpoint platform.Endpoint
 	client   *http.Client
 	baseURL  string
+	// stopped 记录内核是否已经被 stop() 关闭过。
+	//
+	// 存在的理由：done 是一个容量 1 的通道，stop() 会把它取空。
+	// 清理函数若不知道这件事，就会在一个已经关闭的实例上白等到超时。
+	stopped bool
 	// paths 让测试能直接检查数据目录里的产物（数据库、密钥文件等）。
 	paths paths.Paths
 }
@@ -78,11 +83,25 @@ func startDaemonIn(t *testing.T, dir string) *harness {
 	h := &harness{t: t, daemon: d, cancel: cancel, done: done, paths: p}
 
 	// 启动失败时要保证测试不会留下一个还在跑的 goroutine。
+	//
+	// **必须等到 done**，不能只 cancel 就返回：t.TempDir 的清理在本函数
+	// 的清理之后执行（LIFO），而内核关闭过程中仍持有 SQLite 句柄 ——
+	// 于是临时目录删除会间歇性失败，报"文件被另一个进程占用"。
+	// 那是一个只在某些机器上偶现、看起来与测试内容完全无关的失败。
+	//
+	// 但已经 stop 过的实例不能再等：stop() 已经把 done 里的值取走了，
+	// 再等只会白等到超时。用 stopped 标记区分这两种情况 ——
+	// "停掉再启动"类测试（验证持久化的那几个）正好会走到这条路径上。
 	t.Cleanup(func() {
+		if h.stopped {
+			return
+		}
+		h.stopped = true
+		cancel()
 		select {
 		case <-done:
-		default:
-			cancel()
+		case <-time.After(15 * time.Second):
+			t.Error("内核关闭超时，测试资源可能未被释放")
 		}
 	})
 
@@ -128,8 +147,15 @@ func startDaemonIn(t *testing.T, dir string) *harness {
 //
 // 与 t.Cleanup 的区别：它让同一个测试可以"停掉再启动"，
 // 这正是验证持久化的方式。
+//
+// 幂等：重复调用直接返回。清理函数依赖 stopped 标记来判断
+// 是否需要再等一次 —— done 通道只会有一个值，等第二次必然超时。
 func (h *harness) stop() {
 	h.t.Helper()
+	if h.stopped {
+		return
+	}
+	h.stopped = true
 	h.cancel()
 	select {
 	case err := <-h.done:

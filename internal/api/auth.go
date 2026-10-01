@@ -66,10 +66,32 @@ func AuthMiddleware(token string, log *slog.Logger, next http.Handler) http.Hand
 
 // isPublicPath 报告该路径是否无需鉴权。
 func isPublicPath(path string) bool {
+	// 控制台的静态资源必须公开。
+	//
+	// 浏览器加载一个 HTML 页面时**无法**携带 Authorization 头 ——
+	// 若这里要求鉴权，控制台就永远打不开，而错误表现只是一个
+	// 401 空白页，用户完全无从判断。
+	//
+	// 这不会降低安全性：静态资源里没有任何数据，令牌本身也不在其中
+	//（它是通过受保护的引导端点获取的）。而整个管理接口只监听回环，
+	// 且 Host 头必须指向本机（见 LoopbackGuard）。
+	if strings.HasPrefix(path, consoleAssets) {
+		return true
+	}
+
 	switch path {
-	case "/v1/health", "/v1/openapi.yaml":
+	case "/", "/v1/health", "/v1/openapi.yaml", "/v1/console/bootstrap":
+		// 根路径公开：它只做一次到 /console/ 的重定向，不含任何数据。
+		// 用户拿到的是 http://127.0.0.1:PORT/ ，要求令牌会让首页变成
+		// 一个 401 空白页 —— 而那正是用户判断"内核起没起来"的第一眼。
+		//
 		// 契约原文公开是安全的：它只描述接口形状，不含任何数据或密钥，
 		// 而验证控制台需要在拿到令牌之前就能渲染接口文档。
+		//
+		// 引导端点公开同样是安全的：它返回令牌，但受 LoopbackGuard
+		// 与本文件内的 Host 校验保护 —— 能通过那两关的只可能是
+		// 从本机浏览器发出的请求。所防的是 DNS rebinding，
+		// 而那种攻击的请求带的就是伪造的 Host。
 		return true
 	default:
 		return false
