@@ -45,6 +45,10 @@ tags:
     description: DNS 区域（Tier-1 服务商）
   - name: Records
     description: DNS 记录管理（Tier-1 服务商）
+  - name: Reach
+    description: 可达性（让服务能从公网访问）
+  - name: Changes
+    description: 系统变更记录与撤销
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -913,6 +917,135 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 可达性
+  # ---------------------------------------------------------------------------
+
+  /v1/reach/providers:
+    get:
+      tags: [Reach]
+      operationId: listReachProviders
+      summary: 列出全部可达方式
+      description: |
+        「可达方式」是让本机服务能从公网访问的途径。
+
+        默认是 IPv6 直连（不需要公网 IPv4、不需要中转服务器、
+        流量不经过第三方）。后续会加入经中转服务器的方案，
+        供运营商封禁入站连接时换路。
+      responses:
+        "200":
+          description: 可达方式列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachProviderList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/reach/providers/{name}/probe:
+    parameters:
+      - $ref: "#/components/parameters/ReachProviderName"
+    get:
+      tags: [Reach]
+      operationId: probeReachProvider
+      summary: 探测某种可达方式当前是否可用
+      description: |
+        **只读操作**，不产生任何系统变更。
+
+        返回的检测项按「从下到上」排列（本机地址 → 委派前缀 →
+        防火墙后端 → 服务监听 → 上游可达性），用户按顺序逐项修复即可。
+
+        注意 `scope` 字段：
+
+        - `local`    本机做的检测，失败说明本机还需要配置
+        - `upstream` 需要外部视角才能做的检测
+
+        本机**无法**验证上游可达性 —— 从本机访问自己的公网地址通常走
+        回环（NAT 发夹），无论运营商是否放行都会"成功"。因此那一项
+        永远是 `unknown`，必须用手机流量做外部验证才能确认。
+      responses:
+        "200":
+          description: 探测结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachReadiness"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 变更记录
+  # ---------------------------------------------------------------------------
+
+  /v1/changes:
+    get:
+      tags: [Changes]
+      operationId: listChanges
+      summary: 列出历史系统变更
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: 变更记录列表（按时间倒序）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/changes/{planId}:
+    parameters:
+      - $ref: "#/components/parameters/PlanId"
+    get:
+      tags: [Changes]
+      operationId: getChange
+      summary: 读取单条变更记录
+      responses:
+        "200":
+          description: 变更记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRecord"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/changes/interrupted:
+    get:
+      tags: [Changes]
+      operationId: listInterruptedChanges
+      summary: 列出被中断的变更
+      description: |
+        返回停留在「执行中」状态的变更 —— 它们说明内核上次没有走完
+        整个流程（多半是异常退出），系统里可能留有半成品。
+
+        **内核不会自动撤销它们**，这是刻意的：一次执行中的变更可能
+        已经部分生效，而用户可能正依赖那部分（例如他已经通过新开的
+        端口连上了服务）。启动时擅自撤掉会拿走用户正在用的东西，
+        而他完全不知道发生了什么。
+
+        因此这里只报告，由用户决定是否撤销。
+      responses:
+        "200":
+          description: 被中断的变更列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeList"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -960,6 +1093,22 @@ components:
       in: path
       required: true
       description: 服务商侧的记录 ID
+      schema:
+        type: string
+        minLength: 1
+    ReachProviderName:
+      name: name
+      in: path
+      required: true
+      description: 可达方式标识，例如 ipv6-native
+      schema:
+        type: string
+        minLength: 1
+    PlanId:
+      name: planId
+      in: path
+      required: true
+      description: 变更计划 ID
       schema:
         type: string
         minLength: 1
@@ -1783,3 +1932,176 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Record"
+
+    # ------------------------------------------------------------------
+    # 可达性
+    # ------------------------------------------------------------------
+
+    ReachProviderList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReachProvider"
+
+    ReachProvider:
+      type: object
+      required: [name, display_name, description, needs_external_server, tier]
+      properties:
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+          description: 工作原理的简要说明，用户据此在多种方式间做选择。
+        needs_external_server:
+          type: boolean
+          description: |
+            是否依赖一台外部服务器。
+
+            这是用户决策时最关键的一条信息：要不要另外买一台机器、
+            流量会不会经过别人的设备。
+        tier:
+          type: integer
+          description: 实现成熟度。1 = 完整实现，2 = 骨架。
+
+    ReachReadiness:
+      type: object
+      required: [viable, checks, summary]
+      properties:
+        viable:
+          type: boolean
+          description: |
+            当前是否可用。
+
+            判定只看 `local` 作用域的检测项 —— 上游不通不代表本机
+            配置有问题。
+        summary:
+          type: string
+          description: 一句话结论，先给结论再给下一步。
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReachCheck"
+
+    ReachCheck:
+      type: object
+      required: [name, scope, status]
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [local, upstream]
+        status:
+          type: string
+          enum: [pass, fail, warn, unknown, blocked]
+          description: |
+            - `pass`    通过
+            - `fail`    未通过，且这是**本机**能够修复的问题
+            - `warn`    有隐患但不阻断
+            - `unknown` 无法判定（例如需要外部视角）
+            - `blocked` 本机一切正常，但**上游**挡住了
+
+            `fail` 与 `blocked` 刻意分开：前者是"去改本机设置"，
+            后者是"本机已经没得改了"。把它们混在一起正是让用户
+            白白折腾几小时的原因。
+        detail:
+          type: string
+          description: 观察到的具体事实。
+        hint:
+          type: string
+          description: |
+            **该怎么办**。
+
+            这一栏是整套检测里最有价值的部分 —— 用户能自己看到
+            "没有 IPv6 地址"，但他真正需要的是"去路由器的 IPv6 设置里
+            确认前缀委派已开启"。
+
+    # ------------------------------------------------------------------
+    # 变更记录
+    # ------------------------------------------------------------------
+
+    ChangeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeRecord"
+
+    ChangeRecord:
+      type: object
+      required: [plan_id, kind, title, risk, status, steps, created_at, updated_at]
+      properties:
+        plan_id:
+          type: string
+        kind:
+          type: string
+          description: 变更类型，例如 firewall.expose_port。
+        title:
+          type: string
+        risk:
+          type: string
+          enum: [low, medium, high]
+        status:
+          type: string
+          enum: [applying, applied, failed, rolled_back, rollback_failed]
+          description: |
+            - `applying`        正在执行。**这个状态停着不动说明内核上次异常退出**
+            - `applied`         全部步骤成功
+            - `failed`          有步骤失败，但已完成自动回滚
+            - `rolled_back`     已撤销
+            - `rollback_failed` 回滚本身失败 —— 系统处于中间态，最严重
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeStep"
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 界面上需要显著提示的内容。
+        notes:
+          type: array
+          items:
+            type: string
+          description: 背景说明。
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ChangeStep:
+      type: object
+      required: [id, title, state]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        state:
+          type: string
+          enum: [pending, applied, failed, reverted, skipped]
+        diff:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeDiffLine"
+        error:
+          type: string
+
+    ChangeDiffLine:
+      type: object
+      required: [op, text]
+      properties:
+        op:
+          type: string
+          enum: [add, remove, keep, change]
+        text:
+          type: string

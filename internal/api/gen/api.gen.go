@@ -35,6 +35,105 @@ func (e AuditResult) Valid() bool {
 	}
 }
 
+// Defines values for ChangeDiffLineOp.
+const (
+	Add    ChangeDiffLineOp = "add"
+	Change ChangeDiffLineOp = "change"
+	Keep   ChangeDiffLineOp = "keep"
+	Remove ChangeDiffLineOp = "remove"
+)
+
+// Valid indicates whether the value is a known member of the ChangeDiffLineOp enum.
+func (e ChangeDiffLineOp) Valid() bool {
+	switch e {
+	case Add:
+		return true
+	case Change:
+		return true
+	case Keep:
+		return true
+	case Remove:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChangeRecordRisk.
+const (
+	High   ChangeRecordRisk = "high"
+	Low    ChangeRecordRisk = "low"
+	Medium ChangeRecordRisk = "medium"
+)
+
+// Valid indicates whether the value is a known member of the ChangeRecordRisk enum.
+func (e ChangeRecordRisk) Valid() bool {
+	switch e {
+	case High:
+		return true
+	case Low:
+		return true
+	case Medium:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChangeRecordStatus.
+const (
+	ChangeRecordStatusApplied        ChangeRecordStatus = "applied"
+	ChangeRecordStatusApplying       ChangeRecordStatus = "applying"
+	ChangeRecordStatusFailed         ChangeRecordStatus = "failed"
+	ChangeRecordStatusRollbackFailed ChangeRecordStatus = "rollback_failed"
+	ChangeRecordStatusRolledBack     ChangeRecordStatus = "rolled_back"
+)
+
+// Valid indicates whether the value is a known member of the ChangeRecordStatus enum.
+func (e ChangeRecordStatus) Valid() bool {
+	switch e {
+	case ChangeRecordStatusApplied:
+		return true
+	case ChangeRecordStatusApplying:
+		return true
+	case ChangeRecordStatusFailed:
+		return true
+	case ChangeRecordStatusRollbackFailed:
+		return true
+	case ChangeRecordStatusRolledBack:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChangeStepState.
+const (
+	ChangeStepStateApplied  ChangeStepState = "applied"
+	ChangeStepStateFailed   ChangeStepState = "failed"
+	ChangeStepStatePending  ChangeStepState = "pending"
+	ChangeStepStateReverted ChangeStepState = "reverted"
+	ChangeStepStateSkipped  ChangeStepState = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the ChangeStepState enum.
+func (e ChangeStepState) Valid() bool {
+	switch e {
+	case ChangeStepStateApplied:
+		return true
+	case ChangeStepStateFailed:
+		return true
+	case ChangeStepStatePending:
+		return true
+	case ChangeStepStateReverted:
+		return true
+	case ChangeStepStateSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DdnsSourceGetType.
 const (
 	Cmd          DdnsSourceGetType = "cmd"
@@ -137,6 +236,51 @@ func (e ProviderTier) Valid() bool {
 	case N1:
 		return true
 	case N2:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReachCheckScope.
+const (
+	Local    ReachCheckScope = "local"
+	Upstream ReachCheckScope = "upstream"
+)
+
+// Valid indicates whether the value is a known member of the ReachCheckScope enum.
+func (e ReachCheckScope) Valid() bool {
+	switch e {
+	case Local:
+		return true
+	case Upstream:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReachCheckStatus.
+const (
+	ReachCheckStatusBlocked ReachCheckStatus = "blocked"
+	ReachCheckStatusFail    ReachCheckStatus = "fail"
+	ReachCheckStatusPass    ReachCheckStatus = "pass"
+	ReachCheckStatusUnknown ReachCheckStatus = "unknown"
+	ReachCheckStatusWarn    ReachCheckStatus = "warn"
+)
+
+// Valid indicates whether the value is a known member of the ReachCheckStatus enum.
+func (e ReachCheckStatus) Valid() bool {
+	switch e {
+	case ReachCheckStatusBlocked:
+		return true
+	case ReachCheckStatusFail:
+		return true
+	case ReachCheckStatusPass:
+		return true
+	case ReachCheckStatusUnknown:
+		return true
+	case ReachCheckStatusWarn:
 		return true
 	default:
 		return false
@@ -266,6 +410,68 @@ type Capabilities struct {
 	ServiceManager ImplState `json:"service_manager"`
 	Transport      ImplState `json:"transport"`
 }
+
+// ChangeDiffLine defines model for ChangeDiffLine.
+type ChangeDiffLine struct {
+	Op   ChangeDiffLineOp `json:"op"`
+	Text string           `json:"text"`
+}
+
+// ChangeDiffLineOp defines model for ChangeDiffLine.Op.
+type ChangeDiffLineOp string
+
+// ChangeList defines model for ChangeList.
+type ChangeList struct {
+	Items []ChangeRecord `json:"items"`
+}
+
+// ChangeRecord defines model for ChangeRecord.
+type ChangeRecord struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Kind 变更类型，例如 firewall.expose_port。
+	Kind string `json:"kind"`
+
+	// Notes 背景说明。
+	Notes  *[]string        `json:"notes,omitempty"`
+	PlanId string           `json:"plan_id"`
+	Risk   ChangeRecordRisk `json:"risk"`
+
+	// Status - `applying`        正在执行。**这个状态停着不动说明内核上次异常退出**
+	// - `applied`         全部步骤成功
+	// - `failed`          有步骤失败，但已完成自动回滚
+	// - `rolled_back`     已撤销
+	// - `rollback_failed` 回滚本身失败 —— 系统处于中间态，最严重
+	Status    ChangeRecordStatus `json:"status"`
+	Steps     []ChangeStep       `json:"steps"`
+	Title     string             `json:"title"`
+	UpdatedAt time.Time          `json:"updated_at"`
+
+	// Warnings 界面上需要显著提示的内容。
+	Warnings *[]string `json:"warnings,omitempty"`
+}
+
+// ChangeRecordRisk defines model for ChangeRecord.Risk.
+type ChangeRecordRisk string
+
+// ChangeRecordStatus - `applying`        正在执行。**这个状态停着不动说明内核上次异常退出**
+// - `applied`         全部步骤成功
+// - `failed`          有步骤失败，但已完成自动回滚
+// - `rolled_back`     已撤销
+// - `rollback_failed` 回滚本身失败 —— 系统处于中间态，最严重
+type ChangeRecordStatus string
+
+// ChangeStep defines model for ChangeStep.
+type ChangeStep struct {
+	Diff  *[]ChangeDiffLine `json:"diff,omitempty"`
+	Error *string           `json:"error,omitempty"`
+	Id    string            `json:"id"`
+	State ChangeStepState   `json:"state"`
+	Title string            `json:"title"`
+}
+
+// ChangeStepState defines model for ChangeStep.State.
+type ChangeStepState string
 
 // Credential defines model for Credential.
 type Credential struct {
@@ -676,6 +882,82 @@ type ProviderField struct {
 	Secret bool `json:"secret"`
 }
 
+// ReachCheck defines model for ReachCheck.
+type ReachCheck struct {
+	// Detail 观察到的具体事实。
+	Detail *string `json:"detail,omitempty"`
+
+	// Hint **该怎么办**。
+	//
+	// 这一栏是整套检测里最有价值的部分 —— 用户能自己看到
+	// "没有 IPv6 地址"，但他真正需要的是"去路由器的 IPv6 设置里
+	// 确认前缀委派已开启"。
+	Hint  *string         `json:"hint,omitempty"`
+	Name  string          `json:"name"`
+	Scope ReachCheckScope `json:"scope"`
+
+	// Status - `pass`    通过
+	// - `fail`    未通过，且这是**本机**能够修复的问题
+	// - `warn`    有隐患但不阻断
+	// - `unknown` 无法判定（例如需要外部视角）
+	// - `blocked` 本机一切正常，但**上游**挡住了
+	//
+	// `fail` 与 `blocked` 刻意分开：前者是"去改本机设置"，
+	// 后者是"本机已经没得改了"。把它们混在一起正是让用户
+	// 白白折腾几小时的原因。
+	Status ReachCheckStatus `json:"status"`
+}
+
+// ReachCheckScope defines model for ReachCheck.Scope.
+type ReachCheckScope string
+
+// ReachCheckStatus - `pass`    通过
+// - `fail`    未通过，且这是**本机**能够修复的问题
+// - `warn`    有隐患但不阻断
+// - `unknown` 无法判定（例如需要外部视角）
+// - `blocked` 本机一切正常，但**上游**挡住了
+//
+// `fail` 与 `blocked` 刻意分开：前者是"去改本机设置"，
+// 后者是"本机已经没得改了"。把它们混在一起正是让用户
+// 白白折腾几小时的原因。
+type ReachCheckStatus string
+
+// ReachProvider defines model for ReachProvider.
+type ReachProvider struct {
+	// Description 工作原理的简要说明，用户据此在多种方式间做选择。
+	Description string `json:"description"`
+	DisplayName string `json:"display_name"`
+	Name        string `json:"name"`
+
+	// NeedsExternalServer 是否依赖一台外部服务器。
+	//
+	// 这是用户决策时最关键的一条信息：要不要另外买一台机器、
+	// 流量会不会经过别人的设备。
+	NeedsExternalServer bool `json:"needs_external_server"`
+
+	// Tier 实现成熟度。1 = 完整实现，2 = 骨架。
+	Tier int `json:"tier"`
+}
+
+// ReachProviderList defines model for ReachProviderList.
+type ReachProviderList struct {
+	Items []ReachProvider `json:"items"`
+}
+
+// ReachReadiness defines model for ReachReadiness.
+type ReachReadiness struct {
+	Checks []ReachCheck `json:"checks"`
+
+	// Summary 一句话结论，先给结论再给下一步。
+	Summary string `json:"summary"`
+
+	// Viable 当前是否可用。
+	//
+	// 判定只看 `local` 作用域的检测项 —— 上游不通不代表本机
+	// 配置有问题。
+	Viable bool `json:"viable"`
+}
+
 // Record defines model for Record.
 type Record struct {
 	Comment *string `json:"comment,omitempty"`
@@ -780,6 +1062,12 @@ type JobId = string
 // Limit defines model for Limit.
 type Limit = int
 
+// PlanId defines model for PlanId.
+type PlanId = string
+
+// ReachProviderName defines model for ReachProviderName.
+type ReachProviderName = string
+
 // RecordId defines model for RecordId.
 type RecordId = string
 
@@ -797,6 +1085,11 @@ type ListAuditParams struct {
 	// Action 按动作过滤。
 	Action *string      `form:"action,omitempty" json:"action,omitempty"`
 	Result *AuditResult `form:"result,omitempty" json:"result,omitempty"`
+}
+
+// ListChangesParams defines parameters for ListChanges.
+type ListChangesParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ExportConfigParams defines parameters for ExportConfig.
@@ -889,6 +1182,15 @@ type ServerInterface interface {
 	// ListAudit 查询审计日志
 	// (GET /v1/audit)
 	ListAudit(w http.ResponseWriter, r *http.Request, params ListAuditParams)
+	// ListChanges 列出历史系统变更
+	// (GET /v1/changes)
+	ListChanges(w http.ResponseWriter, r *http.Request, params ListChangesParams)
+	// ListInterruptedChanges 列出被中断的变更
+	// (GET /v1/changes/interrupted)
+	ListInterruptedChanges(w http.ResponseWriter, r *http.Request)
+	// GetChange 读取单条变更记录
+	// (GET /v1/changes/{planId})
+	GetChange(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// ExportConfig 导出配置
 	// (GET /v1/config/export)
 	ExportConfig(w http.ResponseWriter, r *http.Request, params ExportConfigParams)
@@ -979,6 +1281,12 @@ type ServerInterface interface {
 	// ListProviders 列出支持的 DNS 服务商及其能力与凭据字段
 	// (GET /v1/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
+	// ListReachProviders 列出全部可达方式
+	// (GET /v1/reach/providers)
+	ListReachProviders(w http.ResponseWriter, r *http.Request)
+	// ProbeReachProvider 探测某种可达方式当前是否可用
+	// (GET /v1/reach/providers/{name}/probe)
+	ProbeReachProvider(w http.ResponseWriter, r *http.Request, name ReachProviderName)
 	// GetSettings 读取运行时设置
 	// (GET /v1/settings)
 	GetSettings(w http.ResponseWriter, r *http.Request)
@@ -1059,6 +1367,79 @@ func (siw *ServerInterfaceWrapper) ListAudit(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAudit(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChanges operation middleware
+func (siw *ServerInterfaceWrapper) ListChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChangesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChanges(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListInterruptedChanges operation middleware
+func (siw *ServerInterfaceWrapper) ListInterruptedChanges(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInterruptedChanges(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChange operation middleware
+func (siw *ServerInterfaceWrapper) GetChange(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "planId" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "planId", r.PathValue("planId"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "planId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChange(w, r, planId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1935,6 +2316,46 @@ func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListReachProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListReachProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReachProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ProbeReachProvider operation middleware
+func (siw *ServerInterfaceWrapper) ProbeReachProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name ReachProviderName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProbeReachProvider(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -2116,6 +2537,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records/{recordId}", wrapper.DeleteRecord)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records/{recordId}", wrapper.GetRecord)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records/{recordId}", wrapper.UpdateRecord)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/reach/providers", wrapper.ListReachProviders)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/reach/providers/{name}/probe", wrapper.ProbeReachProvider)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes", wrapper.ListChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/{planId}", wrapper.GetChange)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/interrupted", wrapper.ListInterruptedChanges)
 
 	return m
 }

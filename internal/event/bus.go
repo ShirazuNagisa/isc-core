@@ -43,6 +43,13 @@ const (
 	// TypeDNSUpdateFailed DNS 记录更新失败。
 	TypeDNSUpdateFailed = "dns.update_failed"
 
+	// TypeChangeApplied 系统变更执行成功。
+	TypeChangeApplied = "change.applied"
+	// TypeChangeFailed 系统变更失败（可能已自动回滚，见 payload 的 rollback_error）。
+	TypeChangeFailed = "change.failed"
+	// TypeChangeRolledBack 系统变更已被撤销。
+	TypeChangeRolledBack = "change.rolled_back"
+
 	// TypeEventsGap 告知客户端请求的序号已滑出保留窗口，需要重新拉取全量状态。
 	TypeEventsGap = "events.gap"
 

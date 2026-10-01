@@ -138,6 +138,11 @@ var messagesEn = map[string]string{
 	"console.host_not_allowed": "The request Host is not a loopback address; rejected",
 	"console.token_missing":    "Could not obtain an access token; open the console via 127.0.0.1",
 
+	// --- reachability and system changes ---
+	"reach.provider_not_found": "No such reachability method",
+	"change.not_found":         "Change record not found",
+	"change.interrupted_found": "Found %d unfinished system change(s); run 'isc doctor' to inspect",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

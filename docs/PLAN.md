@@ -150,7 +150,49 @@ weight 丢失），并且都没有粉饰。这些已全部进 `docs/PROVIDER-MAT
 | M0 | 地基 | 工具链、骨架、平台接口 + stub、OpenAPI 管线、daemon + 传输 + token、事件总线 + WS + job、CLI 骨架、CI、许可证审计 | ✅ **已完成**：三平台 `CGO_ENABLED=0 go build ./...` 通过；`isc status` 经命名管道拿到版本；CI 全绿 |
 | M1 | 配置与凭据 | SQLite schema + 迁移、`SecretStore` 三平台、配置 CRUD API、YAML 导入导出、审计日志 | ✅ **已完成**：接口增删改凭据；库内为密文（含 WAL）；重启后读回正常；ddns-go 配置导入成功 |
 | M2 | 动态解析闭环 | ddns-go 移植（Tier-2 30 家 + 签名 + IP 获取 + ipcache + webhook）、`IPMonitor` 三平台 + 前缀事件、调度器、Tier-1 五家全量 CRUD | 🔶 **进行中**：移植、IPMonitor、调度器、任务 API 已完成；Tier-1 CRUD 待做 |
-| M3 | 可达性 | 三平台 `Firewall` 后端 + 计划/预览/应用/回滚、引导式外部验证、端口冲突检测、低端口绑定、`isc doctor` | 新机从零到「手机 4G/5G 打开测试页」全流程走通，且可一键回滚 |
+| M3 | 可达性 | 三平台 `Firewall` 后端 + 计划/预览/应用/回滚、引导式外部验证、端口冲突检测、低端口绑定、`isc doctor` | 新机从零到「手机 4G/5G 打开测试页」全流程走通，且可一键回滚 | 🔶 **进行中**：变更框架、可达性抽象、`isc doctor` 已完成；防火墙后端与外部验证待做 |
+
+### M3 完成情况（进行中）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 变更计划框架 | ✅ | `internal/change/`，先写日志再动手、失败自动逆序回滚、跨进程撤销、中断恢复 |
+| 变更日志持久化 | ✅ | migration 0003 `change_journal` |
+| 可达性插件抽象 | ✅ | `internal/reach/`，Provider / Readiness / Check（含 local 与 upstream 作用域） |
+| IPv6 直连插件 | ✅ | 分层探测：地址 → 前缀 → 防火墙后端 → 上游可达性 |
+| `isc doctor` | ✅ | 真机验证；按作用域分组输出，「该怎么办」单列 |
+| 可达性 API | ✅ | `/v1/reach/providers`、`/v1/reach/providers/{name}/probe`、`/v1/changes` |
+| 三平台防火墙后端 | ⬜ | M3-c，未开始 |
+| 引导式外部验证 | ⬜ | M3-e，未开始 |
+| 端口冲突检测 / 低端口绑定 | ⬜ | M3-d，未开始 |
+
+### M3 已发现的真实缺陷
+
+**Teredo 隧道地址被当成了可用于公网访问的 IPv6。**
+
+`isc doctor` 的首次真机运行报告：
+
+```
+✅ 全局 IPv6 地址
+     在 WLAN、Teredo Tunneling Pseudo-Interface 上找到 4 个可用于公网访问的 IPv6 地址
+```
+
+`netip` 的 `IsGlobalUnicast()` 对 `2001:0::/32` 返回 true —— 它确实落在
+`2000::/3` 里。但 Teredo 与 6to4 都是**隧道**地址，只能用于出站穿透，
+不接受入站连接。把伪接口报出来的 4 个地址当成可用地址，会把用户引向
+一条走不通的路，而他会在路由器上白白折腾很久。
+
+修法：`IsGlobalIPv6` 排除 Teredo（`2001:0::/32`）、6to4（`2002::/16`）、
+文档网段（`2001:db8::/32`）与 ORCHIDv2（`2001:20::/28`）；
+另把 `teredo` / `isatap` / `6to4` 加入虚拟网卡名称表。
+
+修复后真机输出：`在 WLAN 上找到 3 个可用于公网访问的 IPv6 地址`、
+`检测到 1 个委派前缀`。
+
+> 这类缺陷只有跑在真实机器上才会暴露 —— 单元测试的构造数据里
+> 不会出现 Teredo 伪接口。
+
+
 | M4 | 反代 + 自动 HTTPS | certmagic + libdns 适配器、反向代理（域名 / SNI 路由 + 非标端口入口）、证书续期 + 事件 | 家宽单个非标端口 + 两个域名指向两个本地服务，HTTPS 全绿，证书自动续 |
 | M5 | 打磨与打包 | 控制台补全、三平台服务安装/自启/崩溃重启、安装包与签名、文档与故障排查手册 | 三平台双击安装即可运行 |
 

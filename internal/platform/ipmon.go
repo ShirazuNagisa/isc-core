@@ -405,6 +405,8 @@ var virtualInterfacePrefixes = []string{
 	"蓝牙", "本地连接*", "虚拟", "回环",
 	// 虚拟化软件
 	"vmware", "virtualbox", "host-only", "vbox",
+	// 隧道伪接口
+	"teredo", "isatap", "6to4",
 	// macOS
 	"utun", "awdl", "llw", "bridge", "ap1", "gif", "stf",
 }

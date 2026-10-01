@@ -11,6 +11,7 @@ import (
 	apispec "github.com/ShirazuNagisa/isc-core/api"
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
+	"github.com/ShirazuNagisa/isc-core/internal/change"
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
 	"github.com/ShirazuNagisa/isc-core/internal/ddns"
@@ -20,6 +21,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
+	"github.com/ShirazuNagisa/isc-core/internal/reach"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
@@ -78,6 +80,12 @@ type Deps struct {
 
 	// DNS 是记录管理的领域服务（Tier-1 服务商）。
 	DNS *dns.Service
+
+	// Reach 是可达性插件的注册表。
+	Reach *reach.Registry
+
+	// Changes 是系统变更的执行器（含历史记录与撤销）。
+	Changes *change.Runner
 }
 
 // Server 实现 gen.ServerInterface。

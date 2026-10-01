@@ -19,6 +19,7 @@ import (
 
 	"github.com/ShirazuNagisa/isc-core/internal/api"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
+	"github.com/ShirazuNagisa/isc-core/internal/change"
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
 	"github.com/ShirazuNagisa/isc-core/internal/ddns"
@@ -30,6 +31,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
+	"github.com/ShirazuNagisa/isc-core/internal/reach"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
@@ -110,6 +112,9 @@ type Daemon struct {
 	scheduler  *ddns.Scheduler
 	tasks      *ddns.Service
 	dnsService *dns.Service
+
+	changeRunner *change.Runner
+	reach        *reach.Registry
 	// monitorCancel 停掉 IP 监控与调度器的后台 goroutine。
 	monitorCancel context.CancelFunc
 
@@ -245,6 +250,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 因此不必写两遍 —— 这是把两个领域的接口定义成相同形状的好处。
 	d.dnsService = dns.NewService(credentialResolver{svc: d.credentials}, d.registry.Lookup)
 
+	// 系统变更编排与可达性。
+	//
+	// change.Runner 是**所有**系统级修改的唯一入口：防火墙规则、
+	// 将来的服务注册与证书文件都走它。这样"预览 → 应用 → 失败自动
+	// 回滚 → 事后撤销"这套保证只有一份实现，而不是每个后端各写一遍。
+	d.changeRunner = change.NewRunner(st.Changes(), nil, d.log) // bus 稍后设置
+	d.reach = reach.NewRegistry()
+	d.reach.Register(reach.NewIPv6Native(
+		d.bundle.IPMonitor, d.bundle.Firewall, d.bundle.Capabilities().Firewall))
+
 	// 7. 清理上一次的残留运行时文件。
 	if err := d.cleanupStaleRuntime(); err != nil {
 		return err
@@ -259,6 +274,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.ddnsEngine.SetBus(d.bus)
 	d.scheduler.SetBus(d.bus)
 	d.scheduler.SetResultHook(d.recordTaskRun)
+
+	// 变更执行器也要总线：变更的结果（成功 / 失败 / 已撤销）是
+	// 控制台上最需要实时看到的事件之一。
+	d.changeRunner.SetBus(d.bus)
+
+	// 登记各变更类型的撤销器。
+	//
+	// 这一步让"跨进程撤销"成为可能：闭包无法持久化，因此内核重启后
+	// 只能由制造变更的后端依据日志记录重新推导撤销动作。
+	for _, p := range d.reach.List() {
+		if rev, ok := p.(change.Reverter); ok {
+			d.changeRunner.Register(rev)
+		}
+	}
 
 	// 任务引擎的父上下文是本次运行的生命周期，而不是调用方的 ctx：
 	// 调用方的 ctx 可能在 HTTP 请求结束时就被取消。
@@ -290,6 +319,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Config:         d.configio,
 		Tasks:          d.tasks,
 		DNS:            d.dnsService,
+		Reach:          d.reach,
+		Changes:        d.changeRunner,
 	})
 
 	// 11. 建立传输通道
@@ -309,14 +340,48 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 14. 后台：网卡监控 + 动态解析调度
 	d.startBackground(runCtx)
 
+	// 15. 检查上次是否有未走完的系统变更。
+	//
+	// 只报告、**不自动撤销**：一次执行中的变更可能已经部分生效，
+	// 而用户可能正依赖那部分（例如他已经通过新开的端口连上了服务）。
+	// 内核擅自撤掉会把用户正在用的东西拿走，而他完全不知道发生了什么。
+	d.reportInterruptedChanges(runCtx)
+
 	d.readyOnce.Do(func() { close(d.ready) })
 	d.log.Info(i18n.T("daemon.started"))
 
-	// 15. 等待退出信号
+	// 16. 等待退出信号
 	<-ctx.Done()
 	d.log.Info(i18n.T("daemon.stopping"))
 
 	return d.shutdown()
+}
+
+// reportInterruptedChanges 检查并报告上次未走完的系统变更。
+func (d *Daemon) reportInterruptedChanges(ctx context.Context) {
+	if d.changeRunner == nil {
+		return
+	}
+	interrupted, err := d.changeRunner.RecoverInterrupted(ctx)
+	if err != nil {
+		d.log.Warn("检查未完成的系统变更失败", "err", err)
+		return
+	}
+	if len(interrupted) == 0 {
+		return
+	}
+
+	// 用 Warn 而不是 Error：这不是错误，是一件需要用户知情的事情。
+	// 用 Error 会让日志监控把它当成故障，而它可能完全无害
+	//（例如内核在执行完最后一步后、写日志前被强杀）。
+	for _, it := range interrupted {
+		d.log.Warn("发现未完成的系统变更，请确认是否需要撤销",
+			"plan", it.Record.PlanID,
+			"kind", it.Record.Kind,
+			"title", it.Record.Title,
+			"reason", it.Reason)
+	}
+	d.log.Warn(i18n.T("change.interrupted_found", len(interrupted)))
 }
 
 // specLookup 把服务商注册表适配成 credential.SpecLookup。

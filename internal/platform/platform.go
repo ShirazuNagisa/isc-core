@@ -298,7 +298,44 @@ func IsGlobalIPv6(a netip.Addr) bool {
 	if a.IsPrivate() {
 		return false
 	}
+	// 特殊用途的全局单播网段。
+	//
+	// `IsGlobalUnicast()` 会在这些网段上返回 true，因为它们确实落在
+	// 2000::/3 里 —— 但它们**不能用于接受入站连接**，因此把它们当成
+	// "可用于公网访问的地址"会把用户引向一条走不通的路。
+	//
+	// 这一点是在真机上发现的：Windows 默认启用 Teredo，
+	// 于是某个"伪接口"上报出 4 个 2001:0:... 地址，探测显示
+	// "找到 4 个可用于公网访问的 IPv6 地址"，而它们一个都用不了。
+	if isSpecialPurposeIPv6(a) {
+		return false
+	}
 	return a.IsGlobalUnicast()
+}
+
+// specialPurposeIPv6 是不能用于入站连接的特殊用途网段。
+var specialPurposeIPv6 = []netip.Prefix{
+	// Teredo 隧道：地址由 Teredo 服务器分配，只能用于**出站**穿透。
+	// 它出现在 Windows 的"Teredo Tunneling Pseudo-Interface"上，
+	// 而那个接口根本不接受入站连接。
+	netip.MustParsePrefix("2001:0::/32"),
+	// 6to4：把 IPv6 包封装在 IPv4 里，需要公网 IPv4 才能工作，
+	// 且已被 RFC 7526 弃用。用它做动态解析只会在地址变化时失效。
+	netip.MustParsePrefix("2002::/16"),
+	// 文档与示例专用网段，永远不该出现在真实链路上。
+	netip.MustParsePrefix("2001:db8::/32"),
+	// ORCHIDv2：用于加密生成标识符，不是可路由的地址。
+	netip.MustParsePrefix("2001:20::/28"),
+}
+
+// isSpecialPurposeIPv6 报告地址是否落在不能用于入站连接的特殊网段里。
+func isSpecialPurposeIPv6(a netip.Addr) bool {
+	for _, p := range specialPurposeIPv6 {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // AddrEventKind 是地址事件的类别。

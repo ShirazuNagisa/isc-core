@@ -139,6 +139,11 @@ var messagesZh = map[string]string{
 	"console.host_not_allowed": "请求的 Host 不是本机地址，已拒绝",
 	"console.token_missing":    "未能取得访问令牌，请确认通过 127.0.0.1 打开控制台",
 
+	// --- 可达性与系统变更 ---
+	"reach.provider_not_found": "没有这种可达方式",
+	"change.not_found":         "变更记录不存在",
+	"change.interrupted_found": "发现 %d 条上次未走完的系统变更，请用 isc doctor 查看",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",
