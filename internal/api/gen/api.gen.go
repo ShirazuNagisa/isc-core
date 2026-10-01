@@ -14,6 +14,27 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AuditResult.
+const (
+	Denied  AuditResult = "denied"
+	Failure AuditResult = "failure"
+	Success AuditResult = "success"
+)
+
+// Valid indicates whether the value is a known member of the AuditResult enum.
+func (e AuditResult) Valid() bool {
+	switch e {
+	case Denied:
+		return true
+	case Failure:
+		return true
+	case Success:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	Degraded HealthStatus = "degraded"
@@ -59,6 +80,138 @@ func (e JobStatus) Valid() bool {
 	}
 }
 
+// Defines values for ProviderTier.
+const (
+	N1 ProviderTier = 1
+	N2 ProviderTier = 2
+)
+
+// Valid indicates whether the value is a known member of the ProviderTier enum.
+func (e ProviderTier) Valid() bool {
+	switch e {
+	case N1:
+		return true
+	case N2:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsLang.
+const (
+	SettingsLangEn   SettingsLang = "en"
+	SettingsLangZhCN SettingsLang = "zh-CN"
+)
+
+// Valid indicates whether the value is a known member of the SettingsLang enum.
+func (e SettingsLang) Valid() bool {
+	switch e {
+	case SettingsLangEn:
+		return true
+	case SettingsLangZhCN:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsLogLevel.
+const (
+	SettingsLogLevelDebug SettingsLogLevel = "debug"
+	SettingsLogLevelError SettingsLogLevel = "error"
+	SettingsLogLevelInfo  SettingsLogLevel = "info"
+	SettingsLogLevelWarn  SettingsLogLevel = "warn"
+)
+
+// Valid indicates whether the value is a known member of the SettingsLogLevel enum.
+func (e SettingsLogLevel) Valid() bool {
+	switch e {
+	case SettingsLogLevelDebug:
+		return true
+	case SettingsLogLevelError:
+		return true
+	case SettingsLogLevelInfo:
+		return true
+	case SettingsLogLevelWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPatchLang.
+const (
+	SettingsPatchLangEn   SettingsPatchLang = "en"
+	SettingsPatchLangZhCN SettingsPatchLang = "zh-CN"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPatchLang enum.
+func (e SettingsPatchLang) Valid() bool {
+	switch e {
+	case SettingsPatchLangEn:
+		return true
+	case SettingsPatchLangZhCN:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPatchLogLevel.
+const (
+	SettingsPatchLogLevelDebug SettingsPatchLogLevel = "debug"
+	SettingsPatchLogLevelError SettingsPatchLogLevel = "error"
+	SettingsPatchLogLevelInfo  SettingsPatchLogLevel = "info"
+	SettingsPatchLogLevelWarn  SettingsPatchLogLevel = "warn"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPatchLogLevel enum.
+func (e SettingsPatchLogLevel) Valid() bool {
+	switch e {
+	case SettingsPatchLogLevelDebug:
+		return true
+	case SettingsPatchLogLevelError:
+		return true
+	case SettingsPatchLogLevelInfo:
+		return true
+	case SettingsPatchLogLevelWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// AuditEntry defines model for AuditEntry.
+type AuditEntry struct {
+	// Action 稳定的机器可读动作名。
+	//
+	// Examples: credential.create, credential.update, config.import
+	Action string `json:"action"`
+
+	// Detail 补充说明（已本地化，**不含敏感值**）。
+	Detail *string `json:"detail,omitempty"`
+	Id     int64   `json:"id"`
+
+	// Remote 来源描述。本机管理通道下通常是传输类型而非 IP。
+	Remote    *string     `json:"remote,omitempty"`
+	RequestId *string     `json:"request_id,omitempty"`
+	Result    AuditResult `json:"result"`
+
+	// Target 操作对象的标识（例如凭据 ID 或名称）。
+	Target *string   `json:"target,omitempty"`
+	Ts     time.Time `json:"ts"`
+}
+
+// AuditList defines model for AuditList.
+type AuditList struct {
+	Items      []AuditEntry `json:"items"`
+	NextCursor *string      `json:"next_cursor,omitempty"`
+}
+
+// AuditResult defines model for AuditResult.
+type AuditResult string
+
 // Capabilities 各平台后端的实现状态。不可用的后端意味着对应功能降级为引导模式。
 type Capabilities struct {
 	Firewall       ImplState `json:"firewall"`
@@ -67,6 +220,41 @@ type Capabilities struct {
 	SecretStore    ImplState `json:"secret_store"`
 	ServiceManager ImplState `json:"service_manager"`
 	Transport      ImplState `json:"transport"`
+}
+
+// Credential defines model for Credential.
+type Credential struct {
+	// Capabilities 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
+	Capabilities *ProviderCapabilities `json:"capabilities,omitempty"`
+	CreatedAt    time.Time             `json:"created_at"`
+
+	// Fields 凭据字段。**敏感字段一律为掩码值**，明文永不通过接口返回。
+	// 客户端提交更新时若原样回传掩码，内核会保留原值。
+	Fields map[string]string `json:"fields"`
+	Id     string            `json:"id"`
+
+	// Label 用户可读的备注名，用于在界面上区分同一服务商的多组凭据。
+	Label           string     `json:"label"`
+	LastVerifiedAt  *time.Time `json:"last_verified_at,omitempty"`
+	LastVerifyError *string    `json:"last_verify_error,omitempty"`
+	LastVerifyOk    *bool      `json:"last_verify_ok,omitempty"`
+	Provider        string     `json:"provider"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// CredentialInput defines model for CredentialInput.
+type CredentialInput struct {
+	// Fields 凭据字段明文。更新时只提交需要修改的字段；
+	// 敏感字段若提交掩码值则保留原值。
+	Fields   *map[string]string `json:"fields,omitempty"`
+	Label    string             `json:"label"`
+	Provider string             `json:"provider"`
+}
+
+// CredentialList defines model for CredentialList.
+type CredentialList struct {
+	Items      []Credential `json:"items"`
+	NextCursor *string      `json:"next_cursor,omitempty"`
 }
 
 // Health defines model for Health.
@@ -92,6 +280,29 @@ type ImplState struct {
 
 	// Note 给用户看的补充说明（已本地化）。
 	Note *string `json:"note,omitempty"`
+}
+
+// ImportResult defines model for ImportResult.
+type ImportResult struct {
+	DryRun bool `json:"dry_run"`
+
+	// Errors 导致对应条目被跳过的错误（已本地化）。
+	Errors  *[]string     `json:"errors,omitempty"`
+	Summary ImportSummary `json:"summary"`
+
+	// Warnings 不会导致失败、但用户应当知晓的问题（已本地化）。
+	Warnings *[]string `json:"warnings,omitempty"`
+}
+
+// ImportSummary defines model for ImportSummary.
+type ImportSummary struct {
+	CredentialsCreated *int `json:"credentials_created,omitempty"`
+	CredentialsSkipped *int `json:"credentials_skipped,omitempty"`
+	CredentialsUpdated *int `json:"credentials_updated,omitempty"`
+	SettingsUpdated    *int `json:"settings_updated,omitempty"`
+	TasksCreated       *int `json:"tasks_created,omitempty"`
+	TasksSkipped       *int `json:"tasks_skipped,omitempty"`
+	TasksUpdated       *int `json:"tasks_updated,omitempty"`
 }
 
 // Job defines model for Job.
@@ -213,6 +424,120 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// Provider defines model for Provider.
+type Provider struct {
+	// Capabilities 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
+	Capabilities ProviderCapabilities `json:"capabilities"`
+
+	// CredentialFields 该服务商所需的凭据字段。GUI 遍历它生成表单，
+	// 因此**不需要为每家服务商写死界面**。
+	CredentialFields []ProviderField `json:"credential_fields"`
+
+	// DisplayName 展示名称（已本地化）。
+	DisplayName string `json:"display_name"`
+
+	// Name 服务商标识，用于凭据的 provider 字段。
+	//
+	// Examples: cloudflare, alidns, dnspod
+	Name string `json:"name"`
+
+	// Tier 能力分层：
+	//   1 = 完整记录 CRUD + 动态解析（Tier-1）
+	//   2 = 仅 A/AAAA 动态解析（Tier-2，移植自 ddns-go）
+	Tier *ProviderTier `json:"tier,omitempty"`
+}
+
+// ProviderTier 能力分层：
+//
+//	1 = 完整记录 CRUD + 动态解析（Tier-1）
+//	2 = 仅 A/AAAA 动态解析（Tier-2，移植自 ddns-go）
+type ProviderTier int
+
+// ProviderCapabilities 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
+type ProviderCapabilities struct {
+	// AllRecordTypes 支持 A/AAAA 之外的记录类型（CNAME/MX/TXT/NS/SRV/CAA 等）。
+	AllRecordTypes bool `json:"all_record_types"`
+
+	// Available 该服务商的实现是否已就绪（目前指"能校验凭据"）。
+	//
+	// 为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
+	// 完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
+	// 而不是让用户对着一排灰按钮猜原因。
+	Available bool `json:"available"`
+	CustomTtl bool `json:"custom_ttl"`
+
+	// Dns01 可用于 ACME DNS-01 证书校验。
+	Dns01 bool `json:"dns01"`
+
+	// Proxy 支持 CDN 代理开关（如 Cloudflare 的橙云）。
+	Proxy        bool `json:"proxy"`
+	RecordCreate bool `json:"record_create"`
+	RecordDelete bool `json:"record_delete"`
+	RecordList   bool `json:"record_list"`
+	RecordUpdate bool `json:"record_update"`
+
+	// ZoneList 能列出账号下的 DNS 区域。
+	ZoneList bool `json:"zone_list"`
+}
+
+// ProviderField defines model for ProviderField.
+type ProviderField struct {
+	Example *string `json:"example,omitempty"`
+
+	// Help 补充说明，例如"在何处获取该密钥"。
+	Help *string `json:"help,omitempty"`
+
+	// Key 字段名，用作凭据 fields 中的键。
+	//
+	// Examples: id, secret, ext_param
+	Key string `json:"key"`
+
+	// Label 展示名称（已本地化）。
+	Label string `json:"label"`
+
+	// Placeholder 输入提示。
+	Placeholder *string `json:"placeholder,omitempty"`
+	Required    bool    `json:"required"`
+
+	// Secret 为 true 时该字段是敏感值：读取时被掩码，界面应使用密码输入框，
+	// 且不参与日志与导出（除非显式要求导出明文）。
+	Secret bool `json:"secret"`
+}
+
+// Settings defines model for Settings.
+type Settings struct {
+	// EventBufferSize 事件环形缓冲容量。调大可延长断线补发的覆盖窗口。
+	EventBufferSize *int             `json:"event_buffer_size,omitempty"`
+	Lang            SettingsLang     `json:"lang"`
+	LogLevel        SettingsLogLevel `json:"log_level"`
+
+	// NotifyOnIpChange 地址或 IPv6 前缀变化时是否发送通知（M4 起生效）。
+	NotifyOnIpChange *bool `json:"notify_on_ip_change,omitempty"`
+}
+
+// SettingsLang defines model for Settings.Lang.
+type SettingsLang string
+
+// SettingsLogLevel defines model for Settings.LogLevel.
+type SettingsLogLevel string
+
+// SettingsPatch 只提交需要修改的字段。
+type SettingsPatch struct {
+	EventBufferSize  *int                   `json:"event_buffer_size,omitempty"`
+	Lang             *SettingsPatchLang     `json:"lang,omitempty"`
+	LogLevel         *SettingsPatchLogLevel `json:"log_level,omitempty"`
+	NotifyOnIpChange *bool                  `json:"notify_on_ip_change,omitempty"`
+}
+
+// SettingsPatchLang defines model for SettingsPatch.Lang.
+type SettingsPatchLang string
+
+// SettingsPatchLogLevel defines model for SettingsPatch.LogLevel.
+type SettingsPatchLogLevel string
+
+// CredentialId defines model for CredentialId.
+type CredentialId = string
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
@@ -221,6 +546,47 @@ type JobId = string
 
 // Limit defines model for Limit.
 type Limit = int
+
+// ListAuditParams defines parameters for ListAudit.
+type ListAuditParams struct {
+	// Cursor 分页游标，取自上一次响应的 next_cursor。
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit 单页条数。
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Action 按动作过滤。
+	Action *string      `form:"action,omitempty" json:"action,omitempty"`
+	Result *AuditResult `form:"result,omitempty" json:"result,omitempty"`
+}
+
+// ExportConfigParams defines parameters for ExportConfig.
+type ExportConfigParams struct {
+	// IncludeSecrets 设为 true 才会导出明文凭据（务必妥善保管导出文件）。
+	IncludeSecrets *bool `form:"include_secrets,omitempty" json:"include_secrets,omitempty"`
+}
+
+// ImportConfigJSONBody defines parameters for ImportConfig.
+type ImportConfigJSONBody map[string]interface{}
+
+// ImportConfigParams defines parameters for ImportConfig.
+type ImportConfigParams struct {
+	DryRun *bool `form:"dry_run,omitempty" json:"dry_run,omitempty"`
+}
+
+// ImportDdnsGoConfigParams defines parameters for ImportDdnsGoConfig.
+type ImportDdnsGoConfigParams struct {
+	DryRun *bool `form:"dry_run,omitempty" json:"dry_run,omitempty"`
+}
+
+// ListCredentialsParams defines parameters for ListCredentials.
+type ListCredentialsParams struct {
+	// Cursor 分页游标，取自上一次响应的 next_cursor。
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit 单页条数。
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // SubscribeEventsParams defines parameters for SubscribeEvents.
 type SubscribeEventsParams struct {
@@ -243,11 +609,53 @@ type ListJobsParams struct {
 	Kind *string `form:"kind,omitempty" json:"kind,omitempty"`
 }
 
+// ImportConfigJSONRequestBody defines body for ImportConfig for application/json ContentType.
+type ImportConfigJSONRequestBody ImportConfigJSONBody
+
+// CreateCredentialJSONRequestBody defines body for CreateCredential for application/json ContentType.
+type CreateCredentialJSONRequestBody = CredentialInput
+
+// UpdateCredentialJSONRequestBody defines body for UpdateCredential for application/json ContentType.
+type UpdateCredentialJSONRequestBody = CredentialInput
+
 // RunNoopJobJSONRequestBody defines body for RunNoopJob for application/json ContentType.
 type RunNoopJobJSONRequestBody = NoopRequest
 
+// UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
+type UpdateSettingsJSONRequestBody = SettingsPatch
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListAudit 查询审计日志
+	// (GET /v1/audit)
+	ListAudit(w http.ResponseWriter, r *http.Request, params ListAuditParams)
+	// ExportConfig 导出配置
+	// (GET /v1/config/export)
+	ExportConfig(w http.ResponseWriter, r *http.Request, params ExportConfigParams)
+	// DescribeImport 说明导入行为
+	// (GET /v1/config/import)
+	DescribeImport(w http.ResponseWriter, r *http.Request)
+	// ImportConfig 导入配置
+	// (POST /v1/config/import)
+	ImportConfig(w http.ResponseWriter, r *http.Request, params ImportConfigParams)
+	// ImportDdnsGoConfig 导入 ddns-go 配置
+	// (POST /v1/config/import/ddns-go)
+	ImportDdnsGoConfig(w http.ResponseWriter, r *http.Request, params ImportDdnsGoConfigParams)
+	// ListCredentials 列出全部凭据
+	// (GET /v1/credentials)
+	ListCredentials(w http.ResponseWriter, r *http.Request, params ListCredentialsParams)
+	// CreateCredential 新建凭据
+	// (POST /v1/credentials)
+	CreateCredential(w http.ResponseWriter, r *http.Request)
+	// DeleteCredential 删除凭据
+	// (DELETE /v1/credentials/{id})
+	DeleteCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
+	// GetCredential 凭据详情
+	// (GET /v1/credentials/{id})
+	GetCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
+	// UpdateCredential 修改凭据
+	// (PATCH /v1/credentials/{id})
+	UpdateCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
 	// RunNoopJob 提交一个空转任务（仅用于管线自检）
 	// (POST /v1/debug/noop)
 	RunNoopJob(w http.ResponseWriter, r *http.Request)
@@ -269,6 +677,15 @@ type ServerInterface interface {
 	// GetMeta 元信息与平台能力
 	// (GET /v1/meta)
 	GetMeta(w http.ResponseWriter, r *http.Request)
+	// ListProviders 列出支持的 DNS 服务商及其能力与凭据字段
+	// (GET /v1/providers)
+	ListProviders(w http.ResponseWriter, r *http.Request)
+	// GetSettings 读取运行时设置
+	// (GET /v1/settings)
+	GetSettings(w http.ResponseWriter, r *http.Request)
+	// UpdateSettings 修改运行时设置
+	// (PATCH /v1/settings)
+	UpdateSettings(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -279,6 +696,329 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAudit operation middleware
+func (siw *ServerInterfaceWrapper) ListAudit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "result" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "result", r.URL.Query(), &params.Result, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "result"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "result", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAudit(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExportConfig operation middleware
+func (siw *ServerInterfaceWrapper) ExportConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportConfigParams
+
+	// ------------- Optional query parameter "include_secrets" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_secrets", r.URL.Query(), &params.IncludeSecrets, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_secrets"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_secrets", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExportConfig(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DescribeImport operation middleware
+func (siw *ServerInterfaceWrapper) DescribeImport(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DescribeImport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportConfig operation middleware
+func (siw *ServerInterfaceWrapper) ImportConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ImportConfigParams
+
+	// ------------- Optional query parameter "dry_run" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dry_run", r.URL.Query(), &params.DryRun, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dry_run"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dry_run", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportConfig(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportDdnsGoConfig operation middleware
+func (siw *ServerInterfaceWrapper) ImportDdnsGoConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ImportDdnsGoConfigParams
+
+	// ------------- Optional query parameter "dry_run" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dry_run", r.URL.Query(), &params.DryRun, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dry_run"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dry_run", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportDdnsGoConfig(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCredentials operation middleware
+func (siw *ServerInterfaceWrapper) ListCredentials(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCredentialsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCredentials(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCredential operation middleware
+func (siw *ServerInterfaceWrapper) CreateCredential(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCredential(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCredential operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCredential(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCredential operation middleware
+func (siw *ServerInterfaceWrapper) GetCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCredential(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCredential operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCredential(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // RunNoopJob operation middleware
 func (siw *ServerInterfaceWrapper) RunNoopJob(w http.ResponseWriter, r *http.Request) {
@@ -479,6 +1219,48 @@ func (siw *ServerInterfaceWrapper) GetMeta(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// ListProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -606,6 +1388,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/jobs/{id}", wrapper.GetJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/jobs/{id}/cancel", wrapper.CancelJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials", wrapper.ListCredentials)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/credentials", wrapper.CreateCredential)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/credentials/{id}", wrapper.DeleteCredential)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}", wrapper.GetCredential)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/credentials/{id}", wrapper.UpdateCredential)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/settings", wrapper.GetSettings)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/settings", wrapper.UpdateSettings)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/audit", wrapper.ListAudit)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config/export", wrapper.ExportConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config/import", wrapper.DescribeImport)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/config/import", wrapper.ImportConfig)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/config/import/ddns-go", wrapper.ImportDdnsGoConfig)
 
 	return m
 }

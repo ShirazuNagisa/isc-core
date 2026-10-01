@@ -63,4 +63,58 @@ var messagesZh = map[string]string{
 	"cli.status_header":      "ISC 内核状态",
 	"cli.version_header":     "ISC 版本信息",
 	"cli.unknown_command":    "未知命令：%s",
+
+	// --- 凭据字段（服务商注册表使用）---
+	"provider.field.access_key_id":     "Access Key ID",
+	"provider.field.access_key_secret": "Access Key Secret",
+	"provider.field.secret_id":         "SecretId",
+	"provider.field.secret_key":        "SecretKey",
+	"provider.field.api_token":         "API 令牌",
+	"provider.field.api_key":           "API Key",
+	"provider.field.api_secret":        "API Secret",
+	"provider.field.dnspod_id":         "DNSPod ID",
+	"provider.field.dnspod_token":      "DNSPod Token",
+	"provider.field.id":                "ID",
+	"provider.field.secret":            "密钥",
+	"provider.field.ext_param":         "扩展参数",
+
+	"provider.help.access_key_id": "在云厂商控制台的访问控制页面创建，建议只授予 DNS 相关权限",
+	"provider.help.api_token": "在 Cloudflare 控制台「我的个人资料 → API 令牌」创建，" +
+		"建议使用「编辑区域 DNS」模板并限定到具体域名",
+	"provider.help.dnspod_id":    "在 DNSPod 控制台「用户中心 → 安全设置 → API 密钥」查看",
+	"provider.help.dnspod_token": "与 DNSPod ID 成对出现，创建后只显示一次，请务必保存",
+	"provider.help.tier2_id":     "该项目前仅供配置导入使用，具体字段含义将在实现接入后明确",
+	"provider.help.tier2_secret": "该项目前仅供配置导入使用，具体字段含义将在实现接入后明确",
+	"provider.help.tier2_ext_param": "部分服务商需要的额外参数（例如 Vercel 的 teamId），" +
+		"多数服务商留空即可",
+
+	// --- 凭据 ---
+	"credential.created":            "凭据已创建",
+	"credential.updated":            "凭据已更新",
+	"credential.deleted":            "凭据已删除",
+	"credential.not_found":          "凭据不存在",
+	"credential.duplicate":          "同一服务商下已存在同名凭据",
+	"credential.in_use":             "该凭据仍被使用，无法删除",
+	"credential.verify.running":     "正在校验凭据",
+	"credential.verify.ok":          "凭据有效",
+	"credential.verify.failed":      "凭据校验失败",
+	"credential.verify.unsupported": "该服务商的实现尚未就绪，无法校验凭据",
+
+	// --- 设置 ---
+	"settings.updated": "设置已更新",
+
+	// --- 导入导出 ---
+	"config.export.empty":               "没有可导出的配置",
+	"config.import.invalid":             "无法解析导入内容",
+	"config.import.dry_run":             "预览模式：未写入任何改动",
+	"config.import.applied":             "导入已完成",
+	"config.import.ddnsgo.bad":          "这不是一份可识别的 ddns-go 配置",
+	"config.import.ddnsgo.none":         "配置中没有找到任何 ddns-go 条目",
+	"config.import.skipped":             "跳过第 %d 条：%s",
+	"config.import.webhook_unsupported": "ddns-go 的 webhook 配置暂未迁移（通知中心将在 M4 接入）",
+
+	// --- 存储 ---
+	"store.open_failed":    "打开数据库失败：%s",
+	"store.migrate_failed": "数据库迁移失败：%s",
+	"store.closed":         "数据库已关闭",
 }

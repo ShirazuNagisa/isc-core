@@ -16,12 +16,12 @@ import (
 //	Firewall       → M3  nftables（并探测 ufw / firewalld）
 //	ServiceManager → M5  systemd
 //	IPMonitor      → M2  netlink (RTM_NEWADDR / RTM_DELADDR)
-//	SecretStore    → M1  Secret Service (freedesktop)
+//	SecretStore    → 已实现（Secret Service，无会话时回退文件，见 secret_unix.go）
 //	Transport      → 已实现（Unix 套接字，见 transport_unix.go）
 //	LowPortBinder  → CAP_NET_BIND_SERVICE 检测（本文件已实现）
-
-// Current 返回当前平台的默认后端集合。
-func Current() *Bundle {
+//
+// dataRoot 是内核的数据根目录：密钥存储需要它来决定文件落点。
+func Current(dataRoot string) *Bundle {
 	return &Bundle{
 		Firewall: newUnsupportedFirewall(
 			"nftables/ufw 后端将在 M3 实现；当前降级为引导模式"),
@@ -29,8 +29,7 @@ func Current() *Bundle {
 			"systemd 后端将在 M5 实现"),
 		IPMonitor: newUnsupportedIPMonitor(
 			"netlink 监控后端将在 M2 实现"),
-		SecretStore: newUnsupportedSecretStore(
-			"Secret Service 密钥库后端将在 M1 实现"),
+		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: detectLinuxLowPort(),
 		OS:            runtime.GOOS,

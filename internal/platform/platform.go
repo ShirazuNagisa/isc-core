@@ -348,22 +348,34 @@ func (e AddrEvent) String() string {
 // 密钥库
 // ---------------------------------------------------------------------------
 
-// SecretStore 负责敏感数据的加解密。
+// SecretStore 提供一个小型、平台原生的命名密钥存储。
 //
-// 主密钥由操作系统密钥库保护：
+// 用途只有一个但很关键：保存 ISC 的**主密钥**。所有凭据（DNS 服务商的
+// API Key）都用主密钥做 AES-256-GCM 加密后落库，主密钥本身则交给操作
+// 系统保护的存储 —— 这样即使数据库文件泄漏，没有主密钥也读不出任何凭据。
 //
-//	Windows  DPAPI (CryptProtectData，绑定当前用户)
-//	macOS    Keychain
-//	Linux    Secret Service (freedesktop)
+// 之所以设计成"命名存储"而不是"加解密函数"：各平台的可信存储形态不同，
+// 让实现自己决定"东西放哪"比强迫它们把存储细节塞进一个 seal/unseal 接口
+// 更自然：
 //
-// 当系统密钥库不可用时，实现必须回退到 0600 权限的密钥文件，
-// 并通过 Describe 的 Note 明确告警——绝不能静默降级。
+//	Windows  DPAPI 保护后写入受保护目录下的文件
+//	         （DPAPI 是保护器而非存储，必须配合文件）
+//	macOS    Keychain（真正的存储）
+//	Linux    Secret Service / D-Bus（真正的存储）
+//	兜底      受保护目录下的 0600 文件
+//
+// **兜底不是失败**，但必须在 Describe 的 Note 里明确告警 ——
+// 静默降级会让用户以为自己的密钥受到了操作系统级保护。
 type SecretStore interface {
-	// Encrypt 加密明文。
-	Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
+	// Put 保存一段命名密钥。同名已存在时覆盖。
+	Put(ctx context.Context, name string, value []byte) error
 
-	// Decrypt 解密由 Encrypt 产生的密文。
-	Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
+	// Get 取出命名密钥。不存在时返回 (nil, false, nil) ——
+	// "没有"是正常状态（首次启动），不应作为错误。
+	Get(ctx context.Context, name string) (value []byte, found bool, err error)
+
+	// Delete 删除命名密钥。不存在时返回 nil。
+	Delete(ctx context.Context, name string) error
 
 	describer
 }

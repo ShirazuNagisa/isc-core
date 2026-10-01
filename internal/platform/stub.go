@@ -96,12 +96,16 @@ func newUnsupportedSecretStore(reason string) SecretStore {
 	return &unsupportedSecretStore{Unsupported{Name: "secret_store", Reason: reason}}
 }
 
-func (s *unsupportedSecretStore) Encrypt(context.Context, []byte) ([]byte, error) {
-	return nil, unimplemented("secret_store.Encrypt")
+func (s *unsupportedSecretStore) Put(context.Context, string, []byte) error {
+	return unimplemented("secret_store.Put")
 }
 
-func (s *unsupportedSecretStore) Decrypt(context.Context, []byte) ([]byte, error) {
-	return nil, unimplemented("secret_store.Decrypt")
+func (s *unsupportedSecretStore) Get(context.Context, string) ([]byte, bool, error) {
+	return nil, false, unimplemented("secret_store.Get")
+}
+
+func (s *unsupportedSecretStore) Delete(context.Context, string) error {
+	return unimplemented("secret_store.Delete")
 }
 
 // ---------------------------------------------------------------------------

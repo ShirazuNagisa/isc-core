@@ -62,4 +62,58 @@ var messagesEn = map[string]string{
 	"cli.status_header":      "ISC core status",
 	"cli.version_header":     "ISC version information",
 	"cli.unknown_command":    "Unknown command: %s",
+
+	// --- credential fields (provider registry) ---
+	"provider.field.access_key_id":     "Access Key ID",
+	"provider.field.access_key_secret": "Access Key Secret",
+	"provider.field.secret_id":         "SecretId",
+	"provider.field.secret_key":        "SecretKey",
+	"provider.field.api_token":         "API token",
+	"provider.field.api_key":           "API key",
+	"provider.field.api_secret":        "API secret",
+	"provider.field.dnspod_id":         "DNSPod ID",
+	"provider.field.dnspod_token":      "DNSPod token",
+	"provider.field.id":                "ID",
+	"provider.field.secret":            "Secret",
+	"provider.field.ext_param":         "Extra parameters",
+
+	"provider.help.access_key_id": "Create it in the cloud provider's access control page; grant only DNS-related permissions",
+	"provider.help.api_token": "Create it under My Profile → API Tokens in the Cloudflare dashboard; " +
+		"prefer the \"Edit zone DNS\" template scoped to specific zones",
+	"provider.help.dnspod_id":    "Find it under User Center → Security Settings → API keys in the DNSPod console",
+	"provider.help.dnspod_token": "Issued together with the DNSPod ID; it is shown only once, so save it now",
+	"provider.help.tier2_id":     "Currently used only for config import; the exact meaning will be settled when the implementation lands",
+	"provider.help.tier2_secret": "Currently used only for config import; the exact meaning will be settled when the implementation lands",
+	"provider.help.tier2_ext_param": "Extra parameters required by a few providers (for example Vercel's teamId); " +
+		"leave empty for most providers",
+
+	// --- credentials ---
+	"credential.created":            "Credential created",
+	"credential.updated":            "Credential updated",
+	"credential.deleted":            "Credential deleted",
+	"credential.not_found":          "Credential not found",
+	"credential.duplicate":          "A credential with the same label already exists for this provider",
+	"credential.in_use":             "This credential is still in use and cannot be deleted",
+	"credential.verify.running":     "Verifying credential",
+	"credential.verify.ok":          "Credential is valid",
+	"credential.verify.failed":      "Credential verification failed",
+	"credential.verify.unsupported": "This provider is not implemented yet; the credential cannot be verified",
+
+	// --- settings ---
+	"settings.updated": "Settings updated",
+
+	// --- import/export ---
+	"config.export.empty":               "There is nothing to export",
+	"config.import.invalid":             "Cannot parse the imported content",
+	"config.import.dry_run":             "Dry run: nothing was written",
+	"config.import.applied":             "Import completed",
+	"config.import.ddnsgo.bad":          "This does not look like a ddns-go configuration",
+	"config.import.ddnsgo.none":         "No ddns-go entries were found in the configuration",
+	"config.import.skipped":             "Skipped entry %d: %s",
+	"config.import.webhook_unsupported": "ddns-go webhook settings are not migrated yet (the notification centre lands in M4)",
+
+	// --- store ---
+	"store.open_failed":    "Failed to open the database: %s",
+	"store.migrate_failed": "Database migration failed: %s",
+	"store.closed":         "The database is closed",
 }

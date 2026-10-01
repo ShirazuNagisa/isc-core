@@ -10,8 +10,8 @@ import "runtime"
 // 这是 docs/PLAN.md R2 的处置方式：任何时刻三平台（乃至更多平台）都可编译。
 // 这些平台全部降级为引导模式，功能可用性由用户自行判断。
 
-// Current 返回当前平台的默认后端集合（全部为占位实现）。
-func Current() *Bundle {
+// dataRoot 是内核的数据根目录：密钥存储需要它来决定文件落点。
+func Current(dataRoot string) *Bundle {
 	return &Bundle{
 		Firewall: newUnsupportedFirewall(
 			"当前平台不在支持列表内（Windows / Linux / macOS）"),
@@ -19,8 +19,7 @@ func Current() *Bundle {
 			"当前平台不在支持列表内（Windows / Linux / macOS）"),
 		IPMonitor: newUnsupportedIPMonitor(
 			"当前平台不在支持列表内（Windows / Linux / macOS）"),
-		SecretStore: newUnsupportedSecretStore(
-			"当前平台不在支持列表内（Windows / Linux / macOS）"),
+		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: permissiveLowPortBinder{backend: "unknown"},
 		OS:            runtime.GOOS,

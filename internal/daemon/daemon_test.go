@@ -34,16 +34,26 @@ type harness struct {
 	endpoint platform.Endpoint
 	client   *http.Client
 	baseURL  string
+	// paths 让测试能直接检查数据目录里的产物（数据库、密钥文件等）。
+	paths paths.Paths
 }
 
 // startDaemon 在临时数据目录里启动一个真实的内核实例。
-//
-// 刻意不做任何 mock：M0 的验收标准就是"真实进程 + 真实传输 + 真实 HTTP"，
-// mock 掉任何一层都会让这个测试失去意义。
 func startDaemon(t *testing.T) *harness {
 	t.Helper()
+	return startDaemonIn(t, t.TempDir())
+}
 
-	dir := t.TempDir()
+// startDaemonIn 在指定数据目录里启动内核。
+//
+// 数据目录由调用方给定，因此可以在同一个测试里先后启动两次
+// （模拟内核重启），而不是每次都用新的临时目录。
+//
+// 刻意不做任何 mock：验收标准就是"真实进程 + 真实传输 + 真实 HTTP +
+// 真实数据库"，mock 掉任何一层都会让这些测试失去意义。
+func startDaemonIn(t *testing.T, dir string) *harness {
+	t.Helper()
+
 	t.Setenv(paths.EnvDataDir, dir)
 
 	p, err := paths.Resolve()
@@ -65,7 +75,16 @@ func startDaemon(t *testing.T) *harness {
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
 
-	h := &harness{t: t, daemon: d, cancel: cancel, done: done}
+	h := &harness{t: t, daemon: d, cancel: cancel, done: done, paths: p}
+
+	// 启动失败时要保证测试不会留下一个还在跑的 goroutine。
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		default:
+			cancel()
+		}
+	})
 
 	select {
 	case <-d.Ready():
@@ -76,15 +95,6 @@ func startDaemon(t *testing.T) *harness {
 		cancel()
 		t.Fatal("等待内核就绪超时")
 	}
-
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			t.Error("内核未能在超时内关闭")
-		}
-	})
 
 	// 读取运行时文件 —— 这是客户端发现内核的唯一入口。
 	info, err := runtimeinfo.Read(p.RuntimeFile())
@@ -112,6 +122,23 @@ func startDaemon(t *testing.T) *harness {
 	h.baseURL = ep.HTTPBaseURL()
 
 	return h
+}
+
+// stop 关闭内核并等待它退出。
+//
+// 与 t.Cleanup 的区别：它让同一个测试可以"停掉再启动"，
+// 这正是验证持久化的方式。
+func (h *harness) stop() {
+	h.t.Helper()
+	h.cancel()
+	select {
+	case err := <-h.done:
+		if err != nil {
+			h.t.Errorf("内核关闭时返回错误: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		h.t.Error("内核关闭超时")
+	}
 }
 
 // get 发起一次带鉴权的 GET 请求。
@@ -235,11 +262,22 @@ func TestMetaReportsCapabilities(t *testing.T) {
 	if meta.Capabilities.Transport.Backend == "" {
 		t.Error("应当报告传输后端的具体实现名称")
 	}
-	// M0 阶段其余后端都是占位实现，应当明确报告"不可用 + 原因"。
-	if meta.Capabilities.SecretStore.Available {
-		t.Error("M0 阶段密钥库后端尚未实现，不应报告为可用")
+	// 密钥存储必须可用且必须自报后端 —— 凭据的机密性完全依赖它，
+	// 而"用了哪种保护"是用户有权知道的事（文件兜底与系统密钥库
+	// 的保护级别差别很大）。
+	if !meta.Capabilities.SecretStore.Available {
+		t.Error("密钥存储后端必须可用 —— 否则凭据无法安全保存")
 	}
-	if meta.Capabilities.SecretStore.Note == nil || *meta.Capabilities.SecretStore.Note == "" {
+	if meta.Capabilities.SecretStore.Backend == "" {
+		t.Error("密钥存储必须报告具体后端（如 windows-dpapi / file）")
+	}
+	// 尚未实现的平台后端必须明确报告"不可用 + 原因"，
+	// 否则用户会对着一排灰按钮猜原因。
+	if meta.Capabilities.ServiceManager.Available {
+		t.Error("M1 阶段服务管理后端尚未实现，不应报告为可用")
+	}
+	if meta.Capabilities.ServiceManager.Note == nil ||
+		*meta.Capabilities.ServiceManager.Note == "" {
 		t.Error("不可用的后端必须给出原因，否则用户无法判断影响")
 	}
 }

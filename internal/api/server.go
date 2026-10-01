@@ -10,10 +10,15 @@ import (
 
 	apispec "github.com/ShirazuNagisa/isc-core/api"
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/audit"
+	"github.com/ShirazuNagisa/isc-core/internal/configio"
+	"github.com/ShirazuNagisa/isc-core/internal/credential"
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
+	"github.com/ShirazuNagisa/isc-core/internal/provider"
+	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
 
@@ -41,6 +46,30 @@ type Deps struct {
 	// 由守护进程在启动时生成并写入 runtime.json；为空是配置错误，
 	// 中间件会拒绝所有请求而不是放行。
 	Token string
+
+	// Providers 是 DNS 服务商注册表。
+	//
+	// 它是 /v1/providers 的数据来源，也是凭据字段校验的依据 ——
+	// 下游 GUI 靠它渲染表单，因此这个依赖不能省。
+	Providers *provider.Registry
+
+	// Credentials 是凭据领域服务。
+	Credentials *credential.Service
+
+	// Settings 是运行时设置。
+	Settings *settings.Service
+
+	// Audit 写审计记录。
+	Audit *audit.Recorder
+
+	// AuditWriter 读审计记录。
+	//
+	// 与 Audit 分开是因为它们的生命周期不同：写入从第一个请求就要可用，
+	// 而读取在数据库不可用时可以优雅地返回空列表。
+	AuditWriter audit.Writer
+
+	// Config 提供配置导入导出与 ddns-go 迁移。
+	Config *configio.Service
 }
 
 // Server 实现 gen.ServerInterface。

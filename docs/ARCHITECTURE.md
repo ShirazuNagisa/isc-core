@@ -115,13 +115,14 @@ type InterfaceAddrs struct {
     IsLoopback  bool
 }
 
-// SecretStore 敏感数据加密存储。
+// SecretStore 是小型、平台原生的命名密钥存储。
+//
+// 用途只有一个但很关键：保存内核的**主密钥**。所有凭据都用主密钥做
+// AES-256-GCM 加密后落库，主密钥本身则交给操作系统保护的存储。
 type SecretStore interface {
-    // Available 报告本平台是否有可用的系统级密钥库。
-    Available() bool
-    // Encrypt / Decrypt 使用系统密钥库保护的主密钥进行对称加密。
-    Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
-    Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
+    Put(ctx context.Context, name string, value []byte) error
+    Get(ctx context.Context, name string) (value []byte, found bool, err error)
+    Delete(ctx context.Context, name string) error
 }
 
 // Transport 本地管理通道。

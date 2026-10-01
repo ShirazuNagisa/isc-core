@@ -67,7 +67,7 @@ SOFTWARE.
 
 ## 2. 编译进产物的第三方依赖
 
-审计时间：M0 阶段。审计命令见 §3。
+审计时间：M1 阶段（引入 SQLite 与 YAML 之后）。审计命令见 §3。
 
 | 模块 | 版本 | 许可证 | 用途 |
 |---|---|---|---|
@@ -76,10 +76,26 @@ SOFTWARE.
 | `github.com/oapi-codegen/runtime` | v1.7.0 | Apache-2.0 | 生成的 server 代码的运行时支撑（参数绑定等） |
 | `github.com/spf13/cobra` | v1.10.2 | Apache-2.0 | CLI 子命令框架 |
 | `github.com/google/uuid` | v1.6.0 | BSD-3-Clause | oapi-codegen/runtime 的间接依赖 |
+| `github.com/remyoudompheng/bigfft` | v0.0.0-20230129092748 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
 | `github.com/spf13/pflag` | v1.0.9 | BSD-3-Clause | cobra 的间接依赖 |
 | `golang.org/x/sys` | v0.48.0 | BSD-3-Clause | 平台系统调用（命名管道、DPAPI、netlink 等） |
+| `modernc.org/libc` | v1.77.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
+| `modernc.org/mathutil` | v1.7.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
+| `modernc.org/memory` | v1.12.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
+| `modernc.org/sqlite` | v1.60.1 | BSD-3-Clause | **嵌入式数据库（纯 Go，无 cgo）** |
 | `github.com/apapsch/go-jsonmerge/v2` | v2.0.0 | MIT | oapi-codegen/runtime 的间接依赖 |
+| `github.com/dustin/go-humanize` | v1.0.1 | MIT | modernc.org/sqlite 的间接依赖 |
+| `github.com/mattn/go-isatty` | v0.0.24 | MIT | modernc.org/sqlite 的间接依赖 |
 | `github.com/Microsoft/go-winio` | v0.6.2 | MIT | Windows 命名管道 |
+| `github.com/ncruces/go-strftime` | v1.0.0 | MIT | modernc.org/sqlite 的间接依赖 |
+| `gopkg.in/yaml.v3` | v3.0.1 | MIT | 配置导入导出 |
+
+### 关于 SQLite 驱动的重要说明
+
+选 `modernc.org/sqlite` 而不是更常见的 `mattn/go-sqlite3`，是因为后者需要 cgo，
+而本项目**禁止 cgo**（见 `docs/PLAN.md` §0）。代价是依赖链长了一些
+（多了 libc / mathutil / memory / bigfft / humanize / isatty / strftime 六个
+间接依赖），但换来的是三平台交叉编译完全不需要 C 工具链 —— 这个交换是值得的。
 
 ### 兼容性结论
 
@@ -90,7 +106,7 @@ SOFTWARE.
 | MIT | ✅ | 宽松许可证，可再许可 |
 | ISC | ✅ | 功能上等价于 MIT |
 
-**结论：全部依赖与 GPL-3.0 兼容，无许可证冲突。**
+**结论：全部 18 个依赖与 GPL-3.0 兼容，无许可证冲突。**
 
 ### 关于"未参与编译"的模块
 

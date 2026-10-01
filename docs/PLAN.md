@@ -36,7 +36,31 @@
 | M0-10 许可证审计 | ✅ | 9 个编译期依赖，全部与 GPL-3.0 兼容，见 `THIRD_PARTY_NOTICES.md` |
 | M0-11 硬验收 | ✅ | 全部测试通过；`isc status` 经命名管道拿到版本；跨平台编译矩阵通过 |
 
-### 关于纯 Go 的硬约束
+### M1 完成情况
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| SQLite schema + 迁移框架 | ✅ | `internal/store/migrations/0001_init.sql`；迁移在独立事务中执行，重复打开幂等 |
+| `SecretStore` 三平台 | ✅ | Windows DPAPI + 文件承载；macOS Keychain / Linux Secret Service（经外部命令，无 cgo）；均带回退与显式告警 |
+| 主密钥 + AES-256-GCM | ✅ | `internal/secret`；每次加密随机 nonce，逐字节翻转测试证明完整性校验生效 |
+| 凭据 CRUD API | ✅ | `/v1/credentials` 全套；敏感字段一律掩码，回传掩码即保留原值 |
+| 服务商注册表 | ✅ | `/v1/providers` 输出字段定义与能力位；29 家服务商，Tier-1 六家字段齐备 |
+| YAML 导入导出 | ✅ | 默认不含明文；`dry_run` 默认开启 |
+| ddns-go 迁移 | ✅ | 按 `DdnsGoSlot` 显式映射槽位；凭据去重；webhook 与解析任务如实报告"暂未迁移" |
+| 审计日志 | ✅ | 所有写操作留痕，含失败与请求 ID；内容不含敏感值 |
+| 任务落库 | ✅ | 任务引擎**代码一行未改**，仅把 `job.Store` 实现从内存换成 SQLite |
+| Cloudflare 凭据校验 | ✅ | `GET /user/tokens/verify`，只读调用 |
+
+### M1 硬验收结果
+
+| 验收标准 | 证据 |
+|---|---|
+| 能通过接口增删改 DNS 凭据 | `TestCredentialLifecycle`（经命名管道走真实 HTTP） |
+| 数据库文件中凭据为密文 | `TestCredentialsAreEncryptedAtRest` —— 直接读 `.db` / `-wal` / `-shm`，断言明文不出现；同时反向验证明文确实能取回（否则断言无意义） |
+| 重启后凭据可正常解密 | `TestCredentialSurvivesRestart` —— 同一数据目录启动两次 |
+| 能导入真实的 ddns-go 配置 | `TestImportDdnsGoThroughAPI` —— 预览不写入、应用后凭据与密钥正确、未迁移内容有明确警告 |
+
+
 
 本机没有 MSVC 工具链。为保证三平台交叉编译与 CI 简单可靠，**内核禁止引入任何需要 cgo 的依赖**。这直接决定了：
 
@@ -54,8 +78,8 @@
 
 | # | 名称 | 核心产出 | 硬验收 |
 |---|---|---|---|
-| M0 | 地基 | 工具链、骨架、平台接口 + stub、OpenAPI 管线、daemon + 传输 + token、事件总线 + WS + job、CLI 骨架、CI、许可证审计 | 三平台 `CGO_ENABLED=0 go build ./...` 通过；`isc status` 经命名管道拿到版本；CI 全绿 |
-| M1 | 配置与凭据 | SQLite schema + 迁移、`SecretStore` 三平台、配置 CRUD API、YAML 导入导出、审计日志 | 控制台增删改凭据；库内为密文；重启后读回正常；能导入 ddns-go 的 yaml |
+| M0 | 地基 | 工具链、骨架、平台接口 + stub、OpenAPI 管线、daemon + 传输 + token、事件总线 + WS + job、CLI 骨架、CI、许可证审计 | ✅ **已完成**：三平台 `CGO_ENABLED=0 go build ./...` 通过；`isc status` 经命名管道拿到版本；CI 全绿 |
+| M1 | 配置与凭据 | SQLite schema + 迁移、`SecretStore` 三平台、配置 CRUD API、YAML 导入导出、审计日志 | ✅ **已完成**：接口增删改凭据；库内为密文（含 WAL）；重启后读回正常；ddns-go 配置导入成功 |
 | M2 | 动态解析闭环 | ddns-go 移植（Tier-2 30 家 + 签名 + IP 获取 + ipcache + webhook）、`IPMonitor` 三平台 + 前缀事件、调度器、Tier-1 五家全量 CRUD | 真机 IPv6 前缀变化 → AAAA 自动更新；控制台可增删改任意记录类型 |
 | M3 | 可达性 | 三平台 `Firewall` 后端 + 计划/预览/应用/回滚、引导式外部验证、端口冲突检测、低端口绑定、`isc doctor` | 新机从零到「手机 4G/5G 打开测试页」全流程走通，且可一键回滚 |
 | M4 | 反代 + 自动 HTTPS | certmagic + libdns 适配器、反向代理（域名 / SNI 路由 + 非标端口入口）、证书续期 + 事件 | 家宽单个非标端口 + 两个域名指向两个本地服务，HTTPS 全绿，证书自动续 |

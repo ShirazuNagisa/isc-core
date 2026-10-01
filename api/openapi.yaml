@@ -33,6 +33,16 @@ tags:
     description: 实时事件流
   - name: Jobs
     description: 异步任务
+  - name: Providers
+    description: DNS 服务商元信息与能力矩阵
+  - name: Credentials
+    description: DNS 服务商凭据（加密存储）
+  - name: Settings
+    description: 运行时设置
+  - name: Audit
+    description: 审计日志
+  - name: Config
+    description: 配置导入导出与迁移
   - name: Debug
     description: 仅用于管线自检的调试端点，不属于产品接口
 
@@ -215,6 +225,375 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # DNS 服务商元信息
+  # ---------------------------------------------------------------------------
+
+  /v1/providers:
+    get:
+      tags: [Providers]
+      operationId: listProviders
+      summary: 列出支持的 DNS 服务商及其能力与凭据字段
+      description: |
+        返回内核支持的全部 DNS 服务商，以及每家所需的凭据字段定义。
+
+        **这是下游 GUI 渲染凭据表单的唯一依据** —— GUI 不需要为每家服务商
+        写死表单，只需遍历 `credential_fields` 生成输入框。新增服务商时
+        内核与 GUI 都不用改代码。
+
+        `capabilities` 声明该服务商支持哪些操作（区域列表、记录增删改查、
+        全记录类型、TTL、代理开关、能否用于 ACME DNS-01 校验）。
+        GUI 应当据此置灰不支持的功能，而不是等用户点了才报错。
+      responses:
+        "200":
+          description: 服务商列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Provider"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 凭据
+  # ---------------------------------------------------------------------------
+
+  /v1/credentials:
+    get:
+      tags: [Credentials]
+      operationId: listCredentials
+      summary: 列出全部凭据
+      description: |
+        返回的凭据中，**敏感字段一律以掩码形式呈现**（例如 `abcd****wxyz`），
+        明文永不离开内核。客户端提交更新时若某字段的值等于掩码，
+        内核会保留原值而不是把掩码当作新值写入。
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: 凭据列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    post:
+      tags: [Credentials]
+      operationId: createCredential
+      summary: 新建凭据
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialInput"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: 同名凭据已存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/credentials/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CredentialId"
+
+    get:
+      tags: [Credentials]
+      operationId: getCredential
+      summary: 凭据详情
+      responses:
+        "200":
+          description: 凭据详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    patch:
+      tags: [Credentials]
+      operationId: updateCredential
+      summary: 修改凭据
+      description: |
+        只更新请求体中出现的字段。敏感字段若提交掩码值则保留原值 ——
+        这让"改个标签"不需要重新输入密钥。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialInput"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Credentials]
+      operationId: deleteCredential
+      summary: 删除凭据
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: 凭据仍被引用（例如有动态解析任务或证书在使用它）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 设置
+  # ---------------------------------------------------------------------------
+
+  /v1/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: 读取运行时设置
+      responses:
+        "200":
+          description: 设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: 修改运行时设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsPatch"
+      responses:
+        "200":
+          description: 修改后的完整设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 审计
+  # ---------------------------------------------------------------------------
+
+  /v1/audit:
+    get:
+      tags: [Audit]
+      operationId: listAudit
+      summary: 查询审计日志
+      description: |
+        记录所有**写操作**（谁、什么时候、对什么、做了什么、结果如何）。
+
+        存在的意义：内核以系统服务身份运行、能改防火墙、能重写整个 DNS 区域。
+        出问题时"最后一次改动是什么、谁改的"是排查的第一入口。
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: action
+          in: query
+          required: false
+          description: 按动作过滤。
+          schema:
+            type: string
+        - name: result
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/AuditResult"
+      responses:
+        "200":
+          description: 审计记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 配置导入导出
+  # ---------------------------------------------------------------------------
+
+  /v1/config/export:
+    get:
+      tags: [Config]
+      operationId: exportConfig
+      summary: 导出配置
+      description: |
+        导出为 YAML，用于备份与迁移。
+
+        `include_secrets` 默认为 **false**：导出的凭据字段为掩码，
+        导入到另一台机器时需要重新填写密钥。这是刻意的默认值 ——
+        一个"顺手导出"产生的明文密钥文件是常见的事故来源。
+      parameters:
+        - name: include_secrets
+          in: query
+          required: false
+          description: 设为 true 才会导出明文凭据（务必妥善保管导出文件）。
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: 配置 YAML
+          content:
+            application/yaml:
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/config/import:
+    get:
+      tags: [Config]
+      operationId: describeImport
+      summary: 说明导入行为
+      description: |
+        该端点只做说明，不做任何事。真正的导入用 POST。
+
+        （保留它是因为 OpenAPI 3.1 的 `GET` 与 `POST` 语义需要分开表达，
+        而客户端需要能发现"导入会做什么、会不会覆盖现有配置"。）
+      responses:
+        "200":
+          description: 导入行为的说明
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dry_run_supported:
+                    type: boolean
+                  notes:
+                    type: string
+        default:
+          $ref: "#/components/responses/Problem"
+
+    post:
+      tags: [Config]
+      operationId: importConfig
+      summary: 导入配置
+      description: |
+        `dry_run` 默认为 **true**：先返回"将会发生什么"（新建多少条、
+        覆盖多少条、哪些会失败），确认后再以 `dry_run=false` 提交。
+
+        这与 `docs/DECISIONS.md` D10 的"计划 → 预览 → 应用 → 回滚"
+        是同一套思路：导入是破坏性操作，不该一步到位。
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              type: string
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: 导入结果（dry_run 时为预览）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/config/import/ddns-go:
+    post:
+      tags: [Config]
+      operationId: importDdnsGoConfig
+      summary: 导入 ddns-go 配置
+      description: |
+        把 ddns-go 的 YAML 配置迁移为 ISC 的凭据与动态解析任务。
+
+        迁移要点：
+        - ddns-go 的每个 `dnsconf` 条目里，`dns.name` / `dns.id` / `dns.secret`
+          被抽取为一个凭据（多条条目共用同一凭据时只建一个）；
+        - `ipv4` / `ipv6` 的获取方式（网卡 / URL / 命令）与域名列表
+          被转换为动态解析任务；
+        - ddns-go 的 webhook 配置被转换为一个通知通道（M4 接入通知中心后生效）。
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: 迁移结果（dry_run 时为预览）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -230,6 +609,14 @@ components:
       in: path
       required: true
       description: 任务 ID
+      schema:
+        type: string
+        minLength: 1
+    CredentialId:
+      name: id
+      in: path
+      required: true
+      description: 凭据 ID
       schema:
         type: string
         minLength: 1
@@ -471,3 +858,302 @@ components:
           maximum: 100
           default: 0
           description: 大于 0 时在第 N 步失败，用于验证失败路径。
+
+    # ------------------------------------------------------------------
+    # DNS 服务商
+    # ------------------------------------------------------------------
+
+    Provider:
+      type: object
+      required: [name, display_name, capabilities, credential_fields]
+      properties:
+        name:
+          type: string
+          description: 服务商标识，用于凭据的 provider 字段。
+          examples: [cloudflare, alidns, dnspod]
+        display_name:
+          type: string
+          description: 展示名称（已本地化）。
+        tier:
+          type: integer
+          enum: [1, 2]
+          description: |
+            能力分层：
+              1 = 完整记录 CRUD + 动态解析（Tier-1）
+              2 = 仅 A/AAAA 动态解析（Tier-2，移植自 ddns-go）
+        capabilities:
+          $ref: "#/components/schemas/ProviderCapabilities"
+        credential_fields:
+          type: array
+          description: |
+            该服务商所需的凭据字段。GUI 遍历它生成表单，
+            因此**不需要为每家服务商写死界面**。
+          items:
+            $ref: "#/components/schemas/ProviderField"
+
+    ProviderField:
+      type: object
+      required: [key, label, secret, required]
+      properties:
+        key:
+          type: string
+          description: 字段名，用作凭据 fields 中的键。
+          examples: [id, secret, ext_param]
+        label:
+          type: string
+          description: 展示名称（已本地化）。
+        secret:
+          type: boolean
+          description: |
+            为 true 时该字段是敏感值：读取时被掩码，界面应使用密码输入框，
+            且不参与日志与导出（除非显式要求导出明文）。
+        required:
+          type: boolean
+        placeholder:
+          type: string
+          description: 输入提示。
+        help:
+          type: string
+          description: 补充说明，例如"在何处获取该密钥"。
+        example:
+          type: string
+
+    ProviderCapabilities:
+      type: object
+      description: 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
+      required:
+        - available
+        - zone_list
+        - record_list
+        - record_create
+        - record_update
+        - record_delete
+        - all_record_types
+        - custom_ttl
+        - proxy
+        - dns01
+      properties:
+        available:
+          type: boolean
+          description: |
+            该服务商的实现是否已就绪（目前指"能校验凭据"）。
+
+            为 false 时，服务商出现在列表里只是为了让配置导入与界面展示
+            完整，其能力位一律为 false。GUI 应当明确显示"尚未实现"，
+            而不是让用户对着一排灰按钮猜原因。
+        zone_list:
+          type: boolean
+          description: 能列出账号下的 DNS 区域。
+        record_list:
+          type: boolean
+        record_create:
+          type: boolean
+        record_update:
+          type: boolean
+        record_delete:
+          type: boolean
+        all_record_types:
+          type: boolean
+          description: 支持 A/AAAA 之外的记录类型（CNAME/MX/TXT/NS/SRV/CAA 等）。
+        custom_ttl:
+          type: boolean
+        proxy:
+          type: boolean
+          description: 支持 CDN 代理开关（如 Cloudflare 的橙云）。
+        dns01:
+          type: boolean
+          description: 可用于 ACME DNS-01 证书校验。
+
+    # ------------------------------------------------------------------
+    # 凭据
+    # ------------------------------------------------------------------
+
+    Credential:
+      type: object
+      required: [id, provider, label, fields, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        label:
+          type: string
+          description: 用户可读的备注名，用于在界面上区分同一服务商的多组凭据。
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            凭据字段。**敏感字段一律为掩码值**，明文永不通过接口返回。
+            客户端提交更新时若原样回传掩码，内核会保留原值。
+        capabilities:
+          $ref: "#/components/schemas/ProviderCapabilities"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_verified_at:
+          type: string
+          format: date-time
+        last_verify_ok:
+          type: boolean
+        last_verify_error:
+          type: string
+
+    CredentialInput:
+      type: object
+      required: [provider, label]
+      properties:
+        provider:
+          type: string
+        label:
+          type: string
+          minLength: 1
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            凭据字段明文。更新时只提交需要修改的字段；
+            敏感字段若提交掩码值则保留原值。
+
+    CredentialList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Credential"
+        next_cursor:
+          type: string
+
+    # ------------------------------------------------------------------
+    # 设置
+    # ------------------------------------------------------------------
+
+    Settings:
+      type: object
+      required: [lang, log_level]
+      properties:
+        lang:
+          type: string
+          enum: [zh-CN, en]
+        log_level:
+          type: string
+          enum: [debug, info, warn, error]
+        event_buffer_size:
+          type: integer
+          minimum: 100
+          maximum: 100000
+          description: 事件环形缓冲容量。调大可延长断线补发的覆盖窗口。
+        notify_on_ip_change:
+          type: boolean
+          description: 地址或 IPv6 前缀变化时是否发送通知（M4 起生效）。
+
+    SettingsPatch:
+      type: object
+      description: 只提交需要修改的字段。
+      properties:
+        lang:
+          type: string
+          enum: [zh-CN, en]
+        log_level:
+          type: string
+          enum: [debug, info, warn, error]
+        event_buffer_size:
+          type: integer
+          minimum: 100
+          maximum: 100000
+        notify_on_ip_change:
+          type: boolean
+
+    # ------------------------------------------------------------------
+    # 审计
+    # ------------------------------------------------------------------
+
+    AuditResult:
+      type: string
+      enum: [success, failure, denied]
+
+    AuditEntry:
+      type: object
+      required: [id, ts, action, result]
+      properties:
+        id:
+          type: integer
+          format: int64
+        ts:
+          type: string
+          format: date-time
+        action:
+          type: string
+          description: 稳定的机器可读动作名。
+          examples: ["credential.create", "credential.update", "config.import"]
+        target:
+          type: string
+          description: 操作对象的标识（例如凭据 ID 或名称）。
+        result:
+          $ref: "#/components/schemas/AuditResult"
+        detail:
+          type: string
+          description: 补充说明（已本地化，**不含敏感值**）。
+        request_id:
+          type: string
+        remote:
+          type: string
+          description: 来源描述。本机管理通道下通常是传输类型而非 IP。
+
+    AuditList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        next_cursor:
+          type: string
+
+    # ------------------------------------------------------------------
+    # 配置导入导出
+    # ------------------------------------------------------------------
+
+    ImportResult:
+      type: object
+      required: [dry_run, summary]
+      properties:
+        dry_run:
+          type: boolean
+        summary:
+          $ref: "#/components/schemas/ImportSummary"
+        warnings:
+          type: array
+          description: 不会导致失败、但用户应当知晓的问题（已本地化）。
+          items:
+            type: string
+        errors:
+          type: array
+          description: 导致对应条目被跳过的错误（已本地化）。
+          items:
+            type: string
+
+    ImportSummary:
+      type: object
+      properties:
+        credentials_created:
+          type: integer
+        credentials_updated:
+          type: integer
+        credentials_skipped:
+          type: integer
+        tasks_created:
+          type: integer
+        tasks_updated:
+          type: integer
+        tasks_skipped:
+          type: integer
+        settings_updated:
+          type: integer

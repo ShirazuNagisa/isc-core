@@ -11,12 +11,12 @@ import "runtime"
 //	Firewall       → M3  Defender Firewall (COM INetFwPolicy2 / netsh advfirewall)
 //	ServiceManager → M5  Windows 服务 (SCM)
 //	IPMonitor      → M2  GetAdaptersAddresses + 轮询
-//	SecretStore    → M1  DPAPI (CryptProtectData)
+//	SecretStore    → 已实现（DPAPI 保护 + 文件承载，见 secret_windows.go）
 //	Transport      → 已实现（命名管道，见 transport_windows.go）
 //	LowPortBinder  → Windows 不限制普通进程绑定低端口
-
-// Current 返回当前平台的默认后端集合。
-func Current() *Bundle {
+//
+// dataRoot 是内核的数据根目录：密钥存储需要它来决定文件落点。
+func Current(dataRoot string) *Bundle {
 	return &Bundle{
 		Firewall: newUnsupportedFirewall(
 			"Windows Defender Firewall 后端将在 M3 实现；当前降级为引导模式"),
@@ -24,8 +24,7 @@ func Current() *Bundle {
 			"Windows 服务（SCM）后端将在 M5 实现"),
 		IPMonitor: newUnsupportedIPMonitor(
 			"GetAdaptersAddresses 监控后端将在 M2 实现"),
-		SecretStore: newUnsupportedSecretStore(
-			"DPAPI 密钥库后端将在 M1 实现"),
+		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: permissiveLowPortBinder{backend: "windows-native"},
 		OS:            runtime.GOOS,

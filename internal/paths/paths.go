@@ -87,6 +87,13 @@ func (p Paths) DBFile() string { return filepath.Join(p.root, "isc.db") }
 // LogDir 返回日志目录。
 func (p Paths) LogDir() string { return filepath.Join(p.root, "logs") }
 
+// SecretsDir 返回密钥存储目录。
+//
+// 内容形态由平台决定（Windows 是 DPAPI 密文文件，macOS/Linux 通常
+// 只有系统密钥库，目录可能为空）。纳入 EnsureDirs 是为了让它与
+// run/ 目录一样受到收紧后的访问权限保护。
+func (p Paths) SecretsDir() string { return filepath.Join(p.root, "secrets") }
+
 // ConfigFile 返回配置文件路径。
 func (p Paths) ConfigFile() string { return filepath.Join(p.config, "isc.yaml") }
 
@@ -100,13 +107,17 @@ func (p Paths) String() string {
 // 权限收紧失败不会导致启动失败（某些文件系统不支持），但会返回一个
 // 非致命的告警字符串供调用方记录 —— 静默降级是不可接受的。
 func (p Paths) EnsureDirs() (warnings []string, err error) {
-	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir()} {
+	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return warnings, fmt.Errorf("paths: 创建目录 %q: %w", dir, err)
 		}
 	}
-	if w := tightenDir(p.RunDir()); w != "" {
-		warnings = append(warnings, w)
+	// run/ 与 secrets/ 都含机密（访问令牌、主密钥密文），
+	// 必须与数据根目录一样收紧到显式白名单。
+	for _, dir := range []string{p.RunDir(), p.SecretsDir()} {
+		if w := tightenDir(dir); w != "" {
+			warnings = append(warnings, w)
+		}
 	}
 	return warnings, nil
 }

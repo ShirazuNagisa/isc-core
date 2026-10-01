@@ -18,13 +18,20 @@ import (
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api"
+	"github.com/ShirazuNagisa/isc-core/internal/audit"
+	"github.com/ShirazuNagisa/isc-core/internal/configio"
+	"github.com/ShirazuNagisa/isc-core/internal/credential"
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	"github.com/ShirazuNagisa/isc-core/internal/logx"
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
+	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
+	"github.com/ShirazuNagisa/isc-core/internal/secret"
+	"github.com/ShirazuNagisa/isc-core/internal/settings"
+	"github.com/ShirazuNagisa/isc-core/internal/store"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
 
@@ -57,6 +64,10 @@ type Options struct {
 	LogHandler *logx.BusHandler
 
 	// Lang 是用户界面语言。
+	//
+	// **只在命令行显式指定时才填**：留空表示沿用已保存的设置。
+	// 若这里总是填一个默认值，用户通过接口改成 en 之后，每次重启
+	// 都会被重新改回 zh-CN。
 	Lang i18n.Lang
 
 	// LoopbackAddr 是回环监听地址；为空时用 defaultLoopbackAddr。
@@ -70,9 +81,6 @@ type Options struct {
 
 	// AllowedOrigins 是 WebSocket 允许的 Origin 模式，供 Vite 开发调试使用。
 	AllowedOrigins []string
-
-	// EventBufferSize 是事件环形缓冲容量；0 表示使用默认值。
-	EventBufferSize int
 }
 
 // Daemon 是内核守护进程。
@@ -84,6 +92,16 @@ type Daemon struct {
 	jobs   *job.Engine
 	api    *api.Server
 	token  string
+
+	// store 是持久化层。为 nil 表示数据库不可用 ——
+	// 这种情况在 M1 之后不应出现，因为凭据必须落库。
+	store *store.Store
+
+	settings    *settings.Service
+	registry    *provider.Registry
+	credentials *credential.Service
+	auditor     *audit.Recorder
+	configio    *configio.Service
 
 	servers   []*http.Server
 	listeners []net.Listener
@@ -103,9 +121,6 @@ func New(opts Options) *Daemon {
 	}
 	if opts.LoopbackAddr == "" {
 		opts.LoopbackAddr = defaultLoopbackAddr
-	}
-	if opts.Lang == "" {
-		opts.Lang = i18n.Default
 	}
 	return &Daemon{
 		opts:  opts,
@@ -133,21 +148,80 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.log.Warn(w)
 	}
 
-	// 2. 语言与平台
-	i18n.SetDefault(d.opts.Lang)
-	d.bundle = platform.Current()
+	// 2. 平台后端。
+	// 必须在数据库之前：密钥存储的落点由数据根目录决定。
+	d.bundle = platform.Current(d.opts.Paths.Root())
+
+	// 3. 数据库。
+	// 迁移在这里执行，因此后面所有子系统都可以假定表结构就绪。
+	st, err := store.Open(ctx, d.opts.Paths.DBFile())
+	if err != nil {
+		return err
+	}
+	d.store = st
+
+	// 任何提前返回路径都必须关掉数据库。
+	//
+	// 这不是洁癖：在 Windows 上未关闭的 SQLite 文件句柄会让数据目录
+	// 无法删除，表现为"卸载/重装时提示文件被占用"，而用户完全无从下手。
+	// 正常路径下 shutdown() 会把 d.store 置空，这里的 defer 就成了空操作。
+	defer func() {
+		if d.store != nil {
+			_ = d.store.Close()
+			d.store = nil
+		}
+	}()
+
+	// 4. 主密钥。
+	secrets, err := secret.Open(ctx, d.bundle.SecretStore)
+	if err != nil {
+		return err
+	}
+	if secrets.Created() {
+		d.log.Info("已生成新的主密钥",
+			"backend", d.bundle.SecretStore.Describe().Backend)
+	}
+
+	// 5. 设置。
+	// 必须在日志与语言之前：事件缓冲容量与语言都由它决定。
+	settingsSvc, err := settings.Load(ctx, st)
+	if err != nil {
+		return err
+	}
+	d.settings = settingsSvc
+
+	// 命令行显式指定的语言优先于已保存的设置，且只在这里生效一次：
+	// CLI 仅在用户真的传了 --lang 时才会填 opts.Lang，因此这不会在
+	// 每次重启时覆盖用户后来通过接口改成的语言。
+	if d.opts.Lang != "" {
+		want := string(i18n.Parse(string(d.opts.Lang)))
+		if want != settingsSvc.Get().Lang {
+			if _, err := settingsSvc.Update(ctx, settings.Patch{Lang: &want}); err != nil {
+				d.log.Warn("应用命令行指定的语言失败", "err", err)
+			}
+		}
+	}
+	i18n.SetDefault(i18n.Parse(settingsSvc.Get().Lang))
+
 	d.log.Info(i18n.T("daemon.starting"),
 		"version", version.Version,
 		"os", d.bundle.OS, "arch", d.bundle.Arch,
 		"paths", d.opts.Paths.String())
 
-	// 3. 清理上一次的残留运行时文件。
+	// 6. 领域服务。
+	d.registry = provider.Default()
+	d.credentials = credential.NewService(
+		st.Credentials(), secrets, specLookup(d.registry), d.log)
+	d.auditor = audit.NewRecorder(st, d.log)
+	d.configio = configio.New(d.credentials, d.settings, d.registry)
+
+	// 7. 清理上一次的残留运行时文件。
 	if err := d.cleanupStaleRuntime(); err != nil {
 		return err
 	}
 
-	// 4. 事件总线与任务引擎
-	d.bus = event.NewBus(d.opts.EventBufferSize)
+	// 8. 事件总线与任务引擎。
+	d.bus = event.NewBus(settingsSvc.Get().EventBufferSize)
 	d.opts.LogHandler.SetPublisher(d.bus)
 
 	// 任务引擎的父上下文是本次运行的生命周期，而不是调用方的 ctx：
@@ -155,14 +229,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRun()
 
-	d.jobs = job.NewEngine(runCtx, d.bus, job.NewMemoryStore(), d.log)
+	// 任务状态落进 SQLite：进程重启后历史任务仍可查询。
+	d.jobs = job.NewEngine(runCtx, d.bus, st.Jobs(), d.log)
 
-	// 5. 访问令牌
+	// 9. 访问令牌
 	if d.token, err = newToken(); err != nil {
 		return err
 	}
 
-	// 6. API 服务
+	// 10. API 服务
 	d.api = api.New(api.Deps{
 		Bus:            d.bus,
 		Jobs:           d.jobs,
@@ -171,30 +246,50 @@ func (d *Daemon) Run(ctx context.Context) error {
 		StartedAt:      time.Now().UTC(),
 		AllowedOrigins: d.opts.AllowedOrigins,
 		Token:          d.token,
+		Providers:      d.registry,
+		Credentials:    d.credentials,
+		Settings:       d.settings,
+		Audit:          d.auditor,
+		AuditWriter:    st,
+		Config:         d.configio,
 	})
 
-	// 7. 建立传输通道
+	// 11. 建立传输通道
 	if err := d.listen(ctx); err != nil {
 		return err
 	}
 
-	// 8. 写出 runtime.json —— 此刻起客户端才能发现内核。
+	// 12. 写出 runtime.json —— 此刻起客户端才能发现内核。
 	if err := d.writeRuntimeInfo(); err != nil {
 		d.closeListeners()
 		return err
 	}
 
-	// 9. 起服务
+	// 13. 起服务
 	d.serve(cancelRun)
 
 	d.readyOnce.Do(func() { close(d.ready) })
 	d.log.Info(i18n.T("daemon.started"))
 
-	// 10. 等待退出信号
+	// 14. 等待退出信号
 	<-ctx.Done()
 	d.log.Info(i18n.T("daemon.stopping"))
 
 	return d.shutdown()
+}
+
+// specLookup 把服务商注册表适配成 credential.SpecLookup。
+//
+// 这层薄适配是为了打破依赖环：provider 需要 credential 的字段类型，
+// 因此 credential 不能反过来依赖 provider。
+func specLookup(reg *provider.Registry) credential.SpecLookup {
+	return func(name string) ([]credential.FieldSpec, bool) {
+		p, ok := reg.Get(name)
+		if !ok {
+			return nil, false
+		}
+		return p.CredentialFields, true
+	}
 }
 
 // cleanupStaleRuntime 清理上一次非正常退出留下的 runtime.json。
@@ -350,6 +445,18 @@ func (d *Daemon) shutdown() error {
 		}
 	}
 	d.closeListeners()
+
+	// 数据库最后关：前面的子系统在收尾过程中仍可能写入任务状态。
+	if d.store != nil {
+		if err := d.store.Close(); err != nil {
+			d.log.Warn("关闭数据库失败", "err", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+		// 置空让 Run 里的兜底 defer 成为空操作，避免重复关闭。
+		d.store = nil
+	}
 
 	d.log.Info(i18n.T("daemon.stopped"))
 	return firstErr

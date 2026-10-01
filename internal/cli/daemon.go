@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/daemon"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 func newDaemonCmd(app *App) *cobra.Command {
@@ -46,10 +47,17 @@ func newDaemonRunCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
+			// 只在用户真的传了 --lang 时才把语言交给内核：
+			// 无条件传会让"用户通过接口改成 en"在每次重启后被改回默认值。
+			var lang i18n.Lang
+			if cmd.Root().PersistentFlags().Changed("lang") {
+				lang = app.lang
+			}
+
 			d := daemon.New(daemon.Options{
 				Paths:           app.paths,
 				LogHandler:      app.logHandler,
-				Lang:            app.lang,
+				Lang:            lang,
 				LoopbackAddr:    loopbackAddr,
 				DisableLoopback: disableLoopback,
 				AllowedOrigins:  allowedOrigins,

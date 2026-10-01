@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"net/netip"
@@ -325,16 +326,111 @@ func TestPortRange(t *testing.T) {
 func TestUnsupportedBackendReportsUnavailable(t *testing.T) {
 	t.Parallel()
 
-	b := Current()
+	b := Current(t.TempDir())
 	if b == nil {
 		t.Fatal("Current 不应返回 nil")
 	}
-	// 无论平台，传输后端都必须可用 —— 没有它内核根本无法被管理。
-	tx := b.Capabilities().Transport
-	if !tx.Available {
-		t.Errorf("传输后端必须可用，得到 %+v", tx)
+	// 无论平台，传输与密钥存储都必须可用 ——
+	// 没有前者内核无法被管理，没有后者无法安全保存凭据。
+	caps := b.Capabilities()
+	if !caps.Transport.Available {
+		t.Errorf("传输后端必须可用，得到 %+v", caps.Transport)
+	}
+	if !caps.SecretStore.Available {
+		t.Errorf("密钥存储后端必须可用，得到 %+v", caps.SecretStore)
 	}
 	if b.OS == "" || b.Arch == "" {
 		t.Error("Bundle 应填充 OS 与 Arch")
+	}
+}
+
+// TestSecretStoreRoundTrip 覆盖真实的密钥存取路径。
+//
+// 这是安全边界之一：读写必须幂等、缺失必须返回"没找到"而不是错误、
+// 且密钥名不得越界到目录之外。
+func TestSecretStoreRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := NewSecretStore(t.TempDir())
+
+	const name = "master"
+	want := []byte("这是一个 32 字节的主密钥\x00\x01\x02\xff")
+
+	// 首次读取：不存在，且不是错误。
+	if v, found, err := store.Get(ctx, name); err != nil || found || v != nil {
+		t.Fatalf("首次读取应返回 (nil,false,nil)，得到 (%v,%v,%v)", v, found, err)
+	}
+
+	if err := store.Put(ctx, name, want); err != nil {
+		t.Fatalf("写入失败: %v", err)
+	}
+	got, found, err := store.Get(ctx, name)
+	if err != nil || !found {
+		t.Fatalf("写入后应能读到: found=%v err=%v", found, err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("读回的值与写入不一致：%q != %q", got, want)
+	}
+
+	// 覆盖写。
+	want2 := []byte("second value")
+	if err := store.Put(ctx, name, want2); err != nil {
+		t.Fatalf("覆盖写入失败: %v", err)
+	}
+	got2, _, err := store.Get(ctx, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got2, want2) {
+		t.Errorf("覆盖后读回不一致：%q", got2)
+	}
+
+	// 删除后回到"不存在"。
+	if err := store.Delete(ctx, name); err != nil {
+		t.Fatalf("删除失败: %v", err)
+	}
+	if _, found, err := store.Get(ctx, name); err != nil || found {
+		t.Errorf("删除后应返回不存在，得到 found=%v err=%v", found, err)
+	}
+	// 重复删除不是错误。
+	if err := store.Delete(ctx, name); err != nil {
+		t.Errorf("重复删除不应报错: %v", err)
+	}
+}
+
+// TestSecretStoreRejectsUnsafeNames 验证密钥名是安全边界。
+//
+// 名称目前来自代码而非用户输入，但只要有人不小心把外部字符串传进来，
+// 未校验的名称就会变成路径穿越 —— 那意味着可以覆盖任意文件。
+func TestSecretStoreRejectsUnsafeNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := NewSecretStore(t.TempDir())
+
+	bad := []string{
+		"",
+		"../../etc/passwd",
+		"..",
+		"a/../../b",
+		"sub/dir",
+		"sub\\dir",
+		"name with space",
+		"name:stream",
+		".hidden",
+		"中文名",
+	}
+	for _, name := range bad {
+		if err := store.Put(ctx, name, []byte("x")); err == nil {
+			t.Errorf("密钥名 %q 应被拒绝", name)
+		}
+	}
+
+	good := []string{"master", "master.v1", "isc_master-key", "A1"}
+	for _, name := range good {
+		if err := store.Put(ctx, name, []byte("x")); err != nil {
+			t.Errorf("密钥名 %q 应被接受，得到: %v", name, err)
+		}
 	}
 }
