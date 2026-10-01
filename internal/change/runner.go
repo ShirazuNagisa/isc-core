@@ -73,6 +73,11 @@ type Record struct {
 	Warnings []string `json:"warnings,omitempty"`
 	Notes    []string `json:"notes,omitempty"`
 
+	// Payload 是后端私有的回滚数据，本包原样保存与交还。
+	//
+	// 见 Plan.Payload 的说明：它是跨进程撤销得以成立的唯一途径。
+	Payload []byte `json:"payload,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -256,6 +261,7 @@ func (r *Runner) Apply(ctx context.Context, plan Plan) (Result, error) {
 		Steps:     snapshotSteps(plan, StepPending),
 		Warnings:  plan.Warnings,
 		Notes:     plan.Notes,
+		Payload:   plan.Payload,
 		CreatedAt: plan.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
 	}

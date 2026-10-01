@@ -18,7 +18,7 @@ var _ change.Journal = (*Changes)(nil)
 // Changes 返回变更日志仓储。
 func (s *Store) Changes() *Changes { return &Changes{s: s} }
 
-const changeColumns = `plan_id, kind, title, risk, status, steps, warnings, notes, created_at, updated_at`
+const changeColumns = `plan_id, kind, title, risk, status, steps, warnings, notes, payload, created_at, updated_at`
 
 // Save 实现 change.Journal。
 //
@@ -37,9 +37,18 @@ func (c *Changes) Save(ctx context.Context, rec change.Record) error {
 	if err != nil {
 		return fmt.Errorf("store: 序列化变更说明失败: %w", err)
 	}
+	// payload 是后端私有的回滚数据，原样存取、不做解释。
+	//
+	// 用 sql.NullString 而不是空串：要区分"这条变更没有回滚数据"
+	// 与"回滚数据是空 JSON"。前者意味着跨进程撤销做不了，
+	// 后者是一个合法的（虽然无用的）值。
+	var payload sql.NullString
+	if len(rec.Payload) > 0 {
+		payload = sql.NullString{String: string(rec.Payload), Valid: true}
+	}
 
 	const q = `INSERT INTO change_journal (` + changeColumns + `)
-	VALUES (?,?,?,?,?,?,?,?,?,?)
+	VALUES (?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(plan_id) DO UPDATE SET
 	    kind = excluded.kind,
 	    title = excluded.title,
@@ -48,11 +57,12 @@ func (c *Changes) Save(ctx context.Context, rec change.Record) error {
 	    steps = excluded.steps,
 	    warnings = excluded.warnings,
 	    notes = excluded.notes,
+	    payload = excluded.payload,
 	    updated_at = excluded.updated_at`
 
 	_, err = c.s.db.ExecContext(ctx, q,
 		rec.PlanID, rec.Kind, rec.Title, string(rec.Risk), string(rec.Status),
-		string(steps), string(warnings), string(notes),
+		string(steps), string(warnings), string(notes), payload,
 		formatTime(rec.CreatedAt), formatTime(rec.UpdatedAt))
 	if err != nil {
 		return fmt.Errorf("store: 写入变更记录失败: %w", err)
@@ -133,11 +143,12 @@ func scanChange(sc rowScanner) (change.Record, error) {
 		stepsRaw  string
 		warnRaw   string
 		notesRaw  string
+		payload   sql.NullString
 		createdAt string
 		updatedAt string
 	)
 	err := sc.Scan(&rec.PlanID, &rec.Kind, &rec.Title, &risk, &status,
-		&stepsRaw, &warnRaw, &notesRaw, &createdAt, &updatedAt)
+		&stepsRaw, &warnRaw, &notesRaw, &payload, &createdAt, &updatedAt)
 	if err != nil {
 		return change.Record{}, err
 	}
@@ -167,6 +178,9 @@ func scanChange(sc rowScanner) (change.Record, error) {
 	}
 	if notesRaw != "" {
 		_ = json.Unmarshal([]byte(notesRaw), &rec.Notes)
+	}
+	if payload.Valid {
+		rec.Payload = []byte(payload.String)
 	}
 	return rec, nil
 }

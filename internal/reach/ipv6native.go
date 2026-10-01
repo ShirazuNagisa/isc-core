@@ -303,23 +303,23 @@ func (p *IPv6Native) Plan(ctx context.Context, req Request) (change.Plan, error)
 		return plan, nil
 	}
 
-	plan.Steps = []change.Step{{
-		Title:   ch.Summary,
-		Details: ch.Diff,
-		Diff:    []change.DiffLine{{Op: change.OpAdd, Text: describeRule(rule)}},
-	}}
+	// 把后端私有的数据带上：它是**跨进程撤销**的唯一依据。
+	//
+	// 不带的话，内核重启后就没有任何办法知道当初创建了哪几条规则，
+	// 只能让用户手动去防火墙界面里找。
+	plan.Payload = ch.Payload
 
 	// 用闭包把平台后端的 Apply / Rollback 包成计划步骤。
 	//
 	// 这样无论变更来自哪个插件，"预览 → 应用 → 失败自动回滚 → 事后撤销"
 	// 这套保证都是同一份代码在提供，而不是每个插件各写一遍。
-	plan.Steps[0] = change.NewStep(
+	plan.Steps = []change.Step{change.NewStep(
 		"firewall-rule",
 		ch.Summary,
 		func(ctx context.Context) error { return p.firewall.Apply(ctx, ch) },
 		func(ctx context.Context) error { return p.firewall.Rollback(ctx, ch) },
 		change.DiffLine{Op: change.OpAdd, Text: describeRule(rule)},
-	)
+	)}
 	plan.Steps[0].Details = ch.Diff
 
 	return plan, nil
@@ -343,24 +343,47 @@ func RiskForExpose(port int) change.Risk {
 
 // Revert 实现 change.Reverter。
 //
-// # 为什么这里只能"报告"而不能真的撤销
+// # 它依赖什么
 //
-// 撤销一条防火墙规则需要当初那个 platform.Change（它带着后端私有的
-// payload）。而那个对象**没有持久化** —— change.Record 里存的是
-// 渲染后的文本，用于人看，不是用于重建操作。
+// 撤销一条防火墙规则需要知道"当初创建了哪几条"。那个信息由平台后端
+// 序列化进 `change.Record.Payload`（见 change.Plan.Payload 的说明），
+// 因此**跨越内核重启仍然可用**。
 //
-// 于是跨进程撤销在这里做不了。与其假装做到（例如"删掉同名的全部规则"，
-// 那会误删用户手动加的规则），不如明确报错并告诉用户该做什么。
+// 上一版没有 payload 这个字段，只能报错让用户手动清理 —— 那是把框架的
+// 设计缺口转嫁给了用户。现在补上了。
 //
-// 这个缺口是有意留下的，且必须在界面上如实呈现。要真正补上它，
-// 需要把 platform.Change 的 payload 一并持久化 —— 那涉及各后端的
-// payload 版本兼容问题，排在 M3 之后。
-func (p *IPv6Native) Revert(_ context.Context, rec change.Record) error {
-	return fmt.Errorf(
-		"reach: 无法自动撤销防火墙变更 %s（规则名 %s）："+
-			"撤销需要创建该规则时的后端数据，而那没有持久化。"+
-			"请在系统防火墙中手动删除以 %q 开头的规则",
-		rec.PlanID, rec.Title, rulePrefix)
+// 仍然有两条路径会明确报错，而不是假装成功：
+//
+//   - 记录来自更早的内核版本，那时还没有 payload；
+//   - 当前平台的防火墙后端不可用（例如把数据目录搬到另一台机器）。
+//
+// 两种情况下都给出规则名前缀，用户据此能在系统防火墙里找到它们。
+func (p *IPv6Native) Revert(ctx context.Context, rec change.Record) error {
+	if p.firewall == nil || !p.firewallState.Available {
+		return fmt.Errorf(
+			"reach: 无法自动撤销 %s：当前平台的防火墙后端不可用。"+
+				"请在系统防火墙中手动删除以 %q 开头的规则",
+			rec.PlanID, rulePrefix)
+	}
+
+	if len(rec.Payload) == 0 {
+		return fmt.Errorf(
+			"reach: 无法自动撤销 %s：这条变更没有保存回滚数据"+
+				"（可能由更早的内核版本创建）。"+
+				"请在系统防火墙中手动删除以 %q 开头的规则",
+			rec.PlanID, rulePrefix)
+	}
+
+	ch := platform.Change{
+		ID:         rec.PlanID,
+		Kind:       "firewall.rules",
+		Payload:    rec.Payload,
+		Reversible: true,
+	}
+	if err := p.firewall.Rollback(ctx, ch); err != nil {
+		return fmt.Errorf("reach: 撤销防火墙变更 %s 失败: %w", rec.PlanID, err)
+	}
+	return nil
 }
 
 // Kind 实现 change.Reverter。

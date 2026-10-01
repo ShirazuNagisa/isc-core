@@ -463,16 +463,62 @@ func TestPlanPropagatesBackendError(t *testing.T) {
 // 撤销一条防火墙规则需要当初那个 platform.Change（带着后端私有 payload），
 // 而它没有持久化。与其假装做到（例如"删掉所有 isc- 开头的规则"，
 // 那会误删用户手动加的），不如明确报错并告诉用户该做什么。
-func TestRevertReportsHonestlyInsteadOfPretending(t *testing.T) {
+func TestRevertUsesPersistedPayload(t *testing.T) {
 	t.Parallel()
 
-	p := NewIPv6Native(healthyMonitor(), &fakeFirewall{}, availableFirewallState())
+	fw := &fakeFirewall{planChange: platform.Change{
+		Summary: "新增 1 条入站规则", Diff: "  + 新增 isc-jellyfin-tcp-8096",
+		Reversible: true,
+		Payload:    json.RawMessage(`{"create":["isc-jellyfin-tcp-8096"]}`),
+	}}
+	p := NewIPv6Native(healthyMonitor(), fw, availableFirewallState())
+	ctx := context.Background()
+
+	// 生成计划时，后端私有的数据必须被带上。
+	plan, err := p.Plan(ctx, Request{Port: 8096, Protocol: "tcp", Label: "jellyfin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Payload) == 0 {
+		t.Fatal("计划必须带上后端私有的回滚数据 —— 否则跨进程撤销做不了")
+	}
+
+	// 模拟"内核重启后依据日志里的记录撤销"：
+	// 这里只用 record，不依赖任何内存状态。
+	rec := change.Record{
+		PlanID: plan.ID, Kind: KindFirewallExpose, Title: plan.Title,
+		Payload: plan.Payload,
+	}
+	if err := p.Revert(ctx, rec); err != nil {
+		t.Fatalf("撤销失败: %v", err)
+	}
+	if len(fw.rolledBAK) != 1 {
+		t.Fatalf("应当调用一次后端回滚，实际 %d 次", len(fw.rolledBAK))
+	}
+	// 回滚时必须把原始 payload 交还给后端 —— 那是它定位规则的唯一依据。
+	if string(fw.rolledBAK[0].Payload) != string(plan.Payload) {
+		t.Errorf("回滚时没有把 payload 交还给后端: %s", fw.rolledBAK[0].Payload)
+	}
+}
+
+// TestRevertReportsHonestlyWhenPayloadMissing 验证缺口被如实报告。
+//
+// 旧版本的记录里没有 payload，此时**不能**假装成功，也不能猜
+// （"删掉所有 isc- 开头的规则"会误删用户手动加的）。
+func TestRevertReportsHonestlyWhenPayloadMissing(t *testing.T) {
+	t.Parallel()
+
+	fw := &fakeFirewall{}
+	p := NewIPv6Native(healthyMonitor(), fw, availableFirewallState())
 
 	err := p.Revert(context.Background(), change.Record{
-		PlanID: "p1", Kind: KindFirewallExpose, Title: "放行 8096/tcp",
+		PlanID: "old-plan", Kind: KindFirewallExpose, Title: "旧版本的记录",
 	})
 	if err == nil {
-		t.Fatal("当前无法自动撤销，必须报错而不是假装成功")
+		t.Fatal("没有回滚数据时必须报错而不是假装成功")
+	}
+	if len(fw.rolledBAK) != 0 {
+		t.Error("没有回滚数据时不该调用后端")
 	}
 
 	msg := err.Error()
@@ -481,6 +527,24 @@ func TestRevertReportsHonestlyInsteadOfPretending(t *testing.T) {
 	}
 	if !strings.Contains(msg, rulePrefix) {
 		t.Errorf("必须给出规则名前缀，用户才能在防火墙界面里找到它: %s", msg)
+	}
+}
+
+// TestRevertReportsUnavailableBackend 验证换机器后的情形。
+func TestRevertReportsUnavailableBackend(t *testing.T) {
+	t.Parallel()
+
+	p := NewIPv6Native(healthyMonitor(), nil, platform.ImplState{Available: false})
+
+	err := p.Revert(context.Background(), change.Record{
+		PlanID: "p1", Kind: KindFirewallExpose,
+		Payload: json.RawMessage(`{"create":["isc-x-tcp-80"]}`),
+	})
+	if err == nil {
+		t.Fatal("后端不可用时必须报错")
+	}
+	if !strings.Contains(err.Error(), "手动") {
+		t.Errorf("必须告诉用户可以手动清理: %s", err)
 	}
 }
 
