@@ -36,6 +36,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/store"
+	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
 
@@ -115,6 +116,7 @@ type Daemon struct {
 
 	changeRunner *change.Runner
 	reach        *reach.Registry
+	verifyMgr    *verify.Manager
 	// monitorCancel 停掉 IP 监控与调度器的后台 goroutine。
 	monitorCancel context.CancelFunc
 
@@ -260,6 +262,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.reach.Register(reach.NewIPv6Native(
 		d.bundle.IPMonitor, d.bundle.Firewall, d.bundle.Capabilities().Firewall))
 
+	// 引导式外部验证。
+	//
+	// 目标地址取当前的主全局 IPv6：那是用户要用手机打开的那个地址。
+	// 每次开始时现取而不是缓存 —— 前缀一晚上能变好几次，而缓存的
+	// 地址会让用户拿着一个已经失效的 URL 反复尝试。
+	d.verifyMgr = verify.NewManager(d.currentTargetIP, func(format string, args ...any) {
+		d.log.Info(fmt.Sprintf(format, args...))
+	})
+
 	// 7. 清理上一次的残留运行时文件。
 	if err := d.cleanupStaleRuntime(); err != nil {
 		return err
@@ -321,6 +332,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		DNS:            d.dnsService,
 		Reach:          d.reach,
 		Changes:        d.changeRunner,
+		Verify:         d.verifyMgr,
 	})
 
 	// 11. 建立传输通道
@@ -355,6 +367,31 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.log.Info(i18n.T("daemon.stopping"))
 
 	return d.shutdown()
+}
+
+// currentTargetIP 返回给用户用手机打开的那个地址。
+//
+// 取第一个可用的全局 IPv6：那是家用场景下唯一能从公网访问的地址。
+// 每次现取而不是缓存 —— 运营商前缀一晚上能变好几次，而缓存的地址
+// 会让用户拿着一个已经失效的 URL 反复尝试，最后得出"验证不通过"的
+// 错误结论。
+func (d *Daemon) currentTargetIP(ctx context.Context) string {
+	if d.bundle == nil || d.bundle.IPMonitor == nil {
+		return ""
+	}
+	list, err := d.bundle.IPMonitor.Snapshot(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, iface := range list {
+		if iface.IsLoopback {
+			continue
+		}
+		if g := iface.GlobalIPv6(); len(g) > 0 {
+			return g[0].String()
+		}
+	}
+	return ""
 }
 
 // reportInterruptedChanges 检查并报告上次未走完的系统变更。

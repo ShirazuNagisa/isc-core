@@ -88,6 +88,7 @@ func New() *cobra.Command {
 		newIPCmd(app),
 		newDdnsCmd(app),
 		newConsoleCmd(app),
+		newVerifyCmd(app),
 		newDoctorCmd(app),
 	)
 

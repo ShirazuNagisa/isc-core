@@ -144,6 +144,10 @@ var messagesZh = map[string]string{
 	"change.not_found":         "变更记录不存在",
 	"change.interrupted_found": "发现 %d 条上次未走完的系统变更，请用 isc doctor 查看",
 
+	// --- 外部验证 ---
+	"verify.start_failed":      "无法开始外部验证",
+	"verify.session_not_found": "验证会话不存在",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

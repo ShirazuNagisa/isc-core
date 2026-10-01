@@ -23,6 +23,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
+	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
 
@@ -86,6 +87,9 @@ type Deps struct {
 
 	// Changes 是系统变更的执行器（含历史记录与撤销）。
 	Changes *change.Runner
+
+	// Verify 是引导式外部验证的管理器。
+	Verify *verify.Manager
 }
 
 // Server 实现 gen.ServerInterface。

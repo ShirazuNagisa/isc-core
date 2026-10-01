@@ -143,6 +143,10 @@ var messagesEn = map[string]string{
 	"change.not_found":         "Change record not found",
 	"change.interrupted_found": "Found %d unfinished system change(s); run 'isc doctor' to inspect",
 
+	// --- external verification ---
+	"verify.start_failed":      "Could not start external verification",
+	"verify.session_not_found": "Verification session not found",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

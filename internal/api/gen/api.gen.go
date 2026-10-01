@@ -371,6 +371,60 @@ func (e SettingsPatchLogLevel) Valid() bool {
 	}
 }
 
+// Defines values for VerifyHitKind.
+const (
+	LinkLocal VerifyHitKind = "link_local"
+	Loopback  VerifyHitKind = "loopback"
+	Private   VerifyHitKind = "private"
+	Public    VerifyHitKind = "public"
+	Self      VerifyHitKind = "self"
+)
+
+// Valid indicates whether the value is a known member of the VerifyHitKind enum.
+func (e VerifyHitKind) Valid() bool {
+	switch e {
+	case LinkLocal:
+		return true
+	case Loopback:
+		return true
+	case Private:
+		return true
+	case Public:
+		return true
+	case Self:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerifySessionStatus.
+const (
+	HairpinOnly VerifySessionStatus = "hairpin_only"
+	Reachable   VerifySessionStatus = "reachable"
+	Stopped     VerifySessionStatus = "stopped"
+	Unreachable VerifySessionStatus = "unreachable"
+	Waiting     VerifySessionStatus = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the VerifySessionStatus enum.
+func (e VerifySessionStatus) Valid() bool {
+	switch e {
+	case HairpinOnly:
+		return true
+	case Reachable:
+		return true
+	case Stopped:
+		return true
+	case Unreachable:
+		return true
+	case Waiting:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuditEntry defines model for AuditEntry.
 type AuditEntry struct {
 	// Action 稳定的机器可读动作名。
@@ -1033,6 +1087,86 @@ type SettingsPatchLang string
 // SettingsPatchLogLevel defines model for SettingsPatch.LogLevel.
 type SettingsPatchLogLevel string
 
+// VerifyHit defines model for VerifyHit.
+type VerifyHit struct {
+	At time.Time `json:"at"`
+
+	// Kind 来源分类。只有 `public` 能证明链路可用。
+	//
+	// `self` 是最容易被误判成成功的一类：**IPv6 没有 NAT**，
+	// 从本机访问自己的公网 IPv6 地址时连接是直连的，
+	// 来源地址就是那个全局单播地址 —— 光看地址类型完全正常。
+	Kind       VerifyHitKind `json:"kind"`
+	RemoteAddr string        `json:"remote_addr"`
+	UserAgent  *string       `json:"user_agent,omitempty"`
+}
+
+// VerifyHitKind 来源分类。只有 `public` 能证明链路可用。
+//
+// `self` 是最容易被误判成成功的一类：**IPv6 没有 NAT**，
+// 从本机访问自己的公网 IPv6 地址时连接是直连的，
+// 来源地址就是那个全局单播地址 —— 光看地址类型完全正常。
+type VerifyHitKind string
+
+// VerifySession defines model for VerifySession.
+type VerifySession struct {
+	CreatedAt time.Time   `json:"created_at"`
+	ExpiresAt time.Time   `json:"expires_at"`
+	Hits      []VerifyHit `json:"hits"`
+	Id        string      `json:"id"`
+
+	// Message 一句话结论（已本地化）。
+	Message string `json:"message"`
+	Port    int    `json:"port"`
+
+	// Status - `waiting`        等待外部访问
+	// - `reachable`      收到了来自**公网地址**的访问 —— 链路确实通
+	// - `hairpin_only`   只收到了来自本机或内网的访问。
+	//   **这什么也证明不了**：用户在自己电脑上打开、或者手机
+	//   还连着 Wi-Fi，都会走不经过运营商的路径
+	// - `unreachable`    超时，始终没有收到任何访问
+	// - `stopped`        被用户主动停止
+	Status   VerifySessionStatus `json:"status"`
+	TargetIp *string             `json:"target_ip,omitempty"`
+
+	// Token URL 里的随机路径段。
+	Token string `json:"token"`
+
+	// Url 让用户在手机上打开的完整地址。
+	//
+	// IPv6 字面量已经带上方括号 —— 不带的话 URL 解析会把地址里的
+	// 冒号当成端口分隔符。
+	Url *string `json:"url,omitempty"`
+}
+
+// VerifySessionStatus - `waiting`        等待外部访问
+//   - `reachable`      收到了来自**公网地址**的访问 —— 链路确实通
+//   - `hairpin_only`   只收到了来自本机或内网的访问。
+//     **这什么也证明不了**：用户在自己电脑上打开、或者手机
+//     还连着 Wi-Fi，都会走不经过运营商的路径
+//   - `unreachable`    超时，始终没有收到任何访问
+//   - `stopped`        被用户主动停止
+type VerifySessionStatus string
+
+// VerifySessionList defines model for VerifySessionList.
+type VerifySessionList struct {
+	Items []VerifySession `json:"items"`
+}
+
+// VerifyStartRequest defines model for VerifyStartRequest.
+type VerifyStartRequest struct {
+	// Port 要监听的端口。为 0 或省略时由内核分配一个空闲端口。
+	//
+	// 用随机端口有个好处：它几乎不可能与用户已有的服务冲突，
+	// 也不需要用户在验证前先去关掉什么。
+	Port *int `json:"port,omitempty"`
+
+	// TargetIp 给用户打开的公网地址。留空时内核自动取当前的全局 IPv6。
+	//
+	// 只有在机器有多个公网地址、用户想指定其中一个时才需要填。
+	TargetIp *string `json:"target_ip,omitempty"`
+}
+
 // Zone defines model for Zone.
 type Zone struct {
 	// Id 服务商侧的区域 ID，用于后续的记录操作。
@@ -1070,6 +1204,9 @@ type ReachProviderName = string
 
 // RecordId defines model for RecordId.
 type RecordId = string
+
+// VerifySessionId defines model for VerifySessionId.
+type VerifySessionId = string
 
 // ZoneId defines model for ZoneId.
 type ZoneId = string
@@ -1176,6 +1313,9 @@ type RunNoopJobJSONRequestBody = NoopRequest
 
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = SettingsPatch
+
+// StartVerifySessionJSONRequestBody defines body for StartVerifySession for application/json ContentType.
+type StartVerifySessionJSONRequestBody = VerifyStartRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -1293,6 +1433,18 @@ type ServerInterface interface {
 	// UpdateSettings 修改运行时设置
 	// (PATCH /v1/settings)
 	UpdateSettings(w http.ResponseWriter, r *http.Request)
+	// ListVerifySessions 列出外部验证会话
+	// (GET /v1/verify/sessions)
+	ListVerifySessions(w http.ResponseWriter, r *http.Request)
+	// StartVerifySession 开始一次外部验证
+	// (POST /v1/verify/sessions)
+	StartVerifySession(w http.ResponseWriter, r *http.Request)
+	// StopVerifySession 停止验证会话
+	// (DELETE /v1/verify/sessions/{id})
+	StopVerifySession(w http.ResponseWriter, r *http.Request, id VerifySessionId)
+	// GetVerifySession 读取验证会话
+	// (GET /v1/verify/sessions/{id})
+	GetVerifySession(w http.ResponseWriter, r *http.Request, id VerifySessionId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -2384,6 +2536,86 @@ func (siw *ServerInterfaceWrapper) UpdateSettings(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListVerifySessions operation middleware
+func (siw *ServerInterfaceWrapper) ListVerifySessions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVerifySessions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartVerifySession operation middleware
+func (siw *ServerInterfaceWrapper) StartVerifySession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartVerifySession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopVerifySession operation middleware
+func (siw *ServerInterfaceWrapper) StopVerifySession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id VerifySessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopVerifySession(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVerifySession operation middleware
+func (siw *ServerInterfaceWrapper) GetVerifySession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id VerifySessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVerifySession(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2542,6 +2774,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes", wrapper.ListChanges)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/{planId}", wrapper.GetChange)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/interrupted", wrapper.ListInterruptedChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/verify/sessions", wrapper.ListVerifySessions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/verify/sessions", wrapper.StartVerifySession)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/verify/sessions/{id}", wrapper.StopVerifySession)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/verify/sessions/{id}", wrapper.GetVerifySession)
 
 	return m
 }

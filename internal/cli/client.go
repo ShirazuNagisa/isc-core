@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -144,6 +146,16 @@ func (c *Client) post(ctx context.Context, path string, out any) error {
 	return c.do(ctx, http.MethodPost, path, out)
 }
 
+// postInto 发起一次带请求体的 POST 并解码响应。
+func (c *Client) postInto(ctx context.Context, path string, body []byte, out any) error {
+	return c.doBody(ctx, http.MethodPost, path, body, out)
+}
+
+// delete 发起一次带鉴权的 DELETE。
+func (c *Client) delete(ctx context.Context, path string) error {
+	return c.do(ctx, http.MethodDelete, path, nil)
+}
+
 // Meta 查询元信息与平台能力。
 func (c *Client) Meta(ctx context.Context) (gen.Meta, error) {
 	var m gen.Meta
@@ -163,12 +175,25 @@ func (c *Client) Job(ctx context.Context, id string) (gen.Job, error) {
 // 错误响应会被解析成 problem+json 并原样返回其 title/detail ——
 // 内核已经把错误本地化过了，客户端不需要（也不应该）再翻译一次。
 func (c *Client) do(ctx context.Context, method, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
+	return c.doBody(ctx, method, path, nil, out)
+}
+
+// doBody 发起一次请求（可带请求体）并解析响应。
+func (c *Client) doBody(ctx context.Context, method, path string, body []byte, out any) error {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

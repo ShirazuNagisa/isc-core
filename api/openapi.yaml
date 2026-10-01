@@ -49,6 +49,8 @@ tags:
     description: 可达性（让服务能从公网访问）
   - name: Changes
     description: 系统变更记录与撤销
+  - name: Verify
+    description: 引导式外部验证
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -1046,6 +1048,94 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 外部验证
+  # ---------------------------------------------------------------------------
+
+  /v1/verify/sessions:
+    get:
+      tags: [Verify]
+      operationId: listVerifySessions
+      summary: 列出外部验证会话
+      responses:
+        "200":
+          description: 会话列表（最近的在前）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifySessionList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    post:
+      tags: [Verify]
+      operationId: startVerifySession
+      summary: 开始一次外部验证
+      description: |
+        在本机临时监听一个端口，生成一个带随机路径的 URL，
+        引导用户用手机（关闭 Wi-Fi，走 4G/5G）打开它。
+
+        这是唯一能回答"从外面到底能不能连上"的手段 —— 本机做不到，
+        因为从本机访问自己的公网地址走的是回环或直连，无论运营商
+        是否放行都会"成功"。
+
+        **判断依据是来源地址**，分三档：
+
+        - 来自公网地址        → `reachable`，链路确实通
+        - 只来自本机/内网地址  → `hairpin_only`，**什么也证明不了**
+        - 超时没有收到任何访问 → `unreachable`，结合本机检测全绿，
+          结论指向上游封禁
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyStartRequest"
+      responses:
+        "201":
+          description: 会话已开始
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifySession"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/verify/sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/VerifySessionId"
+    get:
+      tags: [Verify]
+      operationId: getVerifySession
+      summary: 读取验证会话
+      responses:
+        "200":
+          description: 会话详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifySession"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Verify]
+      operationId: stopVerifySession
+      summary: 停止验证会话
+      description: |
+        关闭临时监听并保留记录 —— 用户可能想回看上次验证的结果。
+      responses:
+        "204":
+          description: 已停止
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1109,6 +1199,14 @@ components:
       in: path
       required: true
       description: 变更计划 ID
+      schema:
+        type: string
+        minLength: 1
+    VerifySessionId:
+      name: id
+      in: path
+      required: true
+      description: 外部验证会话 ID
       schema:
         type: string
         minLength: 1
@@ -2105,3 +2203,101 @@ components:
           enum: [add, remove, keep, change]
         text:
           type: string
+
+    # ------------------------------------------------------------------
+    # 外部验证
+    # ------------------------------------------------------------------
+
+    VerifySessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifySession"
+
+    VerifyStartRequest:
+      type: object
+      properties:
+        port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: |
+            要监听的端口。为 0 或省略时由内核分配一个空闲端口。
+
+            用随机端口有个好处：它几乎不可能与用户已有的服务冲突，
+            也不需要用户在验证前先去关掉什么。
+        target_ip:
+          type: string
+          description: |
+            给用户打开的公网地址。留空时内核自动取当前的全局 IPv6。
+
+            只有在机器有多个公网地址、用户想指定其中一个时才需要填。
+
+    VerifySession:
+      type: object
+      required: [id, port, token, status, hits, created_at, expires_at, message]
+      properties:
+        id:
+          type: string
+        port:
+          type: integer
+        token:
+          type: string
+          description: URL 里的随机路径段。
+        target_ip:
+          type: string
+        url:
+          type: string
+          description: |
+            让用户在手机上打开的完整地址。
+
+            IPv6 字面量已经带上方括号 —— 不带的话 URL 解析会把地址里的
+            冒号当成端口分隔符。
+        status:
+          type: string
+          enum: [waiting, reachable, hairpin_only, unreachable, stopped]
+          description: |
+            - `waiting`        等待外部访问
+            - `reachable`      收到了来自**公网地址**的访问 —— 链路确实通
+            - `hairpin_only`   只收到了来自本机或内网的访问。
+              **这什么也证明不了**：用户在自己电脑上打开、或者手机
+              还连着 Wi-Fi，都会走不经过运营商的路径
+            - `unreachable`    超时，始终没有收到任何访问
+            - `stopped`        被用户主动停止
+        message:
+          type: string
+          description: 一句话结论（已本地化）。
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifyHit"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    VerifyHit:
+      type: object
+      required: [remote_addr, kind, at]
+      properties:
+        remote_addr:
+          type: string
+        kind:
+          type: string
+          enum: [public, self, loopback, private, link_local]
+          description: |
+            来源分类。只有 `public` 能证明链路可用。
+
+            `self` 是最容易被误判成成功的一类：**IPv6 没有 NAT**，
+            从本机访问自己的公网 IPv6 地址时连接是直连的，
+            来源地址就是那个全局单播地址 —— 光看地址类型完全正常。
+        user_agent:
+          type: string
+        at:
+          type: string
+          format: date-time
