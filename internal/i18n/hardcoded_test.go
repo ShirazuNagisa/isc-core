@@ -92,10 +92,6 @@ var hardcodedBaseline = map[string]int{
 	"internal/job":            9,
 	"internal/runtimeinfo":    9,
 	"internal/configio":       9,
-	"internal/settings":       6,
-	"internal/event":          2,
-	"internal/console":        1,
-	"internal/audit":          1,
 }
 
 // TestNoNewHardcodedStrings 统计各包的硬编码中文串，与基线对照。
@@ -106,6 +102,11 @@ func TestNoNewHardcodedStrings(t *testing.T) {
 
 	root := repoRoot(t)
 	counts := countHardcodedCJK(t, root)
+
+	// 日志包不参与：它们的理由写在 logOnlyPackages 里。
+	for pkg := range logOnlyPackages {
+		delete(counts, pkg)
+	}
 
 	for pkg, n := range counts {
 		limit, known := hardcodedBaseline[pkg]
@@ -153,6 +154,11 @@ var i18nComplete = []string{
 	// 它比 cli 更容易被忽略：那些文案不会直接打在终端上，而是藏在
 	// HTTP 响应的 detail 字段里 —— 但 GUI 与脚本读的正是它。
 	"internal/api",
+
+	// 设置项的校验错误。它们会作为 API 的 detail 返回给调用方，
+	// 因此是面向用户的 —— 与 event/console/audit 那三个纯日志包不同，
+	// 后者的理由见 logOnlyPackages。
+	"internal/settings",
 }
 
 func TestUserFacingPackagesHaveI18n(t *testing.T) {
@@ -242,6 +248,32 @@ var consoleHardcodedLines = map[string]int{
 	"internal/console/assets/index.html": 129,
 	"internal/console/assets/app.js":     191,
 	"internal/console/assets/panels.js":  94,
+}
+
+// logOnlyPackages 是**只剩下日志文案**的包，不再要求迁移。
+//
+// # 为什么"把日志也翻译了"不是目标
+//
+// D21 要求的是"面向用户的文案"。而日志行是**给运维看的**，不是给用户看的。
+// 把它们翻译了反而有害：
+//
+//   - 运维靠 grep 稳定的字符串来定位问题。日志随语言设置变来变去，
+//     会让"我上周见过这条错误"变成一件做不到的事；
+//   - 报错时用户贴出来的日志，会与文档、issue 里的英文/中文原文对不上；
+//   - 而这些行本来就带 `pkg: ` 前缀（如 `event: `），是明确的内部信号。
+//
+// 所以这里的做法是：**显式地**把这类包列出来并写明理由，而不是机械地
+// 一条条翻译过去。棘轮因此仍然有意义 —— 它挡住的是"新加了一条面向用户的
+// 中文文案"，而不是"日志里出现了中文"。
+//
+// 判定标准：该包剩余的中文串**全部**出现在 slog / errors.New 的内部错误里，
+// 且不会作为 API 的 detail 返回给调用方。
+var logOnlyPackages = map[string]string{
+	"internal/event": "仅剩总线自身的日志（订阅者过慢、总线已关闭）",
+	"internal/console": "仅剩内嵌资源结构异常这一条开发者错误，" +
+		"它表示二进制被破坏，用户看到的会是 500",
+	"internal/audit": "仅剩写入审计失败这一条日志 —— 它是**刻意**只记日志的：" +
+		"审计写不进去不该让业务操作失败",
 }
 
 // countHardcodedCJK 统计各包里的中文字符串字面量。

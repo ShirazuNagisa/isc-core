@@ -763,6 +763,13 @@ var messagesEn = map[string]string{
 	"cli.status.backends": "\nPlatform backend availability:",
 	"cli.version.short":   "Print version information",
 
+	"settings.bad_lang":   "settings: unsupported language %q",
+	"settings.bad_level":  "settings: unsupported log level %q",
+	"settings.bad_buffer": "settings: the event buffer size %d is outside the allowed range [%d, %d]",
+	"settings.bad_port":   "settings: proxy port %d is invalid (0-65535)",
+	"settings.need_port":  "settings: a listen port is required when the reverse proxy is enabled",
+	"settings.need_dns01": "settings: a credential for the DNS-01 challenge must be set before enabling HTTPS",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

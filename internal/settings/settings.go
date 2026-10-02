@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strconv"
 	"sync"
 )
@@ -270,27 +271,27 @@ func (s Settings) Validate() error {
 	switch s.Lang {
 	case LangZhCN, LangEn:
 	default:
-		return fmt.Errorf("settings: 不支持的语言 %q", s.Lang)
+		return fmt.Errorf(i18n.T("settings.bad_lang"), s.Lang)
 	}
 
 	switch s.LogLevel {
 	case LevelDebug, LevelInfo, LevelWarn, LevelError:
 	default:
-		return fmt.Errorf("settings: 不支持的日志级别 %q", s.LogLevel)
+		return fmt.Errorf(i18n.T("settings.bad_level"), s.LogLevel)
 	}
 
 	if s.EventBufferSize < MinEventBufferSize || s.EventBufferSize > MaxEventBufferSize {
-		return fmt.Errorf("settings: 事件缓冲容量 %d 超出允许范围 [%d, %d]",
+		return fmt.Errorf(i18n.T("settings.bad_buffer"),
 			s.EventBufferSize, MinEventBufferSize, MaxEventBufferSize)
 	}
 
 	if s.ProxyPort < 0 || s.ProxyPort > 65535 {
-		return fmt.Errorf("settings: 代理端口 %d 不合法（0-65535）", s.ProxyPort)
+		return fmt.Errorf(i18n.T("settings.bad_port"), s.ProxyPort)
 	}
 	if s.ProxyEnabled && s.ProxyPort == 0 {
 		// 开启代理却不给端口：那不是"用默认值"，而是一个明确的矛盾 ——
 		// 静默补一个默认值会让用户以为自己选了端口。
-		return errors.New("settings: 开启反向代理时必须指定监听端口")
+		return errors.New(i18n.T("settings.need_port"))
 	}
 	if s.ProxyTLS {
 		// HTTPS 必须有证书来源，而签证书需要这两样。
@@ -298,8 +299,7 @@ func (s Settings) Validate() error {
 		// 在这里挡住而不是等签发失败：后者的症状是"浏览器报证书错误"，
 		// 而用户完全不知道是设置少填了一项。
 		if s.ACMEDNSCredentialID == "" {
-			return errors.New(
-				"settings: 启用 HTTPS 前必须先指定用于 DNS-01 校验的凭据")
+			return errors.New(i18n.T("settings.need_dns01"))
 		}
 	}
 

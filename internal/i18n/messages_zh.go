@@ -737,6 +737,13 @@ var messagesZh = map[string]string{
 	"cli.status.backends": "\n平台后端可用性：",
 	"cli.version.short":   "打印版本信息",
 
+	"settings.bad_lang":   "settings: 不支持的语言 %q",
+	"settings.bad_level":  "settings: 不支持的日志级别 %q",
+	"settings.bad_buffer": "settings: 事件缓冲容量 %d 超出允许范围 [%d, %d]",
+	"settings.bad_port":   "settings: 代理端口 %d 不合法（0-65535）",
+	"settings.need_port":  "settings: 开启反向代理时必须指定监听端口",
+	"settings.need_dns01": "settings: 启用 HTTPS 前必须先指定用于 DNS-01 校验的凭据",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",
