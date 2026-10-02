@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -214,7 +213,7 @@ func (dnsla *Dnsla) request(method, apiAddr string, values []byte) (body []byte,
 		bytes.NewReader(values),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("创建 dnsla 请求失败: %w", err)
+		return nil, Errorf("创建 dnsla 请求失败: %w", err)
 	}
 	// 设置自定义 Headers
 	byteBuff := []byte(dnsla.DNS.ID + ":" + dnsla.DNS.Secret)
@@ -225,16 +224,16 @@ func (dnsla *Dnsla) request(method, apiAddr string, values []byte) (body []byte,
 	client := dnsla.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求 dnsla 失败: %w", err)
+		return nil, Errorf("请求 dnsla 失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取 dnsla 响应失败: %w", err)
+		return nil, Errorf("读取 dnsla 响应失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("dnsla 请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
+		return nil, Errorf("dnsla 请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
 	}
 	return body, nil
 }
@@ -255,7 +254,7 @@ func (dnsla *Dnsla) getRecordList(domain *Domain, typ string) (result []byte, er
 	url := recordList + "?" + params.Encode()
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建 dnsla 记录列表请求失败: %w", err)
+		return nil, Errorf("创建 dnsla 记录列表请求失败: %w", err)
 	}
 
 	byteBuff := []byte(dnsla.DNS.ID + ":" + dnsla.DNS.Secret)
@@ -267,17 +266,17 @@ func (dnsla *Dnsla) getRecordList(domain *Domain, typ string) (result []byte, er
 	client := dnsla.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求 dnsla 记录列表失败: %w", err)
+		return nil, Errorf("请求 dnsla 记录列表失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// 读取响应
 	result, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取 dnsla 记录列表响应失败: %w", err)
+		return nil, Errorf("读取 dnsla 记录列表响应失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("dnsla 记录列表请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(result))
+		return nil, Errorf("dnsla 记录列表请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(result))
 	}
 	return result, nil
 }

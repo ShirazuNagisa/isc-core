@@ -71,14 +71,33 @@ var convertedFiles = []string{
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	// 318 → 48：移植代码里 62 个去重消息 key 的 ~270 个调用点由
-	// isLogCall 排除了（`Log(key, ...)` / `LogStr(key, ...)` 的第一个参数
-	// 是**消息 key 兼格式串**，不是待翻译的文案）。
+	// 318 → 10，两段：
 	//
-	// 剩下的 48 处不是 Log 调用，需要单独判断 —— 其中已知有 API 数据值
-	// （provider_namesilo.go 的 "新增"/"更新"、provider_dnspod.go 的
-	// "默认"），那些**不能翻译**。
-	"internal/ddnsgo":   48,
+	// 一、318 → 48：移植代码里 62 个去重消息 key 的 ~270 个调用点由
+	// isLogCall 排除了。`Log(key, ...)` / `LogStr(key, ...)` / `Errorf(key, ...)`
+	// 的第一个参数是**消息 key 兼格式串**，不是待翻译的文案 —— 把它们算进来
+	// 会让这个数字永远降不到 0，"达标"变成不可能。
+	//
+	// 覆盖情况由 ddnsgo_coverage_test.go 守着（每个 key 都必须有译文，
+	// 否则英文界面上显示中文而机制不报错）。
+	//
+	// 二、48 → 10：剩下的 38 处原本是**硬编码**在
+	// `fmt.Errorf("创建 dnsla 请求失败: %w", err)` 里的中文 ——
+	// 移植代码的约定只覆盖了 Log/LogStr，这些错误漏在外面。已改走
+	// ddnsgo.Errorf（先取译文格式串再交给 fmt.Errorf，%w 的包裹语义完好）。
+	//
+	// 剩下的 10 处**全部是数据值，不是文案**，因此停在这里：
+	//
+	//	provider_dnspod.go / provider_tencent_cloud.go  "默认"
+	//	    DNS 记录的线路名，API 参数收的就是这个中文串
+	//	provider_namesilo.go / provider_vercel.go       "新增" / "更新"
+	//	    拼进消息前缀，构成"新增域名解析…"/"更新域名解析…"两个 key
+	//	types.go  "未改变" / "失败" / "成功"
+	//	    updateStatusType 的**内部哨兵值**。它在 tier2.go 里被
+	//	    `string(ddnsgo.UpdatedSuccess)` 比较，而用户在界面上看到的状态
+	//	    来自 dns.UpdateStatus（"success"/"failed"/"unchanged"）——
+	//	    边界上就翻译过了，因此这三个不是文案
+	"internal/ddnsgo":   10,
 	"internal/platform": 4,
 	// 只剩两个 API 数据值，不是文案：
 	//

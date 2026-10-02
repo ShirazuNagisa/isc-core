@@ -252,7 +252,7 @@ func (t *Eranet) request(apiPath string, params map[string]string, method string
 	// 生成签名
 	queryString, err := t.sign(params, method)
 	if err != nil {
-		return nil, fmt.Errorf("生成签名失败: %v", err)
+		return nil, Errorf("生成签名失败: %v", err)
 	}
 
 	// 构造完整URL
@@ -262,7 +262,7 @@ func (t *Eranet) request(apiPath string, params map[string]string, method string
 	// 创建HTTP请求
 	req, err := http.NewRequest(method, fullURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return nil, Errorf("创建请求失败: %v", err)
 	}
 
 	// 设置请求头
@@ -272,19 +272,19 @@ func (t *Eranet) request(apiPath string, params map[string]string, method string
 	client := t.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %v", err)
+		return nil, Errorf("请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, Errorf("读取响应失败: %v", err)
 	}
 
 	// 检查HTTP状态码
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
+		return nil, Errorf("API请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
 	}
 
 	return body, nil

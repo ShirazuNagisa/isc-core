@@ -46,7 +46,17 @@ var messagesEnDdnsGoExtra = map[string]string{
 	"新增域名解析 %s 失败! 异常信息: %v":                      "creating DNS record %s failed: %v",
 	"更新域名解析 %s 失败! 异常信息: %s, 请求URL: %s, 响应内容: %s": "updating DNS record %s failed: %s, request URL: %s, response body: %s",
 	"更新域名解析 %s 失败! 异常信息: %v":                      "updating DNS record %s failed: %v",
-	"查询域名信息发生异常！ %s":                              "querying the domain information raised an error: %s",
+
+	// 下面两条是**拼接出来的**运行时 key：namesilo 用 requestType 前缀拼出
+	// "新增…"/"更新…"。它们此前完全不在目录里，因为静态扫描只拼字面量、
+	// 看不见变量 —— 于是这条成功消息在英文界面上一直是中文。
+	//
+	// 现在由 ddnsGoDynamicKeys + TestDynamicKeySitesAreRegistered 守着：
+	// 任何新的拼接点都必须显式登记，否则测试失败。
+	"新增域名解析 %s 成功! IP: %s\n": "created DNS record %s successfully! IP: %s\n",
+	"更新域名解析 %s 成功! IP: %s\n": "updated DNS record %s successfully! IP: %s\n",
+
+	"查询域名信息发生异常！ %s": "querying the domain information raised an error: %s",
 
 	// --- dynadot ---
 	"dynadot仅支持单域名配置，多个域名请添加更多配置": "dynadot supports only a single domain per configuration; add more configurations for multiple domains",
@@ -58,6 +68,51 @@ var messagesEnDdnsGoExtra = map[string]string{
 	"整理 EdgeOne 源站组记录失败! %s":         "failed to reconcile the EdgeOne origin group records: %s",
 	"更新 EdgeOne 源站组 %s 成功! IP: %s":   "EdgeOne origin group %s updated successfully! IP: %s",
 	"更新 EdgeOne 源站组 %s 失败! 异常信息: %s": "updating EdgeOne origin group %s failed: %s",
+
+	// --- 返回给上层的错误（原本是裸 fmt.Errorf 的中文）---
+	//
+	// 这一组此前连"消息 key"都不是：它们是**硬编码**在
+	// `fmt.Errorf("创建 dnsla 请求失败: %w", err)` 里的。移植代码的约定
+	// （中文原文即 key）只覆盖了 Log/LogStr，这些错误漏在外面 ——
+	// 于是它们在英文界面上永远是中文。
+	//
+	// 现在走 ddnsgo.Errorf，它先取译文格式串再交给 fmt.Errorf，
+	// 因此 %w 的包裹语义完好（LogStr 会提前 Sprintf，把错误链弄断）。
+
+	// 出口网卡
+	"找不到网卡 %s: %v":     "interface %s not found: %v",
+	"获取网卡 %s 地址失败: %v": "failed to get the address of interface %s: %v",
+	"网卡 %s 没有可用的单播地址":  "interface %s has no usable unicast address",
+
+	// dnsla
+	"创建 dnsla 请求失败: %w":              "failed to build the dnsla request: %w",
+	"请求 dnsla 失败: %w":                "the dnsla request failed: %w",
+	"读取 dnsla 响应失败: %w":              "failed to read the dnsla response: %w",
+	"dnsla 请求失败，状态码: %d, 响应: %s":     "the dnsla request failed with status %d, response: %s",
+	"创建 dnsla 记录列表请求失败: %w":          "failed to build the dnsla record-list request: %w",
+	"请求 dnsla 记录列表失败: %w":            "the dnsla record-list request failed: %w",
+	"读取 dnsla 记录列表响应失败: %w":          "failed to read the dnsla record-list response: %w",
+	"dnsla 记录列表请求失败，状态码: %d, 响应: %s": "the dnsla record-list request failed with status %d, response: %s",
+
+	// EdgeOne 源站组（返回给上层的部分）
+	"在 EdgeOne 中未找到站点: %s":                        "no site %s was found in EdgeOne",
+	"未能获取域名 %s 对应的 IPv4 地址":                       "could not obtain the IPv4 address for domain %s",
+	"未能获取域名 %s 对应的 IPv6 地址":                       "could not obtain the IPv6 address for domain %s",
+	"域名 %s 未配置可更新的源站记录":                           "domain %s has no updatable origin record configured",
+	"请在域名后追加 ?GroupId=xxx 或 ?OriginGroupName=xxx": "append ?GroupId=xxx or ?OriginGroupName=xxx to the domain",
+	"在 EdgeOne 中未找到源站组: %s":                       "no origin group %s was found in EdgeOne",
+	"在 EdgeOne 中未找到源站组 GroupId=%s":                "no origin group with GroupId=%s was found in EdgeOne",
+	"找到多个名称匹配的源站组，请改用 GroupId 指定唯一源站组":            "several origin groups share that name; use GroupId to pick exactly one",
+
+	// 各家共用的请求阶段
+	"生成签名失败: %v":                         "failed to generate the signature: %v",
+	"创建请求失败: %v":                         "failed to build the request: %v",
+	"请求失败: %v":                           "the request failed: %v",
+	"读取响应失败: %v":                         "failed to read the response: %v",
+	"序列化请求体失败: %w":                       "failed to serialise the request body: %w",
+	"API请求失败，状态码: %d, 响应: %s":            "the API request failed with status %d, response: %s",
+	"解析响应失败: %s, 请求URL: %s, 响应内容: %s":    "failed to parse the response: %s, request URL: %s, response body: %s",
+	"API请求失败，请求URL: %s, 状态码: %d, 响应: %s": "the API request failed; request URL: %s, status %d, response: %s",
 
 	// --- 出口网卡绑定（ISC 新增）---
 	"绑定网卡失败, 将使用默认网卡. 网卡: %s, 错误: %v":                          "binding to the interface failed; the default interface will be used. interface: %s, error: %v",

@@ -98,18 +98,18 @@ func CreateHTTPClient() *http.Client {
 func GetLocalAddrFromInterface(ifaceName string) (string, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
-		return "", fmt.Errorf("找不到网卡 %s: %v", ifaceName, err)
+		return "", Errorf("找不到网卡 %s: %v", ifaceName, err)
 	}
 	addrs, err := iface.Addrs()
 	if err != nil {
-		return "", fmt.Errorf("获取网卡 %s 地址失败: %v", ifaceName, err)
+		return "", Errorf("获取网卡 %s 地址失败: %v", ifaceName, err)
 	}
 	for _, addr := range addrs {
 		if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.IsGlobalUnicast() {
 			return ipNet.IP.String(), nil
 		}
 	}
-	return "", fmt.Errorf("网卡 %s 没有可用的单播地址", ifaceName)
+	return "", Errorf("网卡 %s 没有可用的单播地址", ifaceName)
 }
 
 // CreateHTTPClientWithInterface 创建绑定指定网卡的HTTP客户端

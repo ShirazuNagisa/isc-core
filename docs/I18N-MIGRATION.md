@@ -31,7 +31,7 @@
 
 | 包 | 处数 | 用户可见度 |
 |---|---|---|
-| `internal/ddnsgo` | 318 | 移植代码。它的错误文本会转给用户 |
+| `internal/ddnsgo` | ✅ **10** | 已完成；剩 10 处是数据值与内部哨兵 |
 | `internal/provider/tier1` | ✅ **2** | 已完成；剩 2 处是 API 数据值（DNSPod 的 `record_line`） |
 | `internal/reach` | ✅ **0** | 已完成；它就是 `isc doctor` 的正文 |
 | `internal/store` | ✅ **0** | 已完成；仓储层数据库错误 |

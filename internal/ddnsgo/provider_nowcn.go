@@ -213,7 +213,7 @@ func (nowcn *Nowcn) getRecordList(domain *Domain, typ string) (result NowcnRecor
 	err = json.Unmarshal(res, &result)
 	if err != nil {
 		// 注意:此处能走到,说明HTTP返回了200但body为空或非JSON(鉴权失败常表现为200+空body)
-		return result, fmt.Errorf("解析响应失败: %s, 请求URL: %s, 响应内容: %s", err.Error(), nowcn.lastURL, string(res))
+		return result, Errorf("解析响应失败: %s, 请求URL: %s, 响应内容: %s", err.Error(), nowcn.lastURL, string(res))
 	}
 	return
 }
@@ -275,7 +275,7 @@ func (t *Nowcn) request(apiPath string, params map[string]string, method string)
 	// 生成签名
 	queryString, err := t.sign(params, method)
 	if err != nil {
-		return nil, fmt.Errorf("生成签名失败: %v", err)
+		return nil, Errorf("生成签名失败: %v", err)
 	}
 
 	// 构造完整URL
@@ -287,7 +287,7 @@ func (t *Nowcn) request(apiPath string, params map[string]string, method string)
 	// 创建HTTP请求
 	req, err := http.NewRequest(method, fullURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return nil, Errorf("创建请求失败: %v", err)
 	}
 
 	// 设置请求头
@@ -297,19 +297,19 @@ func (t *Nowcn) request(apiPath string, params map[string]string, method string)
 	client := t.httpClient
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %v", err)
+		return nil, Errorf("请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, Errorf("读取响应失败: %v", err)
 	}
 
 	// 检查HTTP状态码
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API请求失败，请求URL: %s, 状态码: %d, 响应: %s", fullURL, resp.StatusCode, string(body))
+		return nil, Errorf("API请求失败，请求URL: %s, 状态码: %d, 响应: %s", fullURL, resp.StatusCode, string(body))
 	}
 
 	return body, nil

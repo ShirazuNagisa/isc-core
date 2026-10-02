@@ -136,14 +136,14 @@ func (eo *EdgeOne) getZoneId(domain *Domain) (string, error) {
 		return "", err
 	}
 	if zoneResult.Response.TotalCount <= 0 {
-		return "", fmt.Errorf("在 EdgeOne 中未找到站点: %s", domain.DomainName)
+		return "", Errorf("在 EdgeOne 中未找到站点: %s", domain.DomainName)
 	}
 	for _, zone := range zoneResult.Response.Zones {
 		if zone.ZoneName == domain.DomainName {
 			return zone.ZoneId, nil
 		}
 	}
-	return "", fmt.Errorf("在 EdgeOne 中未找到站点: %s", domain.DomainName)
+	return "", Errorf("在 EdgeOne 中未找到站点: %s", domain.DomainName)
 }
 
 func (eo *EdgeOne) getDesiredOriginRecords(domainTuple *DomainTuple) ([]EdgeOneOriginRecord, error) {
@@ -154,7 +154,7 @@ func (eo *EdgeOne) getDesiredOriginRecords(domainTuple *DomainTuple) ([]EdgeOneO
 
 	if eo.hasDomain(eo.Domains.Ipv4Domains, domainName) {
 		if eo.Domains.Ipv4Addr == "" {
-			return nil, fmt.Errorf("未能获取域名 %s 对应的 IPv4 地址", domain)
+			return nil, Errorf("未能获取域名 %s 对应的 IPv4 地址", domain)
 		}
 		records = append(records, EdgeOneOriginRecord{
 			Record: eo.Domains.Ipv4Addr,
@@ -164,7 +164,7 @@ func (eo *EdgeOne) getDesiredOriginRecords(domainTuple *DomainTuple) ([]EdgeOneO
 	}
 	if eo.hasDomain(eo.Domains.Ipv6Domains, domainName) {
 		if eo.Domains.Ipv6Addr == "" {
-			return nil, fmt.Errorf("未能获取域名 %s 对应的 IPv6 地址", domain)
+			return nil, Errorf("未能获取域名 %s 对应的 IPv6 地址", domain)
 		}
 		records = append(records, EdgeOneOriginRecord{
 			Record: eo.Domains.Ipv6Addr,
@@ -173,7 +173,7 @@ func (eo *EdgeOne) getDesiredOriginRecords(domainTuple *DomainTuple) ([]EdgeOneO
 		})
 	}
 	if len(records) == 0 {
-		return nil, fmt.Errorf("域名 %s 未配置可更新的源站记录", domain)
+		return nil, Errorf("域名 %s 未配置可更新的源站记录", domain)
 	}
 
 	return records, nil
@@ -216,7 +216,7 @@ func (eo *EdgeOne) getOriginGroup(domain *Domain, zoneId string) (EdgeOneOriginG
 	} else if params.Has("OriginGroupName") {
 		record.Filters = []Filter{{Name: "origin-group-name", Values: []string{params.Get("OriginGroupName")}}}
 	} else {
-		return EdgeOneOriginGroup{}, fmt.Errorf("请在域名后追加 ?GroupId=xxx 或 ?OriginGroupName=xxx")
+		return EdgeOneOriginGroup{}, Errorf("请在域名后追加 ?GroupId=xxx 或 ?OriginGroupName=xxx")
 	}
 
 	var result EdgeOneOriginGroupResponse
@@ -227,7 +227,7 @@ func (eo *EdgeOne) getOriginGroup(domain *Domain, zoneId string) (EdgeOneOriginG
 		return EdgeOneOriginGroup{}, fmt.Errorf("%s", result.Response.Error.Message)
 	}
 	if result.Response.TotalCount <= 0 || len(result.Response.OriginGroups) == 0 {
-		return EdgeOneOriginGroup{}, fmt.Errorf("在 EdgeOne 中未找到源站组: %s", domain)
+		return EdgeOneOriginGroup{}, Errorf("在 EdgeOne 中未找到源站组: %s", domain)
 	}
 
 	if params.Has("GroupId") {
@@ -237,7 +237,7 @@ func (eo *EdgeOne) getOriginGroup(domain *Domain, zoneId string) (EdgeOneOriginG
 				return group, nil
 			}
 		}
-		return EdgeOneOriginGroup{}, fmt.Errorf("在 EdgeOne 中未找到源站组 GroupId=%s", groupId)
+		return EdgeOneOriginGroup{}, Errorf("在 EdgeOne 中未找到源站组 GroupId=%s", groupId)
 	}
 
 	groupName := params.Get("OriginGroupName")
@@ -249,7 +249,7 @@ func (eo *EdgeOne) getOriginGroup(domain *Domain, zoneId string) (EdgeOneOriginG
 	if len(result.Response.OriginGroups) == 1 {
 		return result.Response.OriginGroups[0], nil
 	}
-	return EdgeOneOriginGroup{}, fmt.Errorf("找到多个名称匹配的源站组，请改用 GroupId 指定唯一源站组")
+	return EdgeOneOriginGroup{}, Errorf("找到多个名称匹配的源站组，请改用 GroupId 指定唯一源站组")
 }
 
 func (eo *EdgeOne) modifyOriginGroup(originGroup EdgeOneOriginGroup, domainTuple *DomainTuple, zoneId string, records []EdgeOneOriginRecord) {

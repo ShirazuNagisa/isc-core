@@ -190,7 +190,7 @@ func (h *HiPMDnsMgr) request(baseURL, apiToken, method, path string, body interf
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("序列化请求体失败: %w", err)
+			return nil, Errorf("序列化请求体失败: %w", err)
 		}
 		bodyReader = bytes.NewBuffer(jsonBody)
 	} else {

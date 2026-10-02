@@ -33,14 +33,37 @@ import (
 var ddnsGoCallNames = map[string]bool{
 	"Log":    true,
 	"LogStr": true,
+	// Errorf 是移植代码里**返回给上层**的错误（见 internal/ddnsgo/errorf.go）。
+	// 它与 Log/LogStr 共用"中文原文即 key"的约定，因此同样要在棘轮里排除、
+	// 同样要被译文覆盖测试检查。
+	"Errorf": true,
 }
 
-// collectDdnsGoKeys 扫出 internal/ddnsgo 里全部消息 key 及其出现位置。
-func collectDdnsGoKeys(t *testing.T, root string) map[string][]string {
+// ddnsGoSite 是一个消息调用点。
+type ddnsGoSite struct {
+	file string // 相对仓库根的路径
+	line int
+}
+
+func (s ddnsGoSite) String() string { return s.file + ":" + strconv.Itoa(s.line) }
+
+// ddnsGoScan 是扫描结果。
+type ddnsGoScan struct {
+	// keys 是能**静态确定**的 key → 出现位置。
+	keys map[string][]ddnsGoSite
+	// dynamic 是第一个参数含变量的调用点 —— 它们的运行时 key 静态算不出来。
+	dynamic map[ddnsGoSite][]string
+}
+
+// collectDdnsGoKeys 扫出 internal/ddnsgo 里全部消息调用点。
+func collectDdnsGoKeys(t *testing.T, root string) ddnsGoScan {
 	t.Helper()
 
 	fset := token.NewFileSet()
-	keys := map[string][]string{}
+	scan := ddnsGoScan{
+		keys:    map[string][]ddnsGoSite{},
+		dynamic: map[ddnsGoSite][]string{},
+	}
 
 	err := filepath.WalkDir(filepath.Join(root, "internal", "ddnsgo"),
 		func(path string, d fs.DirEntry, err error) error {
@@ -55,6 +78,7 @@ func collectDdnsGoKeys(t *testing.T, root string) map[string][]string {
 				return nil
 			}
 			rel, _ := filepath.Rel(root, path)
+			rel = filepath.ToSlash(rel)
 
 			ast.Inspect(f, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
@@ -65,14 +89,20 @@ func collectDdnsGoKeys(t *testing.T, root string) map[string][]string {
 				if !ok || !ddnsGoCallNames[id.Name] || len(call.Args) == 0 {
 					return true
 				}
-				// 第一个参数可能是字面量，也可能是编译期拼接的常量。
+				site := ddnsGoSite{file: rel, line: fset.Position(call.Pos()).Line}
+
 				var parts []string
 				collectStringParts(call.Args[0], &parts)
 				if len(parts) == 0 {
 					return true
 				}
+				// 第一个参数里除了字面量还有别的东西 → 运行时 key 算不出来。
+				if !isPureStringExpr(call.Args[0]) {
+					scan.dynamic[site] = parts
+					return true
+				}
 				key := strings.Join(parts, "")
-				keys[key] = append(keys[key], filepath.ToSlash(rel))
+				scan.keys[key] = append(scan.keys[key], site)
 				return true
 			})
 			return nil
@@ -80,7 +110,19 @@ func collectDdnsGoKeys(t *testing.T, root string) map[string][]string {
 	if err != nil {
 		t.Fatalf("遍历移植代码失败: %v", err)
 	}
-	return keys
+	return scan
+}
+
+// isPureStringExpr 报告表达式是否只由字符串字面量与 `+` 组成。
+func isPureStringExpr(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		return v.Kind == token.STRING
+	case *ast.BinaryExpr:
+		return v.Op == token.ADD && isPureStringExpr(v.X) && isPureStringExpr(v.Y)
+	default:
+		return false
+	}
 }
 
 // collectStringParts 收集表达式里的字符串字面量片段（支持 `+` 拼接）。
@@ -104,30 +146,75 @@ func collectStringParts(e ast.Expr, out *[]string) {
 // 在这里写明理由 —— 而不是让它在英文界面上悄悄显示中文。
 var ddnsGoUntranslated = map[string]string{}
 
+// ddnsGoDynamicKeys 登记"key 由变量拼接而成"的调用点。
+//
+// # 为什么需要这张表
+//
+// 静态扫描算不出 `Log(requestType+"域名解析 %s 成功! IP: %s\n", ...)` 的
+// 运行时 key —— `requestType` 是变量。而**测试看不见的东西就会漏**：
+//
+// 这张表建立之前，上面那两处（namesilo）与 vercel 的两处**实际产生的
+// 运行时 key 完全不在目录里**，却没有被任何断言发现。原因是当时的扫描
+// 只拼接字面量片段，于是它检查的是 `"域名解析 %s 成功! IP: %s\n"` ——
+// 一个**从来不会出现**的 key。
+//
+// 因此这里要求把每一处显式登记出来，并列出它**可能产生的全部运行时 key**。
+// 没登记的新拼接点会让测试失败。
+var ddnsGoDynamicKeys = map[string][]string{
+	"internal/ddnsgo/provider_namesilo.go:140": {
+		"新增域名解析 %s 成功! IP: %s\n",
+		"更新域名解析 %s 成功! IP: %s\n",
+	},
+	"internal/ddnsgo/provider_namesilo.go:143": {
+		"新增域名解析 %s 失败! 异常信息: %s",
+		"更新域名解析 %s 失败! 异常信息: %s",
+	},
+	"internal/ddnsgo/provider_vercel.go:107": {
+		"新增域名解析 %s 成功! IP: %s",
+		"更新域名解析 %s 成功! IP: %s",
+	},
+	"internal/ddnsgo/provider_vercel.go:110": {
+		"新增域名解析 %s 失败! 异常信息: %s",
+		"更新域名解析 %s 失败! 异常信息: %s",
+	},
+}
+
 // TestDdnsGoKeysAreTranslated 是核心断言：每个 key 都要有英文译文。
 func TestDdnsGoKeysAreTranslated(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	keys := collectDdnsGoKeys(t, root)
-	if len(keys) == 0 {
+	scan := collectDdnsGoKeys(t, root)
+	if len(scan.keys) == 0 {
 		t.Fatal("没有扫到任何 key —— 测试没有覆盖到东西（" +
 			"是不是 ddnsgo 的调用点改名了？）")
 	}
 
 	en := New(En)
 
+	// 静态能确定的 key + 登记过的动态 key，一起检查。
+	all := map[string][]string{}
+	for key, sites := range scan.keys {
+		for _, s := range sites {
+			all[key] = append(all[key], s.String())
+		}
+	}
+	for site, keys := range ddnsGoDynamicKeys {
+		for _, key := range keys {
+			all[key] = append(all[key], site+"（拼接）")
+		}
+	}
+
 	var missing []string
-	for key, sites := range keys {
+	for key, sites := range all {
 		if _, exempt := ddnsGoUntranslated[key]; exempt {
 			continue
 		}
-		// 中文原文即 key，因此"没有译文"的表现是 T() 返回 key 本身。
 		if en.T(key) == key {
 			// 用 %q 而不是 %s：key 里可能有**看不见的字符**。
 			//
 			// 实测过一次：`域名解析 %s 成功! IP: %s` 与
-			// `域名解析 %s 成功! IP: %s\n` 被当成同一条打印出来，
+			// `域名解析 %s 成功! IP: %s\n` 在报告里长得一模一样，
 			// 因为那个 \n 是行尾。补译文时因此漏了带 \n 的那条。
 			missing = append(missing,
 				strconv.Quote(key)+"  ←  "+strings.Join(dedupe(sites), ", "))
@@ -140,7 +227,48 @@ func TestDdnsGoKeysAreTranslated(t *testing.T) {
 			"英文界面上它们会显示中文，而机制**不会报错** —— 这正是本测试存在的理由。\n"+
 			"译文加进 internal/i18n/messages_ddnsgo_extra.go（那张表是手工维护的；"+
 			"messages_ddnsgo.go 由脚本生成，不要改它）。",
-			len(missing), len(keys), strings.Join(missing, "\n  "))
+			len(missing), len(all), strings.Join(missing, "\n  "))
+	}
+}
+
+// TestDynamicKeySitesAreRegistered 要求每一处拼接点都被显式登记。
+//
+// 这条比上一条更重要：上一条只能检查**已经登记**的 key，而这一条管的是
+// "有没有拼接点根本没被登记"。没有它，新写一处
+// `Log(kind+"...", ...)` 就会重新落进那个静默的盲区。
+func TestDynamicKeySitesAreRegistered(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	scan := collectDdnsGoKeys(t, root)
+
+	var unregistered []string
+	for site := range scan.dynamic {
+		if _, ok := ddnsGoDynamicKeys[site.String()]; !ok {
+			unregistered = append(unregistered, site.String())
+		}
+	}
+	if len(unregistered) > 0 {
+		sortStrings(unregistered)
+		t.Errorf("有 %d 处消息调用的 key 由变量拼接而成，但没有登记：\n  %s\n\n"+
+			"静态扫描算不出它们的运行时 key，因此它们**不会被译文检查覆盖**。\n"+
+			"请把该处可能产生的全部 key 加进 ddnsGoDynamicKeys。",
+			len(unregistered), strings.Join(unregistered, "\n  "))
+	}
+
+	// 反向：登记了但已经不存在的调用点。
+	for site := range ddnsGoDynamicKeys {
+		found := false
+		for s := range scan.dynamic {
+			if s.String() == site {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("ddnsGoDynamicKeys 里的 %s 已经不存在了（调用点被改过或删掉）——"+
+				"请同步这张表，否则它会慢慢变成一份不准确的清单", site)
+		}
 	}
 }
 
@@ -155,15 +283,15 @@ func TestDdnsGoLogCallsAreExcludedFromRatchet(t *testing.T) {
 	root := repoRoot(t)
 	counts := countHardcodedCJK(t, root)
 
-	keys := collectDdnsGoKeys(t, root)
-	if len(keys) < 10 {
-		t.Fatalf("扫到的 key 太少（%d），无法说明问题", len(keys))
+	scan := collectDdnsGoKeys(t, root)
+	if len(scan.keys) < 10 {
+		t.Fatalf("扫到的 key 太少（%d），无法说明问题", len(scan.keys))
 	}
 
-	if n := counts["internal/ddnsgo"]; n > len(keys) {
+	if n := counts["internal/ddnsgo"]; n > len(scan.keys) {
 		t.Errorf("棘轮在 internal/ddnsgo 里数出 %d 处，而消息 key 只有 %d 个 —— "+
 			"说明 Log/LogStr 的参数没有被排除，棘轮在把 key 当文案数",
-			n, len(keys))
+			n, len(scan.keys))
 	}
 }
 
