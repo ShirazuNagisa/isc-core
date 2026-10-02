@@ -149,10 +149,7 @@ async function boot() {
     const el = $('bootError');
     el.hidden = false;
     el.innerHTML =
-      '<strong>无法取得访问令牌。</strong> ' +
-      '请确认是通过 <code>http://127.0.0.1:端口/</code> 打开的控制台 ' +
-      '（不是主机名、也不是局域网 IP —— 内核会拒绝非本机 Host 的请求，' +
-      '这是为了防 DNS rebinding）。<br>底层错误：' + esc(err.message);
+      t("web.boot.no_token", '<strong>无法取得访问令牌。</strong> ') + esc(err.message);
     $('pillConn').textContent = t('web.conn.down', '未连接');
     $('pillConn').className = 'pill err';
     return;
@@ -249,8 +246,7 @@ async function loadIP() {
   const list = s.interfaces || [];
   if (!list.length) {
     $('ipList').innerHTML =
-      '<div class="empty">没有可用于解析的网卡（已排除回环、虚拟、' +
-      '以及只有链路本地地址的接口）。</div>';
+      t("web.ip.no_iface", '<div class="empty">没有可用于解析的网卡（已排除回环、虚拟、');
     return;
   }
 
@@ -593,8 +589,7 @@ function renderRecordCredPicker() {
   if (!managed.length) {
     sel.innerHTML = '<option value="">' + t('web.rec.no_cred', '（没有支持记录管理的凭据）') + '</option>';
     $('recCapNote').textContent =
-      '记录管理仅对 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / ' +
-      'DNSPod / 华为云 / GoDaddy）。Tier-2 服务商只提供动态解析。';
+      t("web.rec.tier1_only", '记录管理仅对 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / ');
     return;
   }
   $('recCapNote').textContent = '';

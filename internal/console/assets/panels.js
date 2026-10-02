@@ -40,8 +40,7 @@ function renderProxyStatus(s) {
 
   if (s.running) {
     const scheme = s.tls ? 'HTTPS' : 'HTTP';
-    box.innerHTML = '运行中：' + scheme + '，监听端口 ' + esc(s.port) +
-      '，' + esc(s.routes) + ' 条规则';
+    box.innerHTML = tf('web.px.running', '运行中：{scheme}，监听端口 {port}，{routes} 条规则', {scheme: scheme, port: esc(s.port), routes: esc(s.routes)});
   } else {
     box.textContent = t('web.px.not_running', '未运行');
   }
@@ -193,16 +192,18 @@ async function loadCerts() {
       html += '<div class="hint">' + t('web.cert.covers', '覆盖：') + esc(c.domains.join('、')) + '</div>';
     }
     if (c.expires_at) {
-      html += '<div class="hint">有效期至 ' +
-        esc(new Date(c.expires_at).toLocaleDateString()) + '（还剩 ' +
-        esc(daysUntil(c.expires_at)) + ' 天）</div>';
+      html += '<div class="hint">' +
+        tf('web.cert.valid_until', '有效期至 {date}（还剩 {days} 天）', {
+          date: esc(new Date(c.expires_at).toLocaleDateString()),
+          days: esc(daysUntil(c.expires_at))
+        }) + '</div>';
     }
 
     // 测试环境的证书必须显著标出 —— 它不被浏览器信任，
     // 而用户在界面上只会看到「证书无效」。
     if (c.staging) {
-      html += '<div class="err">⚠ 这张证书来自 ACME <strong>测试环境</strong>，' +
-        '浏览器不会信任它。要拿到正式证书，请清空 acme_directory 后重新续期。</div>';
+      html += '<div class="err">' +
+        t('web.cert.staging', '⚠ 这张证书来自 ACME <strong>测试环境</strong>，浏览器不会信任它。要拿到正式证书，请清空 acme_directory 后重新续期。') + '</div>';
     }
 
     if (c.needs_renew && c.reason) {
@@ -306,10 +307,9 @@ function renderNotifyForm(existing) {
     '<textarea id="ntTemplate" rows="4" placeholder=\'{"text":"{{.Title}}"}\'>' +
     esc(c.body_template || '') + '</textarea></label>' +
     '<p class="hint">' +
-    '可用变量：<code>{{.Event}}</code> <code>{{.Title}}</code> ' +
+    t("web.nt.vars", '可用变量：<code>{{.Event}}</code> <code>{{.Title}}</code> ') +
     '<code>{{.Body}}</code> <code>{{.Severity}}</code> <code>{{.At}}</code>（RFC3339）。' +
-    '<br>模板<strong>语法错误会在保存时被拒绝</strong>，而不是等到发送时 —— ' +
-    '否则你看到的会是「通知发不出去」，而真正的问题是少了一个括号。' +
+    t("web.nt.template_note", '<br>模板<strong>语法错误会在保存时被拒绝</strong>，而不是等到发送时 —— ') +
     '</p>' +
     '<label class="check"><input type="checkbox" id="ntEnabled"' +
     (c.enabled === false ? '' : ' checked') + '> ' + t('web.common.enabled') + '</label>' +
@@ -414,15 +414,15 @@ async function loadService() {
 
   // 先报「内核在不在跑」：那是用户最关心的，而且它总是有答案。
   let html = s.daemon_reachable
-    ? '▶ 内核：<strong>运行中</strong>（本地接口可连通）'
-    : '⏹ 内核：<strong>未运行</strong>';
+    ? t('web.svc.kernel_up', '▶ 内核：<strong>运行中</strong>（本地接口可连通）')
+    : t('web.svc.kernel_down', '⏹ 内核：<strong>未运行</strong>');
 
   if (s.status) {
-    html += '<br>系统服务：' + (s.status === 'running' ? '运行中' : '未运行') +
+    html += '<br>' + t('web.svc.label', '系统服务：') + (s.status === 'running' ? t('web.svc.running', '运行中') : t('web.svc.stopped', '未运行')) +
       '（' + esc(s.backend) + '）';
   } else if (s.error) {
     // 服务查询失败不让整块失败 —— 上面那行已经回答了主要问题。
-    html += '<br>系统服务：无法查询（' + esc(s.backend) + '）' +
+    html += '<br>' + t('web.svc.unqueryable', '系统服务：无法查询（') + esc(s.backend) + '）' +
       '<br><span class="err">' + esc(s.error) + '</span>';
   }
 

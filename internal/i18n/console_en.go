@@ -341,6 +341,21 @@ var consoleMessagesEn = map[string]string{
 	"web.cert.checked":          "Check complete: {n} certificate(s)",
 	"web.nt.test_sent":          "Test notification sent to {n} channel(s)",
 
+	"web.px.running":       "Running: {scheme}, listening on port {port}, {routes} rule(s)",
+	"web.boot.no_token":    "<strong>Could not obtain an access token.</strong> Check that you opened the console at <code>http://127.0.0.1:port/</code> (not a hostname and not a LAN IP — the kernel rejects requests whose Host is not this machine, which is what stops DNS rebinding).<br>Underlying error: ",
+	"web.ip.no_iface":      "No interfaces usable for resolution (loopback, virtual, and link-local-only interfaces are excluded).",
+	"web.rec.tier1_only":   "Record management is available for Tier-1 providers only (Cloudflare / Alibaba Cloud / Tencent Cloud / DNSPod / Huawei Cloud / GoDaddy). Tier-2 providers offer dynamic DNS only.",
+	"web.cert.valid_until": "Valid until {date} ({days} day(s) left)",
+	"web.cert.staging":     "⚠ This certificate comes from the ACME <strong>staging environment</strong> and browsers will not trust it. To get a real certificate, clear acme_directory and renew again.",
+	"web.nt.vars":          "Available variables: <code>{{.Event}}</code> <code>{{.Title}}</code> ",
+	"web.nt.template_note": "<br>A template <strong>syntax error is rejected when you save</strong> rather than when it is sent — otherwise what you see is \"the notification would not go out\" while the real problem is one missing bracket.",
+	"web.svc.kernel_up":    "▶ Kernel: <strong>running</strong> (the local API is reachable)",
+	"web.svc.kernel_down":  "⏹ Kernel: <strong>not running</strong>",
+	"web.svc.label":        "System service: ",
+	"web.svc.running":      "running",
+	"web.svc.stopped":      "not running",
+	"web.svc.unqueryable":  "System service: cannot be queried (",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

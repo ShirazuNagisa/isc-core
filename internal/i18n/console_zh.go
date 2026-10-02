@@ -322,6 +322,21 @@ var consoleMessagesZh = map[string]string{
 	"web.cert.checked":          "检查完成，共 {n} 张证书",
 	"web.nt.test_sent":          "测试通知已发送到 {n} 个通道",
 
+	"web.px.running":       "运行中：{scheme}，监听端口 {port}，{routes} 条规则",
+	"web.boot.no_token":    "<strong>无法取得访问令牌。</strong> 请确认是通过 <code>http://127.0.0.1:端口/</code> 打开的控制台（不是主机名、也不是局域网 IP —— 内核会拒绝非本机 Host 的请求，这是为了防 DNS rebinding）。<br>底层错误：",
+	"web.ip.no_iface":      "没有可用于解析的网卡（已排除回环、虚拟、以及只有链路本地地址的接口）。",
+	"web.rec.tier1_only":   "记录管理仅对 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / DNSPod / 华为云 / GoDaddy）。Tier-2 服务商只提供动态解析。",
+	"web.cert.valid_until": "有效期至 {date}（还剩 {days} 天）",
+	"web.cert.staging":     "⚠ 这张证书来自 ACME <strong>测试环境</strong>，浏览器不会信任它。要拿到正式证书，请清空 acme_directory 后重新续期。",
+	"web.nt.vars":          "可用变量：<code>{{.Event}}</code> <code>{{.Title}}</code> ",
+	"web.nt.template_note": "<br>模板<strong>语法错误会在保存时被拒绝</strong>，而不是等到发送时 —— 否则你看到的会是「通知发不出去」，而真正的问题是少了一个括号。",
+	"web.svc.kernel_up":    "▶ 内核：<strong>运行中</strong>（本地接口可连通）",
+	"web.svc.kernel_down":  "⏹ 内核：<strong>未运行</strong>",
+	"web.svc.label":        "系统服务：",
+	"web.svc.running":      "运行中",
+	"web.svc.stopped":      "未运行",
+	"web.svc.unqueryable":  "系统服务：无法查询（",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }
