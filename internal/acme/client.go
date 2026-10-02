@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,7 +99,7 @@ func (s *Store) Save(ctx context.Context, name string, cert Cert) error {
 		return err
 	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return fmt.Errorf("acme: 无法创建证书目录 %s: %w", s.dir, err)
+		return fmt.Errorf(i18n.T("acme.client.mkdir_failed"), s.dir, err)
 	}
 
 	base := filepath.Join(s.dir, sanitizeName(name))
@@ -139,7 +140,7 @@ func (s *Store) Load(name string) (Cert, error) {
 		//
 		// 静默返回零值会让调用方看到一张"有效期读不出来"的证书，
 		// 而真正的问题是文件坏了 —— 用户拿到的提示会指向错误的方向。
-		return Cert{}, fmt.Errorf("acme: 证书文件 %s 无法解析: %w",
+		return Cert{}, fmt.Errorf(i18n.T("acme.client.cert_parse"),
 			base+certSuffix, err)
 	}
 
@@ -195,7 +196,7 @@ func writeFileMode(path string, data []byte, mode os.FileMode) error {
 	_ = os.Remove(path)
 
 	if err := os.WriteFile(path, data, mode); err != nil {
-		return fmt.Errorf("acme: 写入 %s 失败: %w", path, err)
+		return fmt.Errorf(i18n.T("acme.client.write_failed"), path, err)
 	}
 	// 显式 Chmod：某些平台的 umask 会让实际权限比请求的更宽。
 	return os.Chmod(path, mode)
@@ -229,7 +230,7 @@ func sanitizeName(name string) string {
 func parseLeaf(certPEM []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
-		return nil, errors.New("acme: 证书不是合法的 PEM")
+		return nil, errors.New(i18n.T("acme.client.not_pem"))
 	}
 	return x509.ParseCertificate(block.Bytes)
 }
@@ -291,7 +292,7 @@ type Result struct {
 // 而用户看到自己没建过的记录时会怀疑是不是被入侵了。
 func (c *Client) Obtain(ctx context.Context, cfg Config) (Result, error) {
 	if len(cfg.Domains) == 0 {
-		return Result{}, errors.New("acme: 至少要指定一个域名")
+		return Result{}, errors.New(i18n.T("acme.need_domain"))
 	}
 	if cfg.DirectoryURL == "" {
 		cfg.DirectoryURL = LetsEncryptProduction
@@ -313,7 +314,7 @@ func (c *Client) Obtain(ctx context.Context, cfg Config) (Result, error) {
 	// 注册账户。已注册时 ACME 会返回已有的账户，因此这个调用是幂等的。
 	if _, err := client.Register(ctx, &acme.Account{Contact: contactFor(cfg.Email)},
 		acme.AcceptTOS); err != nil {
-		return Result{}, fmt.Errorf("acme: 注册账户失败: %w", err)
+		return Result{}, fmt.Errorf(i18n.T("acme.client.register_failed"), err)
 	}
 
 	ids := make([]acme.AuthzID, 0, len(cfg.Domains))
@@ -323,7 +324,7 @@ func (c *Client) Obtain(ctx context.Context, cfg Config) (Result, error) {
 
 	order, err := client.AuthorizeOrder(ctx, ids)
 	if err != nil {
-		return Result{}, fmt.Errorf("acme: 创建订单失败: %w", err)
+		return Result{}, fmt.Errorf(i18n.T("acme.client.order_failed"), err)
 	}
 
 	// 逐个域名完成 DNS-01 校验。
@@ -342,7 +343,7 @@ func (c *Client) Obtain(ctx context.Context, cfg Config) (Result, error) {
 
 	der, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, csrDER, true)
 	if err != nil {
-		return Result{}, fmt.Errorf("acme: 提交 CSR 失败: %w", err)
+		return Result{}, fmt.Errorf(i18n.T("acme.client.csr_failed"), err)
 	}
 
 	certPEM := encodeCertChain(der)
@@ -381,7 +382,7 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 	for _, authzURL := range order.AuthzURLs {
 		authz, err := client.GetAuthorization(ctx, authzURL)
 		if err != nil {
-			return fmt.Errorf("acme: 读取授权失败: %w", err)
+			return fmt.Errorf(i18n.T("acme.client.authz_failed"), err)
 		}
 		// 已经通过的授权不需要重做（订单可能被复用）。
 		if authz.Status == acme.StatusValid {
@@ -391,13 +392,13 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 		chal := findDNS01Challenge(authz)
 		if chal == nil {
 			return fmt.Errorf(
-				"acme: 域名 %s 的授权里没有 DNS-01 校验方式（可用的有 %v）",
+				i18n.T("acme.client.no_dns01"),
 				authz.Identifier.Value, challengeTypes(authz))
 		}
 
 		keyAuth, err := client.DNS01ChallengeRecord(chal.Token)
 		if err != nil {
-			return fmt.Errorf("acme: 计算挑战值失败: %w", err)
+			return fmt.Errorf(i18n.T("acme.client.challenge_failed"), err)
 		}
 
 		domain := authz.Identifier.Value
@@ -415,7 +416,7 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 				// 清理失败不改变签发结果，但必须留下痕迹 ——
 				// 它是用户 DNS 里的一条残留记录。
 				fmt.Fprintf(os.Stderr,
-					"acme: 清理域名 %s 的挑战记录失败（可手动删除 _acme-challenge 记录）: %v\n",
+					i18n.T("acme.client.cleanup_failed"),
 					d, err)
 			}
 		}(domain)
@@ -425,7 +426,7 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 		}
 
 		if _, err := client.Accept(ctx, chal); err != nil {
-			return fmt.Errorf("acme: 通知挑战就绪失败: %w", err)
+			return fmt.Errorf(i18n.T("acme.client.notify_failed"), err)
 		}
 
 		// 等 ACME 服务器完成校验。
@@ -443,12 +444,7 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 // explainAuthzError 把授权失败翻译成用户能据此行动的话。
 func explainAuthzError(domain string, err error) error {
 	return fmt.Errorf(
-		"acme: 域名 %s 的 DNS-01 校验未通过: %w\n"+
-			"常见原因：\n"+
-			"  · 该域名的权威 DNS 不是所选服务商（检查 NS 记录）\n"+
-			"  · 服务商那边的记录传播还没完成（稍后重试）\n"+
-			"  · 凭据没有该域名的编辑权限\n"+
-			"  · 域名本身不存在或已过期",
+		i18n.T("acme.client.dns01_rejected"),
 		domain, err)
 }
 
@@ -536,23 +532,21 @@ func loadOrCreateAccountKey(path string) (crypto.Signer, error) {
 		// 覆盖会让这个账户永久失效 —— 已经签发的证书仍然有效，
 		// 但它们再也无法续期，而症状要到 90 天后才出现。
 		return nil, fmt.Errorf(
-			"acme: 账户密钥文件 %s 无法解析。"+
-				"删除它会让这个 ACME 账户永久失效（已签发的证书将无法续期），"+
-				"请先备份并确认", path)
+			i18n.T("acme.client.account_key_parse"), path)
 	}
 
 	key, err := newAccountKey()
 	if err != nil {
-		return nil, fmt.Errorf("acme: 生成账户密钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("acme.client.gen_account_key"), err)
 	}
 
 	der, err := x509.MarshalECPrivateKey(key.(*ecdsa.PrivateKey))
 	if err != nil {
-		return nil, fmt.Errorf("acme: 序列化账户密钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("acme.client.marshal_account_key"), err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("acme: 创建账户密钥目录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("acme.client.mkdir_account_key"), err)
 	}
 	if err := writeFileMode(path,
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}),
@@ -566,7 +560,7 @@ func loadOrCreateAccountKey(path string) (crypto.Signer, error) {
 func newCSR(domains []string) (crypto.Signer, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, fmt.Errorf("acme: 生成证书密钥失败: %w", err)
+		return nil, nil, fmt.Errorf(i18n.T("acme.client.gen_cert_key"), err)
 	}
 
 	tmpl := &x509.CertificateRequest{
@@ -581,7 +575,7 @@ func newCSR(domains []string) (crypto.Signer, []byte, error) {
 
 	der, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("acme: 生成 CSR 失败: %w", err)
+		return nil, nil, fmt.Errorf(i18n.T("acme.client.gen_csr"), err)
 	}
 	return key, der, nil
 }
@@ -589,11 +583,11 @@ func newCSR(domains []string) (crypto.Signer, []byte, error) {
 func marshalKey(key crypto.Signer) ([]byte, error) {
 	ec, ok := key.(*ecdsa.PrivateKey)
 	if !ok {
-		return nil, errors.New("acme: 不支持的密钥类型")
+		return nil, errors.New(i18n.T("acme.client.bad_key_type"))
 	}
 	der, err := x509.MarshalECPrivateKey(ec)
 	if err != nil {
-		return nil, fmt.Errorf("acme: 序列化证书密钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("acme.client.marshal_cert_key"), err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), nil
 }

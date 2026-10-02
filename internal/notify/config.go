@@ -2,7 +2,9 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"sync"
 )
@@ -38,23 +40,23 @@ type ChannelConfig struct {
 // 那比在这里重复一遍正则式的检查可靠。
 func (c ChannelConfig) Validate() error {
 	if strings.TrimSpace(c.ID) == "" {
-		return fmt.Errorf("notify: 通道缺少 ID")
+		return errors.New(i18n.T("notify.cfg.no_id"))
 	}
 	if strings.TrimSpace(c.Name) == "" {
-		return fmt.Errorf("notify: 通道 %s 缺少名称", c.ID)
+		return fmt.Errorf(i18n.T("notify.cfg.no_name"), c.ID)
 	}
 	switch c.Kind {
 	case "webhook", "log":
 	default:
-		return fmt.Errorf("notify: 不支持的通道类型 %q", c.Kind)
+		return fmt.Errorf(i18n.T("notify.cfg.bad_kind"), c.Kind)
 	}
 	if c.Kind == "webhook" && strings.TrimSpace(c.URL) == "" {
-		return fmt.Errorf("notify: Webhook 通道 %s 缺少目标地址", c.Name)
+		return fmt.Errorf(i18n.T("notify.cfg.no_url"), c.Name)
 	}
 	switch c.MinSeverity {
 	case "", SeverityInfo, SeverityWarning, SeverityError:
 	default:
-		return fmt.Errorf("notify: 不支持的最低级别 %q", c.MinSeverity)
+		return fmt.Errorf(i18n.T("notify.cfg.bad_min_level"), c.MinSeverity)
 	}
 	return nil
 }
@@ -79,7 +81,7 @@ func (c ChannelConfig) Build(logSink func(Message)) (Channel, error) {
 		})
 
 	default:
-		return nil, fmt.Errorf("notify: 不支持的通道类型 %q", c.Kind)
+		return nil, fmt.Errorf(i18n.T("notify.cfg.bad_kind"), c.Kind)
 	}
 }
 
@@ -147,7 +149,7 @@ func NewConfigManager(store ChannelStore, base *Manager,
 func (c *ConfigManager) Load(ctx context.Context) error {
 	configs, err := c.store.List(ctx)
 	if err != nil {
-		return fmt.Errorf("notify: 读取通道配置失败: %w", err)
+		return fmt.Errorf(i18n.T("notify.cfg.read_failed"), err)
 	}
 	return c.apply(ctx, configs, false)
 }
@@ -196,7 +198,7 @@ func (c *ConfigManager) apply(_ context.Context, configs []ChannelConfig, _ bool
 		ch, err := cfg.Build(nil)
 		if err != nil {
 			// 跳过并记录，不让整个加载失败。
-			c.log("通知通道 %q 构造失败，已跳过: %v", cfg.Name, err)
+			c.log(i18n.T("notify.cfg.build_failed"), cfg.Name, err)
 			kept = append(kept, cfg)
 			continue
 		}
@@ -215,7 +217,7 @@ func (c *ConfigManager) apply(_ context.Context, configs []ChannelConfig, _ bool
 
 	c.base.SetDynamicChannels(built)
 
-	c.log("通知通道已加载：%d 个生效", len(built))
+	c.log(i18n.T("notify.cfg.loaded"), len(built))
 	return nil
 }
 

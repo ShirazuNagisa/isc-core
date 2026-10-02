@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"sort"
 	"strings"
@@ -70,12 +71,12 @@ type Message struct {
 // Validate 检查消息是否可发送。
 func (m Message) Validate() error {
 	if strings.TrimSpace(m.Title) == "" {
-		return errors.New("notify: 消息缺少标题")
+		return errors.New(i18n.T("notify.msg.no_title"))
 	}
 	switch m.Severity {
 	case SeverityInfo, SeverityWarning, SeverityError, "":
 	default:
-		return fmt.Errorf("notify: 不支持的重要程度 %q", m.Severity)
+		return fmt.Errorf(i18n.T("notify.msg.bad_severity"), m.Severity)
 	}
 	return nil
 }
@@ -323,8 +324,8 @@ func (m *Manager) flushSuppressed(ctx context.Context) {
 		// 静默期已过且期间有被抑制的消息：安排一条汇总。
 		pending = append(pending, Message{
 			Event:    "notify.suppressed_summary",
-			Title:    fmt.Sprintf("另有 %d 次同类事件被合并", st.suppressed),
-			Body:     "触发键：" + key,
+			Title:    fmt.Sprintf(i18n.T("notify.msg.merged"), st.suppressed),
+			Body:     i18n.T("notify.msg.dedup_key") + key,
 			Severity: SeverityWarning,
 			At:       now,
 			// 汇总消息本身不参与去重。

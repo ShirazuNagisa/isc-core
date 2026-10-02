@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"sync"
 	"time"
@@ -154,24 +155,23 @@ func (p *DNS01Provider) Present(ctx context.Context, domain, token, keyAuth stri
 	lister, ok := impl.(dns.ZoneLister)
 	if !ok {
 		return fmt.Errorf(
-			"acme: 服务商 %s 不支持列出区域，无法定位 %s 的 DNS 区域",
+			i18n.T("acme.dns01.no_list_zones"),
 			cred.Provider, rec.Name)
 	}
 	creator, ok := impl.(dns.RecordCreator)
 	if !ok {
-		return fmt.Errorf("acme: 服务商 %s 不支持新增记录", cred.Provider)
+		return fmt.Errorf(i18n.T("acme.dns01.no_create"), cred.Provider)
 	}
 
 	zones, err := lister.ListZones(ctx, cred)
 	if err != nil {
-		return fmt.Errorf("acme: 列出区域失败: %w", err)
+		return fmt.Errorf(i18n.T("acme.dns01.list_zones_failed"), err)
 	}
 
 	zone, ok := MatchZone(rec.Name, zones)
 	if !ok {
 		return fmt.Errorf(
-			"acme: 在与凭据「%s」关联的 %d 个区域里找不到 %s 所属的区域。"+
-				"请确认该凭据的账号下有这个域名",
+			i18n.T("acme.dns01.zone_not_found"),
 			p.credentialID, len(zones), rec.Name)
 	}
 
@@ -188,7 +188,7 @@ func (p *DNS01Provider) Present(ctx context.Context, domain, token, keyAuth stri
 		TTL: 0,
 	})
 	if err != nil {
-		return fmt.Errorf("acme: 写入挑战记录 %s 失败: %w", rec.Name, err)
+		return fmt.Errorf(i18n.T("acme.dns01.write_failed"), rec.Name, err)
 	}
 
 	if p.onCreated != nil {
@@ -239,15 +239,15 @@ func (p *DNS01Provider) CleanUp(ctx context.Context, domain, _, _ string) error 
 func (p *DNS01Provider) DeleteRecord(ctx context.Context, rec CreatedRecord) error {
 	cred, err := p.creds.Resolve(ctx, p.credentialID)
 	if err != nil {
-		return fmt.Errorf("acme: 取凭据失败: %w", err)
+		return fmt.Errorf(i18n.T("acme.cred_failed"), err)
 	}
 	impl, ok := p.providers(cred.Provider)
 	if !ok || impl == nil {
-		return fmt.Errorf("acme: 服务商 %s 的实现不可用", cred.Provider)
+		return fmt.Errorf(i18n.T("acme.dns01.impl_unavailable"), cred.Provider)
 	}
 	deleter, ok := impl.(dns.RecordDeleter)
 	if !ok {
-		return fmt.Errorf("acme: 服务商 %s 不支持删除记录", cred.Provider)
+		return fmt.Errorf(i18n.T("acme.dns01.no_delete"), cred.Provider)
 	}
 
 	// 只填 ID：删除只需要它，而各家的删除接口也只用它。
@@ -294,17 +294,17 @@ func (p *DNS01Provider) takeCleanup(domain string) (CreatedRecord, bool) {
 func (p *DNS01Provider) resolve(ctx context.Context) (dns.Credential, dns.Provider, error) {
 	if p.credentialID == "" {
 		return dns.Credential{}, nil, errors.New(
-			"acme: 未指定用于 DNS-01 校验的凭据")
+			i18n.T("acme.need_cred"))
 	}
 
 	cred, err := p.creds.Resolve(ctx, p.credentialID)
 	if err != nil {
-		return dns.Credential{}, nil, fmt.Errorf("acme: 取凭据失败: %w", err)
+		return dns.Credential{}, nil, fmt.Errorf(i18n.T("acme.cred_failed"), err)
 	}
 	impl, ok := p.providers(cred.Provider)
 	if !ok || impl == nil {
 		return dns.Credential{}, nil, fmt.Errorf(
-			"acme: 服务商 %s 的实现不可用，无法完成 DNS-01 校验", cred.Provider)
+			i18n.T("acme.dns01.impl_for_dns01"), cred.Provider)
 	}
 	return cred, impl, nil
 }

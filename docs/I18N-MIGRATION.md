@@ -35,7 +35,7 @@
 | `internal/provider/tier1` | ✅ **2** | 已完成；剩 2 处是 API 数据值（DNSPod 的 `record_line`） |
 | `internal/reach` | ✅ **0** | 已完成；它就是 `isc doctor` 的正文 |
 | `internal/store` | 73 | 数据库错误 |
-| `internal/acme` | 67 | 证书签发失败的原因 |
+| `internal/acme` | ✅ **0** | 已完成；DNS-01 失败那条把四种成因逐条列出 |
 | `scripts/release` | 64 | 构建工具输出，**不是产品**，优先级最低 |
 | `internal/proxy` | 55 | 反代启动与路由错误 |
 | `internal/verify` | 43 | 外部验证会话的说明 |
@@ -83,7 +83,7 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 | `internal/proxy` | 55 | 41 |
 | `internal/acme` | 67 | 60 |
 | `internal/ddns` | 30 | 17 |
-| `internal/notify` | 28 | 22 |
+| `internal/notify` | ✅ **0** |
 | `internal/job` | 9 | 6 |
 | `internal/credential` | 17 | 16 |
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"os"
 	"sort"
@@ -80,10 +81,10 @@ func (r CertRequest) Normalize() CertRequest {
 // Validate 检查请求是否可用。
 func (r CertRequest) Validate() error {
 	if len(r.Domains) == 0 {
-		return errors.New("acme: 至少要指定一个域名")
+		return errors.New(i18n.T("acme.need_domain"))
 	}
 	if r.CredentialID == "" {
-		return errors.New("acme: 未指定用于 DNS-01 校验的凭据")
+		return errors.New(i18n.T("acme.need_cred"))
 	}
 	for _, d := range r.Domains {
 		if err := validateDomain(d); err != nil {
@@ -100,20 +101,20 @@ func (r CertRequest) Validate() error {
 func validateDomain(d string) error {
 	d = strings.TrimPrefix(d, "*.")
 	if d == "" {
-		return errors.New("acme: 域名为空")
+		return errors.New(i18n.T("acme.manager.empty_domain"))
 	}
 	if strings.ContainsAny(d, " /\\") {
-		return fmt.Errorf("acme: 域名含有非法字符: %q", d)
+		return fmt.Errorf(i18n.T("acme.manager.bad_chars"), d)
 	}
 	if !strings.Contains(d, ".") {
 		// 单标签域名（例如 "localhost"）无法通过 ACME 签发 ——
 		// 公网 CA 不为它们签证书。早一点说清楚比让用户等一轮校验好。
 		return fmt.Errorf(
-			"acme: %q 看起来不是完整域名；公网 CA 不为单标签域名签发证书", d)
+			i18n.T("acme.manager.single_label"), d)
 	}
 	if strings.Contains(d, "*") {
 		return fmt.Errorf(
-			"acme: 通配符只能出现在最前面（*.example.com）: %q", d)
+			i18n.T("acme.manager.wildcard_pos"), d)
 	}
 	return nil
 }
@@ -212,7 +213,7 @@ func RenewDecision(cert Cert, want []string, now time.Time) (bool, string) {
 	// 而**这与剩余有效期无关** —— 证书可能刚签了三天。
 	// 只按时间判断的话，新增的域名要等三个月才会生效。
 	if missing := missingDomains(cert.Domains, want); len(missing) > 0 {
-		return true, fmt.Sprintf("现有证书不覆盖 %s", strings.Join(missing, "、"))
+		return true, fmt.Sprintf(i18n.T("acme.manager.not_covering"), strings.Join(missing, "、"))
 	}
 
 	// --- 2. 有效期 ---
@@ -221,18 +222,18 @@ func RenewDecision(cert Cert, want []string, now time.Time) (bool, string) {
 		//
 		// 这里选择**续期**而不是跳过：跳过会让一张读不出有效期的
 		// 证书一直用到过期，而那时站点会突然打不开。
-		return true, "无法读出证书的有效期，为安全起见重新签发"
+		return true, i18n.T("acme.manager.no_expiry")
 	}
 
 	remaining := cert.ExpiresAt.Sub(now)
 	if remaining <= 0 {
-		return true, fmt.Sprintf("证书已于 %s 过期",
+		return true, fmt.Sprintf(i18n.T("acme.manager.expired"),
 			cert.ExpiresAt.Format("2006-01-02"))
 	}
 
 	threshold := renewalThreshold(cert)
 	if remaining <= threshold {
-		return true, fmt.Sprintf("剩余有效期 %d 天，低于续期阈值 %d 天",
+		return true, fmt.Sprintf(i18n.T("acme.manager.below_threshold"),
 			int(remaining.Hours()/24), int(threshold.Hours()/24))
 	}
 
@@ -333,7 +334,7 @@ func (m *Manager) Ensure(ctx context.Context, req CertRequest) (CertStatus, bool
 	// 并发的重试很容易把配额用光，而用光之后要等一小时。
 	if !m.acquire(name) {
 		return CertStatus{}, false, fmt.Errorf(
-			"acme: %s 的证书正在签发中，请稍候", name)
+			i18n.T("acme.manager.issuing"), name)
 	}
 	defer m.release(name)
 
@@ -425,7 +426,7 @@ func (m *Manager) Status(want map[string][]string) ([]CertStatus, error) {
 		if err != nil {
 			out = append(out, CertStatus{
 				Name: name, NeedsRenew: true,
-				Error: "无法读取证书文件：" + err.Error(),
+				Error: i18n.T("acme.manager.read_failed") + err.Error(),
 			})
 			continue
 		}

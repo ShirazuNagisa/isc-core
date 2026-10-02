@@ -2,7 +2,9 @@ package acme
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"strings"
 	"sync"
@@ -75,7 +77,7 @@ func (p *StoreProvider) SetResolve(resolve func(string) (string, bool)) {
 func (p *StoreProvider) Certificate(serverName string) (*tls.Certificate, error) {
 	name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(serverName), "."))
 	if name == "" {
-		return nil, fmt.Errorf("acme: TLS 握手没有提供域名")
+		return nil, errors.New(i18n.T("acme.provider.no_sni"))
 	}
 
 	if cached, ok := p.fromCache(name); ok {
@@ -87,20 +89,19 @@ func (p *StoreProvider) Certificate(serverName string) (*tls.Certificate, error)
 	p.mu.Unlock()
 
 	if resolve == nil {
-		return nil, fmt.Errorf("acme: 尚未配置任何 HTTPS 路由")
+		return nil, errors.New(i18n.T("acme.provider.no_routes"))
 	}
 
 	certName, ok := resolve(name)
 	if !ok {
 		return nil, fmt.Errorf(
-			"acme: 没有为域名 %s 配置证书。"+
-				"请为它添加一条启用 HTTPS 的路由", name)
+			i18n.T("acme.provider.no_cert"), name)
 	}
 
 	cert, err := p.store.Load(certName)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"acme: 读取域名 %s 的证书失败（证书名 %s）: %w", name, certName, err)
+			i18n.T("acme.provider.read_failed"), name, certName, err)
 	}
 
 	pair, err := tls.X509KeyPair(cert.CertPEM, cert.KeyPEM)
@@ -110,8 +111,7 @@ func (p *StoreProvider) Certificate(serverName string) (*tls.Certificate, error)
 		// 单独说明它：那个提示会直接指向"重新签发"，而一句笼统的
 		// "解析失败"会让用户去查 PEM 格式。
 		return nil, fmt.Errorf(
-			"acme: 域名 %s 的证书或私钥无法配对（证书名 %s）：%w。"+
-				"请重新签发这张证书", name, certName, err)
+			i18n.T("acme.provider.mismatch"), name, certName, err)
 	}
 
 	p.mu.Lock()

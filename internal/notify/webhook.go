@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -58,7 +60,7 @@ type WebhookOptions struct {
 // NewWebhookChannel 构造 Webhook 通道。
 func NewWebhookChannel(opts WebhookOptions) (*WebhookChannel, error) {
 	if strings.TrimSpace(opts.URL) == "" {
-		return nil, fmt.Errorf("notify: Webhook 通道需要目标地址")
+		return nil, errors.New(i18n.T("notify.webhook.need_url"))
 	}
 
 	// 只允许 http/https：`file://` 之类的 scheme 会让这个功能变成
@@ -66,7 +68,7 @@ func NewWebhookChannel(opts WebhookOptions) (*WebhookChannel, error) {
 	lower := strings.ToLower(opts.URL)
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
 		return nil, fmt.Errorf(
-			"notify: Webhook 地址必须以 http:// 或 https:// 开头，得到 %q", opts.URL)
+			i18n.T("notify.webhook.bad_scheme"), opts.URL)
 	}
 
 	name := opts.Name
@@ -99,7 +101,7 @@ func NewWebhookChannel(opts WebhookOptions) (*WebhookChannel, error) {
 			// 放到发送时才发现的话，用户会看到"通知发不出去"，
 			// 而真正的问题是模板里少了一个括号 —— 那是两件很难
 			// 联系起来的事。
-			return nil, fmt.Errorf("notify: Webhook 请求体模板语法错误: %w", err)
+			return nil, fmt.Errorf(i18n.T("notify.webhook.bad_template"), err)
 		}
 		ch.bodyTemplate = tmpl
 		ch.rawTemplate = opts.BodyTemplate
@@ -123,7 +125,7 @@ func (w *WebhookChannel) Send(ctx context.Context, msg Message) error {
 
 	req, err := http.NewRequestWithContext(ctx, w.method, w.url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("notify: 构造请求失败: %w", err)
+		return fmt.Errorf(i18n.T("notify.webhook.build_failed"), err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "ISC-Core")
@@ -133,7 +135,7 @@ func (w *WebhookChannel) Send(ctx context.Context, msg Message) error {
 
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("notify: 请求失败: %w", err)
+		return fmt.Errorf(i18n.T("notify.webhook.req_failed"), err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 只读响应，关闭失败无影响
 
@@ -144,7 +146,7 @@ func (w *WebhookChannel) Send(ctx context.Context, msg Message) error {
 	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("notify: 目标返回 HTTP %d: %s",
+		return fmt.Errorf(i18n.T("notify.webhook.bad_status"),
 			resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	return nil
@@ -159,14 +161,14 @@ func (w *WebhookChannel) renderBody(msg Message) (body []byte, contentType strin
 		// 真正对接具体服务时用户会写模板。
 		byt, err := json.Marshal(msg)
 		if err != nil {
-			return nil, "", fmt.Errorf("notify: 序列化消息失败: %w", err)
+			return nil, "", fmt.Errorf(i18n.T("notify.webhook.marshal"), err)
 		}
 		return byt, "application/json; charset=utf-8", nil
 	}
 
 	var buf bytes.Buffer
 	if err := w.bodyTemplate.Execute(&buf, templateData(msg)); err != nil {
-		return nil, "", fmt.Errorf("notify: 渲染请求体失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("notify.webhook.render"), err)
 	}
 
 	ct := "application/json; charset=utf-8"
@@ -225,7 +227,7 @@ func NewLogChannel(sink func(Message)) *LogChannel {
 }
 
 // Name 实现 Channel。
-func (l *LogChannel) Name() string { return "日志" }
+func (l *LogChannel) Name() string { return i18n.T("notify.webhook.channel_name") }
 
 // Kind 实现 Channel。
 func (l *LogChannel) Kind() string { return "log" }
