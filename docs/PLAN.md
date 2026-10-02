@@ -341,6 +341,65 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### `internal/platform` 第二批：Windows 服务与防火墙（158 → 106）
+
+`service_windows.go`（34）与 `firewall_windows.go`（18）已完全转换。
+
+##### 这一批暴露了三种"迁移特有"的编译/测试失败
+
+**一、常量不能是函数调用**
+
+```go
+const (
+	windowsServiceName = coreServiceName
+	windowsDisplayName = i18n.T("platform.svc_display_name")  // ← 编译错误
+)
+```
+
+改成 `var` 即可，但值得记下来：**文案一旦从字面量变成函数调用，它就不再是常量**。
+这是编译器能抓到的那一类，算是运气好的。
+
+**二、`go vet` 第三次拦下无参数的 `fmt.Errorf`**
+
+`fmt.Errorf(i18n.T("platform.svc_missing"))` —— 没有可变参数，格式串来自数据。
+改成 `errors.New`。
+
+三次都是同一个形状（`doctor.go` 三处、`endpoint.go` 一处、这里一处）。
+它已经稳定地成为**迁移的标准副产物**：把字面量换成函数调用，
+就等于把"格式串是编译期常量"这个隐含前提拿掉了。
+
+**三、`TestUsedKeysExist` 又一次抓到缺失的 key**
+
+它报出 `platform.fw_note_a` / `platform.scm_note_a` / `platform.scm_note_b`
+三个"代码里用了但目录里没有"的 key —— 都是我在拆分多行文案时命名不一致造成的。
+
+**这条测试自建立以来已经抓到 6 个这类问题**（第一次运行时 3 个，这次 3 个）。
+而它们的共同点是：**不会编译失败、不会运行报错，只会在界面上显示一串
+key 名**。没有这条测试，它们会一直躺在那里。
+
+##### 一处我没能验证到底的地方（如实记录）
+
+我想在真机上确认 SCM 与防火墙后端的 `Note` 会跟着 `Accept-Language` 变，
+但没能找到 `/v1/meta` 里承载它们的字段（试了 `platform.backends`、
+`capabilities[].note`，都不是）。**没有继续猜接口结构**，而是退回单元层面：
+
+- `Describe()` 的输出由 `TestDescribeReportsBackend` /
+  `TestDescribeReportsAvailable` 覆盖；
+- 目录的一致性由 `TestCatalogsHaveIdenticalKeys` 保证；
+- "服务端渲染的文案跟随 `Accept-Language`"这个**机制**上一轮已在
+  `/v1/providers` 上端到端验证过（`API 令牌` → `API token`）。
+
+机制是通的，只是这一个端点的字段名我没找到。记在这里而不是假装验证过了。
+
+##### 剩余 106 处的分布
+
+`firewall_darwin.go`（22）、`firewall_windows.go` 已清零、`firewall_linux.go`（13）、
+`firewall_pf_def.go`（12）、`secret_unix.go`（9）、`firewall_nft_def.go`（8）、
+`ipmon.go`（7）、`service_def.go`（7）、`service_linux.go`（6）、
+`transport_unix.go`（6）、`service_darwin.go`（6）等。
+
+其中 `firewall_pf_def.go` / `firewall_nft_def.go` 是**跨平台**的纯逻辑（渲染规则
+文本），因此本机可测 —— 下一批做它们。
 ##### `internal/platform` 第一批：本地通道与密钥存储（204 → 158）
 
 做完**本机能编译**的那几个"地基"文件：`endpoint.go`（地址解析与校验）、

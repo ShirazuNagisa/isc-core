@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"time"
 
@@ -36,10 +37,13 @@ import (
 
 // 服务名。用固定的名字而不是从参数来：服务是"这台机器上装了一个
 // 内核"这件事的标识，能被改名只会让用户在 SCM 里找不到它。
-const (
-	windowsServiceName = coreServiceName
-	windowsDisplayName = "ISC 接入编排器"
-)
+const windowsServiceName = coreServiceName
+
+// windowsDisplayName 是 SCM 里显示的名字。
+//
+// 它是 var 而不是 const：文案来自消息目录，而函数调用不是常量表达式。
+// 这一点在迁移时才会暴露 —— 编译期就能发现，算是运气好的那一类。
+var windowsDisplayName = i18n.T("platform.svc_display_name")
 
 // windowsServiceManager 实现 ServiceManager。
 type windowsServiceManager struct{}
@@ -51,8 +55,7 @@ func (s *windowsServiceManager) Describe() ImplState {
 	return ImplState{
 		Available: true,
 		Backend:   "windows-scm",
-		Note: "Windows 服务控制管理器（SCM）：安装、增删与查询服务状态" +
-			"都需要管理员权限",
+		Note:      i18n.T("platform.scm_note"),
 	}
 }
 
@@ -67,8 +70,7 @@ func (s *windowsServiceManager) Install(ctx context.Context, cfg ServiceConfig) 
 
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("platform: 无法连接服务控制管理器：%w"+
-			"（请以管理员身份运行）", err)
+		return fmt.Errorf(i18n.T("platform.scm_connect"), err)
 	}
 	defer m.Disconnect() //nolint:errcheck // 只读句柄
 
@@ -103,8 +105,7 @@ func (s *windowsServiceManager) Install(ctx context.Context, cfg ServiceConfig) 
 		BinaryPathName: buildBinaryPath(cfg),
 	})
 	if err != nil {
-		return fmt.Errorf("platform: 创建服务失败：%w"+
-			"（请确认以管理员身份运行）", err)
+		return fmt.Errorf(i18n.T("platform.svc_create"), err)
 	}
 	defer service.Close() //nolint:errcheck // 只读句柄
 
@@ -113,7 +114,7 @@ func (s *windowsServiceManager) Install(ctx context.Context, cfg ServiceConfig) 
 		// 而不该让整个安装失败。
 		if err := s.setRecovery(service); err != nil {
 			return fmt.Errorf(
-				"platform: 服务已创建，但无法设置崩溃自动重启：%w", err)
+				i18n.T("platform.svc_created_no_restart"), err)
 		}
 	}
 
@@ -124,7 +125,7 @@ func (s *windowsServiceManager) Install(ctx context.Context, cfg ServiceConfig) 
 func (s *windowsServiceManager) reconfigure(service *mgr.Service, cfg ServiceConfig) error {
 	conf, err := service.Config()
 	if err != nil {
-		return fmt.Errorf("platform: 读取服务配置失败：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_read_config"), err)
 	}
 
 	conf.DisplayName = displayNameOf(cfg)
@@ -134,11 +135,11 @@ func (s *windowsServiceManager) reconfigure(service *mgr.Service, cfg ServiceCon
 	conf.BinaryPathName = buildBinaryPath(cfg)
 
 	if err := service.UpdateConfig(conf); err != nil {
-		return fmt.Errorf("platform: 更新服务配置失败：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_update_config"), err)
 	}
 	if cfg.RestartOnFailure {
 		if err := s.setRecovery(service); err != nil {
-			return fmt.Errorf("platform: 设置崩溃自动重启失败：%w", err)
+			return fmt.Errorf(i18n.T("platform.svc_set_restart"), err)
 		}
 	}
 	return nil
@@ -170,7 +171,7 @@ func (s *windowsServiceManager) setRecovery(service *mgr.Service) error {
 	const resetPeriod = 86400
 
 	if err := service.SetRecoveryActions(actions, resetPeriod); err != nil {
-		return fmt.Errorf("设置失败恢复动作失败：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_set_failure"), err)
 	}
 	return nil
 }
@@ -183,7 +184,7 @@ func (s *windowsServiceManager) Uninstall(ctx context.Context) error {
 
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("platform: 无法连接服务控制管理器：%w", err)
+		return fmt.Errorf(i18n.T("platform.scm_connect"), err)
 	}
 	defer m.Disconnect() //nolint:errcheck // 只读句柄
 
@@ -196,7 +197,7 @@ func (s *windowsServiceManager) Uninstall(ctx context.Context) error {
 		if isNotInstalled(err) {
 			return nil
 		}
-		return fmt.Errorf("platform: 打开服务失败：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_open"), err)
 	}
 	defer service.Close() //nolint:errcheck // 只读句柄
 
@@ -210,7 +211,7 @@ func (s *windowsServiceManager) Uninstall(ctx context.Context) error {
 	}
 
 	if err := service.Delete(); err != nil {
-		return fmt.Errorf("platform: 删除服务失败：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_delete"), err)
 	}
 	return nil
 }
@@ -222,13 +223,10 @@ func (s *windowsServiceManager) Status(_ context.Context) (ServiceStatus, error)
 	m, err := mgr.Connect()
 	if err != nil {
 		if isAccessDenied(err) {
-			return ServiceUnknown, fmt.Errorf(
-				"platform: 查询服务状态需要管理员权限（Windows 要求打开服务" +
-					"控制管理器的完全访问权）。\n" +
-					"请以管理员身份运行；若只想确认内核是否在跑，" +
-					"可以用 isc health")
+			return ServiceUnknown, errors.New(
+				i18n.T("platform.svc_query_needs_admin"))
 		}
-		return ServiceUnknown, fmt.Errorf("platform: 无法连接服务控制管理器：%w", err)
+		return ServiceUnknown, fmt.Errorf(i18n.T("platform.scm_connect"), err)
 	}
 	defer m.Disconnect() //nolint:errcheck // 只读句柄
 
@@ -238,13 +236,13 @@ func (s *windowsServiceManager) Status(_ context.Context) (ServiceStatus, error)
 			// 没装不是错误，是一种正常状态。
 			return ServiceStopped, nil
 		}
-		return ServiceUnknown, fmt.Errorf("platform: 打开服务失败：%w", err)
+		return ServiceUnknown, fmt.Errorf(i18n.T("platform.svc_open"), err)
 	}
 	defer service.Close() //nolint:errcheck // 只读句柄
 
 	st, err := service.Query()
 	if err != nil {
-		return ServiceUnknown, fmt.Errorf("platform: 查询服务状态失败：%w", err)
+		return ServiceUnknown, fmt.Errorf(i18n.T("platform.svc_query"), err)
 	}
 	return mapWindowsState(st.State), nil
 }
@@ -264,7 +262,7 @@ func (s *windowsServiceManager) Start(ctx context.Context) error {
 			if isAlreadyRunning(err) {
 				return nil
 			}
-			return fmt.Errorf("platform: 启动服务失败：%w", err)
+			return fmt.Errorf(i18n.T("platform.svc_start"), err)
 		}
 		return nil
 	})
@@ -283,7 +281,7 @@ func (s *windowsServiceManager) Stop(ctx context.Context) error {
 			if isNotRunning(err) {
 				return nil
 			}
-			return fmt.Errorf("platform: 停止服务失败：%w", err)
+			return fmt.Errorf(i18n.T("platform.svc_stop"), err)
 		}
 		return s.waitStopped(ctx, service, 20*time.Second)
 	})
@@ -304,7 +302,7 @@ func (s *windowsServiceManager) waitStopped(ctx context.Context,
 
 		st, err := service.Query()
 		if err != nil {
-			return fmt.Errorf("platform: 查询服务状态失败：%w", err)
+			return fmt.Errorf(i18n.T("platform.svc_query"), err)
 		}
 		if st.State == svc.Stopped {
 			return nil
@@ -312,23 +310,22 @@ func (s *windowsServiceManager) waitStopped(ctx context.Context,
 		time.Sleep(300 * time.Millisecond)
 	}
 
-	return fmt.Errorf("platform: 等待服务停止超时（%s）", timeout)
+	return fmt.Errorf(i18n.T("platform.svc_stop_timeout"), timeout)
 }
 
 func (s *windowsServiceManager) withService(fn func(*mgr.Service) error) error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("platform: 无法连接服务控制管理器：%w", err)
+		return fmt.Errorf(i18n.T("platform.scm_connect"), err)
 	}
 	defer m.Disconnect() //nolint:errcheck // 只读句柄
 
 	service, err := m.OpenService(windowsServiceName)
 	if err != nil {
 		if isNotInstalled(err) {
-			return fmt.Errorf(
-				"platform: 服务尚未安装。请先运行 isc service install")
+			return errors.New(i18n.T("platform.svc_missing"))
 		}
-		return fmt.Errorf("platform: 打开服务失败：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_open"), err)
 	}
 	defer service.Close() //nolint:errcheck // 只读句柄
 
@@ -348,19 +345,17 @@ func (s *windowsServiceManager) requireAdmin() error {
 		windows.DOMAIN_ALIAS_RID_ADMINS,
 		0, 0, 0, 0, 0, 0, &sid)
 	if err != nil {
-		return fmt.Errorf("platform: 无法构造管理员组标识：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_admin_sid"), err)
 	}
 	defer windows.FreeSid(sid) //nolint:errcheck // 释放失败无补救
 
 	token := windows.Token(0)
 	member, err := token.IsMember(sid)
 	if err != nil {
-		return fmt.Errorf("platform: 无法判断当前用户是否为管理员：%w", err)
+		return fmt.Errorf(i18n.T("platform.svc_admin_check"), err)
 	}
 	if !member {
-		return errors.New(
-			"platform: 安装与管理系统服务需要管理员权限。\n" +
-				"请右键点击终端（或 PowerShell）选择「以管理员身份运行」后重试")
+		return errors.New(i18n.T("platform.svc_need_admin"))
 	}
 	return nil
 }
@@ -392,7 +387,7 @@ func descriptionOf(cfg ServiceConfig) string {
 	if cfg.Description != "" {
 		return cfg.Description
 	}
-	return "ISC 接入编排器内核：动态域名解析、IPv6 前缀跟踪与反向代理"
+	return i18n.T("platform.svc_description")
 }
 
 func startTypeOf(cfg ServiceConfig) uint32 {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,10 +78,11 @@ func newWindowsFirewall() Firewall {
 func (w *windowsFirewall) Describe() ImplState {
 	return ImplState{
 		Available: true,
-		Backend:   "Windows Defender 防火墙",
-		Note: "通过 PowerShell 的 NetSecurity 模块读写规则；" +
-			"读取无需提权，创建与删除规则需要管理员权限。" +
-			"规则统一归入「" + ruleGroup + "」分组，便于在系统防火墙界面中识别",
+		// 后端标识是**专有名词**，跟着语言走（中文界面显示"Windows
+		// Defender 防火墙"，英文界面显示原名），而说明里的分组名是值。
+		Backend: i18n.T("platform.fw_backend"),
+		Note: i18n.T("platform.fw_note") +
+			"\n" + i18n.T("platform.fw_note_group", ruleGroup),
 	}
 }
 
@@ -114,7 +116,7 @@ func (p *powershellRunner) Run(ctx context.Context, script string) ([]byte, erro
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("执行防火墙命令超时（%s）", scriptTimeout)
+			return nil, fmt.Errorf(i18n.T("platform.fw_timeout"), scriptTimeout)
 		}
 		msg := unwrapPowerShellError(strings.TrimSpace(stderr.String()))
 		if msg == "" {
@@ -160,7 +162,7 @@ func unwrapPowerShellError(raw string) string {
 	if len(msgs) == 0 {
 		// 解析不出内容时**不返回原始 XML** —— 一整屏 XML 比一句笼统的
 		// 话更糟：它看起来像内核崩了，而实际问题可能只是缺权限。
-		return "PowerShell 返回了无法解析的错误输出（可能与权限或执行策略有关）"
+		return i18n.T("platform.fw_bad_output")
 	}
 	return strings.Join(msgs, " ")
 }
@@ -268,7 +270,7 @@ func powershellPath() (string, error) {
 			return p, nil
 		}
 	}
-	return "", errors.New("找不到 powershell.exe，无法管理防火墙")
+	return "", errors.New(i18n.T("platform.fw_no_powershell"))
 }
 
 // encodePowerShell 把脚本编码成 -EncodedCommand 需要的形式。
@@ -317,7 +319,7 @@ func (w *windowsFirewall) Inspect(ctx context.Context) ([]Rule, error) {
 		Items []fwRuleJSON `json:"items"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("platform: 解析防火墙规则失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("platform.fw_parse_rules"), err)
 	}
 
 	out := make([]Rule, 0, len(payload.Items))
@@ -436,12 +438,12 @@ func (w *windowsFirewall) Plan(ctx context.Context, desired []Rule) (Change, err
 			// 手工调整过它的作用域或配置文件，我们按自己的理解去改
 			// 会把他的调整抹掉。因此只报告"已存在"，让它保持原样。
 			_ = got
-			fmt.Fprintf(&diff, "  = 已存在  %s（%s %s）\n",
+			fmt.Fprintf(&diff, i18n.T("platform.fw_diff_existing"),
 				want.Name, want.Protocol, want.Port)
 			continue
 		}
 		toCreate = append(toCreate, want)
-		fmt.Fprintf(&diff, "  + 新增    %s（入站 %s %s，来源任意）\n",
+		fmt.Fprintf(&diff, i18n.T("platform.fw_diff_new"),
 			want.Name, want.Protocol, want.Port)
 	}
 
@@ -452,7 +454,7 @@ func (w *windowsFirewall) Plan(ctx context.Context, desired []Rule) (Change, err
 
 	payload, err := json.Marshal(fwPayload{Create: ruleNames(toCreate)})
 	if err != nil {
-		return Change{}, fmt.Errorf("platform: 序列化防火墙变更失败: %w", err)
+		return Change{}, fmt.Errorf(i18n.T("platform.fw_marshal"), err)
 	}
 
 	return Change{
@@ -460,7 +462,7 @@ func (w *windowsFirewall) Plan(ctx context.Context, desired []Rule) (Change, err
 		Platform: "windows",
 		Backend:  "windows-defender-firewall",
 		Kind:     "firewall.rules",
-		Summary:  fmt.Sprintf("新增 %d 条入站规则", len(toCreate)),
+		Summary:  fmt.Sprintf(i18n.T("platform.fw_summary"), len(toCreate)),
 		Diff:     strings.TrimRight(diff.String(), "\n"),
 		// 存的是**规则名**而不是整个 Rule：回滚只需要知道删哪几条，
 		// 而规则名是由端口与协议确定的，不依赖任何运行期状态。
@@ -480,14 +482,14 @@ func (w *windowsFirewall) Apply(ctx context.Context, ch Change) error {
 	}
 	var payload fwPayload
 	if err := json.Unmarshal(ch.Payload, &payload); err != nil {
-		return fmt.Errorf("platform: 解析防火墙变更数据失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.fw_unmarshal"), err)
 	}
 	if len(payload.Create) == 0 {
 		return nil
 	}
 
 	if _, err := w.runner.Run(ctx, createScript(payload.Create)); err != nil {
-		return fmt.Errorf("platform: 创建防火墙规则失败（需要以管理员身份运行）: %w", err)
+		return fmt.Errorf(i18n.T("platform.fw_apply"), err)
 	}
 	return nil
 }
@@ -502,14 +504,14 @@ func (w *windowsFirewall) Rollback(ctx context.Context, ch Change) error {
 	}
 	var payload fwPayload
 	if err := json.Unmarshal(ch.Payload, &payload); err != nil {
-		return fmt.Errorf("platform: 解析防火墙变更数据失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.fw_unmarshal"), err)
 	}
 	if len(payload.Create) == 0 {
 		return nil
 	}
 
 	if _, err := w.runner.Run(ctx, removeScript(payload.Create)); err != nil {
-		return fmt.Errorf("platform: 撤销防火墙规则失败（需要以管理员身份运行）: %w", err)
+		return fmt.Errorf(i18n.T("platform.fw_rollback"), err)
 	}
 	return nil
 }
@@ -559,7 +561,7 @@ func createScript(names []string) string {
 				" -Action Allow -Protocol %s -LocalPort %d -Profile Any"+
 				" -Description '%s' | Out-Null\n",
 			escapePS(name), escapePS(ruleGroup), strings.ToUpper(proto), port,
-			escapePS("由 ISC 管理 —— 可在 ISC 中一键撤销"))
+			escapePS(i18n.T("platform.fw_rule_desc")))
 	}
 	return b.String()
 }

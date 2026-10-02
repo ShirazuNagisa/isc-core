@@ -813,6 +813,58 @@ var messagesEn = map[string]string{
 	"platform.plain_not_implemented": "platform: this backend is not implemented on this platform yet",
 	"platform.dpapi_unsealed_empty":  "platform: the key to unprotect is empty",
 
+	// --- Windows system service ---
+	"platform.svc_display_name": "ISC ingress orchestrator",
+	"platform.scm_note": "Windows Service Control Manager (SCM): installing, adding, " +
+		"removing and querying services all need administrator rights",
+	"platform.scm_connect": "platform: cannot connect to the service control manager: %w " +
+		"(run as administrator)",
+	"platform.svc_create": "platform: failed to create the service: %w " +
+		"(make sure you are running as administrator)",
+	"platform.svc_created_no_restart": "platform: the service was created, but automatic restart on crash could not be set: %w",
+	"platform.svc_read_config":        "platform: failed to read the service configuration: %w",
+	"platform.svc_update_config":      "platform: failed to update the service configuration: %w",
+	"platform.svc_set_restart":        "platform: failed to set automatic restart on crash: %w",
+	"platform.svc_set_failure":        "failed to set the failure recovery action: %w",
+	"platform.svc_open":               "platform: failed to open the service: %w",
+	"platform.svc_delete":             "platform: failed to delete the service: %w",
+	"platform.svc_query_needs_admin": "platform: querying service status needs administrator rights (Windows " +
+		"requires full access to open the service control manager).\n" +
+		"Run as administrator; to merely check whether the kernel is up, " +
+		"use isc health",
+	"platform.svc_query":        "platform: failed to query the service status: %w",
+	"platform.svc_start":        "platform: failed to start the service: %w",
+	"platform.svc_stop":         "platform: failed to stop the service: %w",
+	"platform.svc_stop_timeout": "platform: timed out waiting for the service to stop (%s)",
+	"platform.svc_missing":      "platform: the service is not installed. Run isc service install first",
+	"platform.svc_admin_sid":    "platform: cannot build the administrator group SID: %w",
+	"platform.svc_admin_check":  "platform: cannot determine whether the current user is an administrator: %w",
+	"platform.svc_need_admin": "platform: installing and managing the system service needs administrator " +
+		"rights.\nRight-click the terminal (or PowerShell), choose \"Run as " +
+		"administrator\", and try again",
+	"platform.svc_description": "ISC ingress orchestrator kernel: dynamic DNS, IPv6 prefix tracking and reverse proxy",
+
+	// --- Windows firewall ---
+	"platform.fw_backend": "Windows Defender Firewall",
+	"platform.fw_note": "Windows Defender Firewall\n" +
+		"Rules are read and written through PowerShell's NetSecurity module;\n" +
+		"reading needs no elevation, creating and deleting rules do.\n" +
+		"Rules are grouped under \"%s\" so they are recognisable in the system " +
+		"firewall UI",
+	"platform.fw_note_group":    "Rules are grouped under \"%s\" so they are recognisable in the system firewall UI",
+	"platform.fw_timeout":       "the firewall command timed out (%s)",
+	"platform.fw_bad_output":    "PowerShell returned unparseable error output (possibly a permissions or execution-policy issue)",
+	"platform.fw_no_powershell": "powershell.exe not found, so the firewall cannot be managed",
+	"platform.fw_parse_rules":   "platform: failed to parse the firewall rules: %w",
+	"platform.fw_diff_existing": "  = exists   %s (%s %s)\n",
+	"platform.fw_diff_new":      "  + add      %s (inbound %s %s, any source)\n",
+	"platform.fw_marshal":       "platform: failed to serialise the firewall change: %w",
+	"platform.fw_summary":       "Add %d inbound rule(s)",
+	"platform.fw_unmarshal":     "platform: failed to parse the firewall change data: %w",
+	"platform.fw_apply":         "platform: failed to create the firewall rule (needs administrator rights): %w",
+	"platform.fw_rollback":      "platform: failed to undo the firewall rule (needs administrator rights): %w",
+	"platform.fw_rule_desc":     "Managed by ISC — undo it from ISC in one step",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

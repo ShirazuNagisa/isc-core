@@ -785,6 +785,56 @@ var messagesZh = map[string]string{
 	"platform.plain_not_implemented": "platform: 该平台后端尚未实现",
 	"platform.dpapi_unsealed_empty":  "platform: 待解密的密钥为空",
 
+	// --- Windows 系统服务 ---
+	"platform.svc_display_name": "ISC 接入编排器",
+	"platform.scm_note": "Windows 服务控制管理器（SCM）：安装、增删与查询服务状态" +
+		"都需要管理员权限",
+	"platform.scm_connect": "platform: 无法连接服务控制管理器：%w" +
+		"（请以管理员身份运行）",
+	"platform.svc_create": "platform: 创建服务失败：%w" +
+		"（请确认以管理员身份运行）",
+	"platform.svc_created_no_restart": "platform: 服务已创建，但无法设置崩溃自动重启：%w",
+	"platform.svc_read_config":        "platform: 读取服务配置失败：%w",
+	"platform.svc_update_config":      "platform: 更新服务配置失败：%w",
+	"platform.svc_set_restart":        "platform: 设置崩溃自动重启失败：%w",
+	"platform.svc_set_failure":        "设置失败恢复动作失败：%w",
+	"platform.svc_open":               "platform: 打开服务失败：%w",
+	"platform.svc_delete":             "platform: 删除服务失败：%w",
+	"platform.svc_query_needs_admin": "platform: 查询服务状态需要管理员权限（Windows 要求打开服务" +
+		"控制管理器的完全访问权）。\n" +
+		"请以管理员身份运行；若只想确认内核是否在跑，" +
+		"可以用 isc health",
+	"platform.svc_query":        "platform: 查询服务状态失败：%w",
+	"platform.svc_start":        "platform: 启动服务失败：%w",
+	"platform.svc_stop":         "platform: 停止服务失败：%w",
+	"platform.svc_stop_timeout": "platform: 等待服务停止超时（%s）",
+	"platform.svc_missing":      "platform: 服务尚未安装。请先运行 isc service install",
+	"platform.svc_admin_sid":    "platform: 无法构造管理员组标识：%w",
+	"platform.svc_admin_check":  "platform: 无法判断当前用户是否为管理员：%w",
+	"platform.svc_need_admin": "platform: 安装与管理系统服务需要管理员权限。\n" +
+		"请右键点击终端（或 PowerShell）选择「以管理员身份运行」后重试",
+	"platform.svc_description": "ISC 接入编排器内核：动态域名解析、IPv6 前缀跟踪与反向代理",
+
+	// --- Windows 防火墙 ---
+	"platform.fw_backend": "Windows Defender 防火墙",
+	"platform.fw_note": "Windows Defender 防火墙\n" +
+		"通过 PowerShell 的 NetSecurity 模块读写规则；\n" +
+		"读取无需提权，创建与删除规则需要管理员权限。\n" +
+		"规则统一归入「%s」分组，便于在系统防火墙界面中识别",
+	"platform.fw_note_group":    "规则统一归入「%s」分组，便于在系统防火墙界面中识别",
+	"platform.fw_timeout":       "执行防火墙命令超时（%s）",
+	"platform.fw_bad_output":    "PowerShell 返回了无法解析的错误输出（可能与权限或执行策略有关）",
+	"platform.fw_no_powershell": "找不到 powershell.exe，无法管理防火墙",
+	"platform.fw_parse_rules":   "platform: 解析防火墙规则失败: %w",
+	"platform.fw_diff_existing": "  = 已存在  %s（%s %s）\n",
+	"platform.fw_diff_new":      "  + 新增    %s（入站 %s %s，来源任意）\n",
+	"platform.fw_marshal":       "platform: 序列化防火墙变更失败: %w",
+	"platform.fw_summary":       "新增 %d 条入站规则",
+	"platform.fw_unmarshal":     "platform: 解析防火墙变更数据失败: %w",
+	"platform.fw_apply":         "platform: 创建防火墙规则失败（需要以管理员身份运行）: %w",
+	"platform.fw_rollback":      "platform: 撤销防火墙规则失败（需要以管理员身份运行）: %w",
+	"platform.fw_rule_desc":     "由 ISC 管理 —— 可在 ISC 中一键撤销",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",
