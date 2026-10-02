@@ -338,7 +338,7 @@ var consoleHardcodedLines = map[string]int{
 	// 剥离之前分别是 129 / 195 / 94 / 26 —— 也就是说有 90 行是注释，
 	// 而注释本来就该留着。不剥的话这个数字**永远降不到 0**。
 	"internal/console/assets/index.html": 0,
-	"internal/console/assets/app.js":     132,
+	"internal/console/assets/app.js":     116,
 	"internal/console/assets/panels.js":  29,
 	// i18n.js 只剩一行：消息表加载失败时写给开发者看的那条 warn。
 	// 它是**开发者**信息，不是用户文案，因此留着。

@@ -245,6 +245,14 @@ var consoleMessagesZh = map[string]string{
 
 	"web.common.unknown": "未知原因",
 
+	"web.err.read_meta":      "读取内核信息失败：",
+	"web.common.save_failed": "保存失败：",
+	"web.common.test_failed": "测试失败：",
+	"web.th.caps":            "能力",
+	"web.th.credential":      "凭据",
+	"web.cred.test":          "测试连接",
+	"web.cred.name_ph":       "例如：我的 Cloudflare",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }

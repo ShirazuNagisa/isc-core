@@ -264,6 +264,14 @@ var consoleMessagesEn = map[string]string{
 
 	"web.common.unknown": "unknown reason",
 
+	"web.err.read_meta":      "Could not read the kernel information: ",
+	"web.common.save_failed": "Save failed: ",
+	"web.common.test_failed": "Test failed: ",
+	"web.th.caps":            "Capabilities",
+	"web.th.credential":      "Credential",
+	"web.cred.test":          "Test connection",
+	"web.cred.name_ph":       "e.g. My Cloudflare",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

@@ -189,7 +189,7 @@ async function loadOverview() {
   const meta = await api('GET', '/v1/meta');
   if (!meta.ok) {
     $('overviewCards').innerHTML =
-      '<div class="empty">读取内核信息失败：' + esc(explain(meta)) + '</div>';
+      '<div class="empty">' + t('web.err.read_meta', '读取内核信息失败：') + esc(explain(meta)) + '</div>';
     return;
   }
   const m = meta.body;
@@ -232,7 +232,7 @@ async function loadOverview() {
 async function loadIP() {
   const r = await api('GET', '/v1/ip/current');
   if (!r.ok) {
-    $('ipList').innerHTML = '<div class="empty">读取失败：' + esc(explain(r)) + '</div>';
+    $('ipList').innerHTML = '<div class="empty">' + t('web.common.read_failed') + esc(explain(r)) + '</div>';
     return;
   }
   const s = r.body;
@@ -263,7 +263,7 @@ async function loadIP() {
       esc(i.name) + ' ' + up + '</th></tr></thead><tbody>' +
       '<tr><td style="width:90px">IPv4</td><td>' + (v4 || '—') + '</td></tr>' +
       '<tr><td>IPv6</td><td>' + (v6 || '—') + '</td></tr>' +
-      '<tr><td>前缀</td><td>' + (px || '—') + '</td></tr>' +
+      '<tr><td>' + t('web.ip.primary_prefix') + '</td><td>' + (px || '—') + '</td></tr>' +
       '</tbody></table>';
   }).join('');
 }
@@ -275,7 +275,7 @@ async function loadIP() {
 async function loadCredentials() {
   const r = await api('GET', '/v1/credentials?limit=200');
   if (!r.ok) {
-    $('credList').innerHTML = '<div class="empty">读取失败：' + esc(explain(r)) + '</div>';
+    $('credList').innerHTML = '<div class="empty">' + t('web.common.read_failed') + esc(explain(r)) + '</div>';
     return;
   }
   state.credentials = (r.body && r.body.items) || [];
@@ -307,13 +307,13 @@ async function loadCredentials() {
       '<td class="actions">' +
         (caps.verify ? '<button class="tiny" data-verify="' + esc(c.id) + '">测试连接</button> ' : '') +
         '<button class="tiny danger" data-delcred="' + esc(c.id) + '" ' +
-          'data-label="' + esc(c.label) + '">删除</button>' +
+          'data-label="' + esc(c.label) + '">' + t('web.common.delete') + '</button>' +
       '</td></tr>';
   }).join('');
 
   $('credList').innerHTML =
-    '<table class="data"><thead><tr><th>名称</th><th>服务商</th><th>能力</th>' +
-    '<th>凭据</th><th>ID</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    '<table class="data"><thead><tr><th>' + t('web.th.name') + '</th><th>' + t('web.cred.provider') + '</th><th>' + t('web.th.caps', '能力') + '</th>' +
+    '<th>' + t('web.th.credential', '凭据') + '</th><th>ID</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
 
   renderRecordCredPicker();
 }
@@ -334,14 +334,14 @@ function renderCredForm() {
   el.innerHTML =
     '<h3>' + t('web.cred.new') + '</h3>' +
     '<div class="form-grid">' +
-      '<label class="field"><span>名称</span>' +
+      '<label class="field"><span>' + t('web.th.name') + '</span>' +
         '<input id="cfLabel" placeholder="例如：我的 Cloudflare"></label>' +
       '<label class="field"><span>' + t('web.cred.provider', '服务商') + '</span>' +
         '<select id="cfProvider">' + opts + '</select></label>' +
     '</div>' +
     '<div class="form-grid" id="cfFields"></div>' +
-    '<div class="row"><button id="cfSave" class="primary">保存</button>' +
-      '<button id="cfCancel">取消</button></div>';
+    '<div class="row"><button id="cfSave" class="primary">' + t('web.common.save') + '</button>' +
+      '<button id="cfCancel">' + t('web.common.cancel') + '</button></div>';
 
   $('cfProvider').onchange = renderCredFields;
   $('cfCancel').onclick = () => { el.hidden = true; };
@@ -377,7 +377,7 @@ async function saveCredential() {
   const r = await api('POST', '/v1/credentials', {
     label, provider: $('cfProvider').value, fields,
   });
-  if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.save_failed', '保存失败：') + explain(r), 'err'); return; }
 
   toast(t('web.cred.created', '凭据已创建'), 'ok');
   $('credForm').hidden = true;
@@ -387,7 +387,7 @@ async function saveCredential() {
 async function verifyCredential(id) {
   status(t('web.cred.testing', '正在测试连接…'));
   const r = await api('POST', '/v1/credentials/' + encodeURIComponent(id) + '/verify');
-  if (!r.ok) { toast('测试失败：' + explain(r), 'err'); status(t('web.raw.ready'), true); return; }
+  if (!r.ok) { toast(t('web.common.test_failed', '测试失败：') + explain(r), 'err'); status(t('web.raw.ready'), true); return; }
 
   const b = r.body || {};
   if (b.ok) {
@@ -406,7 +406,7 @@ async function verifyCredential(id) {
 async function loadTasks() {
   const r = await api('GET', '/v1/ddns-tasks');
   if (!r.ok) {
-    $('taskList').innerHTML = '<div class="empty">读取失败：' + esc(explain(r)) + '</div>';
+    $('taskList').innerHTML = '<div class="empty">' + t('web.common.read_failed') + esc(explain(r)) + '</div>';
     return;
   }
   const items = (r.body && r.body.items) || [];
@@ -469,7 +469,7 @@ function renderTaskForm() {
   el.innerHTML =
     '<h3>新建动态解析任务</h3>' +
     '<div class="form-grid">' +
-      '<label class="field"><span>名称</span>' +
+      '<label class="field"><span>' + t('web.th.name') + '</span>' +
         '<input id="tfLabel" placeholder="例如：家里的 IPv6"></label>' +
       '<label class="field"><span>凭据</span>' +
         '<select id="tfCred">' + creds + '</select></label>' +
@@ -559,7 +559,7 @@ async function saveTask() {
   };
 
   const r = await api('POST', '/v1/ddns-tasks', body);
-  if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.save_failed', '保存失败：') + explain(r), 'err'); return; }
 
   toast('任务已创建，正在执行首次解析…', 'ok');
   $('taskForm').hidden = true;
@@ -736,7 +736,7 @@ async function saveRecord(recordId) {
     r = await api('POST', base, body);
   }
 
-  if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.save_failed', '保存失败：') + explain(r), 'err'); return; }
 
   toast(recordId ? '记录已更新' : '记录已创建', 'ok');
   $('recForm').hidden = true;
