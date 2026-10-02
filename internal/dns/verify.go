@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 本文件实现凭据校验（"测试连接"）。
@@ -59,4 +60,4 @@ func (s *Service) VerifySupported(ctx context.Context, credentialID string) bool
 // 它**不是失败**：这些服务商没有只读的校验端点，而用"列一次域名"
 // 来冒充会要求额外的权限 —— 那会把只有 DNS 编辑权限的最小权限账号
 // 误判为无效。
-var ErrVerifyUnsupported = errors.New("dns: 该服务商不支持凭据校验")
+var ErrVerifyUnsupported = errors.New(i18n.T("dns.err.no_verify"))

@@ -4,6 +4,7 @@ package paths
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 )
 
@@ -34,7 +35,7 @@ func userFallback() (defaults, error) {
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return defaults{}, fmt.Errorf("paths: 无法确定用户主目录: %w", err)
+			return defaults{}, fmt.Errorf(i18n.T("paths.err.no_home"), err)
 		}
 		base = home + "/.local/share"
 	}
@@ -42,7 +43,7 @@ func userFallback() (defaults, error) {
 	if cfgBase == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return defaults{}, fmt.Errorf("paths: 无法确定用户主目录: %w", err)
+			return defaults{}, fmt.Errorf(i18n.T("paths.err.no_home"), err)
 		}
 		cfgBase = home + "/.config"
 	}
@@ -69,7 +70,7 @@ func writable(dir string) bool {
 // 该目录含 runtime.json（访问令牌），必须仅属主可读。
 func tightenDir(dir string) string {
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Sprintf("无法将 %s 权限收紧至 0700：%v", dir, err)
+		return fmt.Sprintf(i18n.T("paths.warn.chmod"), dir, err)
 	}
 	return ""
 }

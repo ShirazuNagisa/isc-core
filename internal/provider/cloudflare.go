@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -61,7 +62,7 @@ type cloudflareVerifyResponse struct {
 func (v CloudflareVerifier) Verify(ctx context.Context, fields map[string]string) error {
 	token := strings.TrimSpace(fields["token"])
 	if token == "" {
-		return errors.New("provider: Cloudflare 需要 API Token")
+		return errors.New(i18n.T("provider.cf.need_token"))
 	}
 
 	base := v.BaseURL
@@ -79,40 +80,40 @@ func (v CloudflareVerifier) Verify(ctx context.Context, fields map[string]string
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		strings.TrimSuffix(base, "/")+"/user/tokens/verify", nil)
 	if err != nil {
-		return fmt.Errorf("provider: 构造校验请求失败: %w", err)
+		return fmt.Errorf(i18n.T("provider.cf.build_failed"), err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("provider: 连接 Cloudflare 失败: %w", err)
+		return fmt.Errorf(i18n.T("provider.cf.connect_failed"), err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 只读响应，关闭失败无影响
 
 	// 限制读取量：对方返回一个超大响应时不该把内核的内存吃掉。
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
-		return fmt.Errorf("provider: 读取 Cloudflare 响应失败: %w", err)
+		return fmt.Errorf(i18n.T("provider.cf.read_failed"), err)
 	}
 
 	var parsed cloudflareVerifyResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		// 不把响应体塞进错误信息：它可能含有账号信息，
 		// 而错误信息会进入日志与审计。
-		return fmt.Errorf("provider: Cloudflare 返回了无法解析的响应（HTTP %d）", resp.StatusCode)
+		return fmt.Errorf(i18n.T("provider.cf.bad_body"), resp.StatusCode)
 	}
 
 	if !parsed.Success {
-		return fmt.Errorf("provider: Cloudflare 拒绝了该凭据：%s", cloudflareErrorMessage(parsed))
+		return fmt.Errorf(i18n.T("provider.cf.rejected"), cloudflareErrorMessage(parsed))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("provider: Cloudflare 返回 HTTP %d", resp.StatusCode)
+		return fmt.Errorf(i18n.T("provider.cf.bad_status"), resp.StatusCode)
 	}
 	// status 为 active 才算真正可用；其它值（如 disabled）意味着
 	// token 存在但已被停用，此时报"成功"会误导用户。
 	if parsed.Result.Status != "" && parsed.Result.Status != "active" {
-		return fmt.Errorf("provider: Cloudflare 令牌状态为 %q，不是 active", parsed.Result.Status)
+		return fmt.Errorf(i18n.T("provider.cf.not_active"), parsed.Result.Status)
 	}
 	return nil
 }
@@ -120,7 +121,7 @@ func (v CloudflareVerifier) Verify(ctx context.Context, fields map[string]string
 // cloudflareErrorMessage 提取可读的错误信息。
 func cloudflareErrorMessage(r cloudflareVerifyResponse) string {
 	if len(r.Errors) == 0 {
-		return "未提供错误详情"
+		return i18n.T("provider.cf.no_detail")
 	}
 	parts := make([]string, 0, len(r.Errors))
 	for _, e := range r.Errors {

@@ -88,14 +88,6 @@ var hardcodedBaseline = map[string]int{
 	"internal/proxy":          41,
 	"internal/verify":         43,
 	"internal/ddns":           17,
-	"internal/provider":       21,
-	"internal/credential":     16,
-	"internal/secret":         14,
-	"internal/paths":          14,
-	"internal/dns":            12,
-	"internal/job":            6,
-	"internal/runtimeinfo":    9,
-	"internal/configio":       9,
 }
 
 // TestNoNewHardcodedStrings 统计各包的硬编码中文串，与基线对照。
@@ -187,6 +179,22 @@ var i18nComplete = []string{
 	// 但出现在"配置出错、磁盘满、库被别的进程锁住"这些时刻，
 	// 而"哪一步失败了"正是排查的起点。
 	"internal/store",
+
+	// 凭据、主密钥与路径。出错时它们是同一条链上的相邻环节，
+	// 而用户看到的报错往往需要跨过这三层才能定位
+	//（"解密失败"的根因可能是"刚迁移过数据目录"）。
+	"internal/credential",
+	"internal/secret",
+	"internal/paths",
+
+	// DNS 服务层、任务引擎、运行时文件、配置导入导出、服务商注册表。
+	// 它们都出现在"配置或装配出了问题"的时刻 —— 用户需要的是
+	// "哪一环没接上"，而不是一个笼统的失败。
+	"internal/dns",
+	"internal/job",
+	"internal/runtimeinfo",
+	"internal/configio",
+	"internal/provider",
 
 	// 守护进程。它的中文几乎全是 slog 日志（已由计数器按调用排除），
 	// 剩下的是启动失败这类返回给调用方的错误，以及**推送出去的通知正文**。

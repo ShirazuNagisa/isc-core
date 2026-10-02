@@ -91,14 +91,14 @@ func (s *Service) ImportDdnsGo(ctx context.Context, body []byte, dryRun bool) (R
 	for idx, entry := range doc.DnsConf {
 		providerName := strings.TrimSpace(entry.DNS.Name)
 		if providerName == "" {
-			res.Errors = append(res.Errors, i18n.T("config.import.skipped", idx+1, "该条目未指定服务商"))
+			res.Errors = append(res.Errors, i18n.T("config.import.skipped", idx+1, i18n.T("configio.ddnsgo.no_provider")))
 			continue
 		}
 
 		spec, ok := s.registry.Get(providerName)
 		if !ok {
 			res.Errors = append(res.Errors, i18n.T("config.import.skipped",
-				idx+1, fmt.Sprintf("内核不认识服务商 %q", providerName)))
+				idx+1, fmt.Sprintf(i18n.T("configio.ddnsgo.unknown_prov"), providerName)))
 			continue
 		}
 
@@ -136,7 +136,7 @@ func (s *Service) ImportDdnsGo(ctx context.Context, body []byte, dryRun bool) (R
 	// 而不是假装成功 —— 用户需要知道"域名还没开始解析"。
 	if recognizedConfigs > 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf(
-			"识别到 %d 条启用中的动态解析配置；解析任务的迁移与调度将在 M2 接入后生效",
+			i18n.T("configio.ddnsgo.migrated"),
 			recognizedConfigs))
 	}
 
@@ -216,4 +216,4 @@ func nonEmpty(in []string) []string {
 }
 
 // ErrNotDdnsGo 表示内容不是一份 ddns-go 配置。
-var ErrNotDdnsGo = errors.New("configio: 这不是一份 ddns-go 配置（缺少 dnsconf 段）")
+var ErrNotDdnsGo = errors.New(i18n.T("configio.ddnsgo.not_ddnsgo"))

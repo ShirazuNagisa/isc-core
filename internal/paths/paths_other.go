@@ -4,6 +4,7 @@ package paths
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"path/filepath"
 )
@@ -21,7 +22,7 @@ type defaults struct {
 func defaultRoots() (defaults, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return defaults{}, fmt.Errorf("paths: 无法确定用户主目录: %w", err)
+		return defaults{}, fmt.Errorf(i18n.T("paths.err.no_home"), err)
 	}
 	root := filepath.Join(home, ".isc")
 	return defaults{data: root, config: root}, nil
@@ -30,7 +31,7 @@ func defaultRoots() (defaults, error) {
 // tightenDir 尽力收紧目录权限。
 func tightenDir(dir string) string {
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Sprintf("无法将 %s 权限收紧至 0700：%v", dir, err)
+		return fmt.Sprintf(i18n.T("paths.warn.chmod"), dir, err)
 	}
 	return ""
 }

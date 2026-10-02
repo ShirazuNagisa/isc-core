@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 )
 
@@ -44,17 +45,17 @@ func NewService(creds CredentialResolver, providers ImplLookup) *Service {
 type ErrUnsupported struct {
 	// Provider 是服务商标识。
 	Provider string
-	// Op 是操作名称（如"列出区域"）。
+	// Op 是操作名称（如i18n.T("dns.op.list_zones")）。
 	Op string
 }
 
 // Error 实现 error。
 func (e *ErrUnsupported) Error() string {
-	return fmt.Sprintf("dns: 服务商 %s 不支持%s", e.Provider, e.Op)
+	return fmt.Sprintf(i18n.T("dns.err.unsupported"), e.Provider, e.Op)
 }
 
 // ErrNotFound 表示记录不存在。
-var ErrNotFound = errors.New("dns: 记录不存在")
+var ErrNotFound = errors.New(i18n.T("dns.err.not_found"))
 
 // resolve 取出凭据与它的服务商实现。
 func (s *Service) resolve(ctx context.Context, credentialID string) (Credential, Provider, error) {
@@ -65,7 +66,7 @@ func (s *Service) resolve(ctx context.Context, credentialID string) (Credential,
 	impl, ok := s.providers(cred.Provider)
 	if !ok || impl == nil {
 		return Credential{}, nil, &ErrUnsupported{
-			Provider: cred.Provider, Op: "记录管理",
+			Provider: cred.Provider, Op: i18n.T("dns.op.record_mgmt"),
 		}
 	}
 	return cred, impl, nil
@@ -79,7 +80,7 @@ func (s *Service) ListZones(ctx context.Context, credentialID string) ([]Zone, e
 	}
 	lister, ok := impl.(ZoneLister)
 	if !ok {
-		return nil, &ErrUnsupported{Provider: cred.Provider, Op: "列出区域"}
+		return nil, &ErrUnsupported{Provider: cred.Provider, Op: i18n.T("dns.op.list_zones")}
 	}
 	zones, err := lister.ListZones(ctx, cred)
 	if err != nil {
@@ -103,7 +104,7 @@ func (s *Service) ListRecords(ctx context.Context, credentialID, zoneID string,
 	}
 	lister, ok := impl.(RecordLister)
 	if !ok {
-		return nil, &ErrUnsupported{Provider: cred.Provider, Op: "列出记录"}
+		return nil, &ErrUnsupported{Provider: cred.Provider, Op: i18n.T("dns.op.list_records")}
 	}
 
 	zone, err := s.zoneOf(ctx, cred, impl, zoneID)
@@ -148,7 +149,7 @@ func (s *Service) CreateRecord(ctx context.Context, credentialID, zoneID string,
 	}
 	creator, ok := impl.(RecordCreator)
 	if !ok {
-		return Record{}, &ErrUnsupported{Provider: cred.Provider, Op: "新增记录"}
+		return Record{}, &ErrUnsupported{Provider: cred.Provider, Op: i18n.T("dns.op.create")}
 	}
 	if err := validateRecord(rec); err != nil {
 		return Record{}, err
@@ -171,7 +172,7 @@ func (s *Service) UpdateRecord(ctx context.Context, credentialID, zoneID, record
 	}
 	updater, ok := impl.(RecordUpdater)
 	if !ok {
-		return Record{}, &ErrUnsupported{Provider: cred.Provider, Op: "修改记录"}
+		return Record{}, &ErrUnsupported{Provider: cred.Provider, Op: i18n.T("dns.op.update")}
 	}
 	if err := validateRecord(rec); err != nil {
 		return Record{}, err
@@ -196,7 +197,7 @@ func (s *Service) DeleteRecord(ctx context.Context, credentialID, zoneID, record
 	}
 	deleter, ok := impl.(RecordDeleter)
 	if !ok {
-		return &ErrUnsupported{Provider: cred.Provider, Op: "删除记录"}
+		return &ErrUnsupported{Provider: cred.Provider, Op: i18n.T("dns.op.delete")}
 	}
 
 	zone, err := s.zoneOf(ctx, cred, impl, zoneID)
@@ -213,7 +214,7 @@ func (s *Service) DeleteRecord(ctx context.Context, credentialID, zoneID, record
 // 路径里就是域名），它们的实现应当自行处理 —— 见各实现里的说明。
 func (s *Service) zoneOf(_ context.Context, _ Credential, _ Provider, zoneID string) (Zone, error) {
 	if zoneID == "" {
-		return Zone{}, errors.New("dns: 缺少区域 ID")
+		return Zone{}, errors.New(i18n.T("dns.err.no_zone_id"))
 	}
 	return Zone{ID: zoneID}, nil
 }
@@ -229,10 +230,10 @@ func (s *Service) zoneOf(_ context.Context, _ Credential, _ Provider, zoneID str
 // 硬编码白名单会让"服务商新支持了 HTTPS 记录"变成一次内核发版。
 func validateRecord(rec Record) error {
 	if strings.TrimSpace(string(rec.Type)) == "" {
-		return errors.New("dns: 记录类型不能为空")
+		return errors.New(i18n.T("dns.err.no_type"))
 	}
 	if strings.TrimSpace(rec.Name) == "" {
-		return errors.New("dns: 记录名不能为空")
+		return errors.New(i18n.T("dns.err.no_name"))
 	}
 	return nil
 }

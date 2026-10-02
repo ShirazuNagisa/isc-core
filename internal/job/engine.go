@@ -182,7 +182,7 @@ func (e *Engine) Submit(ctx context.Context, kind string, fn Func) (Job, error) 
 	e.mu.Lock()
 	if e.closed {
 		e.mu.Unlock()
-		return Job{}, errors.New("job: 引擎已关闭，拒绝新任务")
+		return Job{}, errors.New(i18n.T("job.err.closed"))
 	}
 	e.mu.Unlock()
 
@@ -199,7 +199,7 @@ func (e *Engine) Submit(ctx context.Context, kind string, fn Func) (Job, error) 
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := e.store.Save(ctx, j); err != nil {
-		return Job{}, fmt.Errorf("job: 持久化新任务: %w", err)
+		return Job{}, fmt.Errorf(i18n.T("job.err.persist"), err)
 	}
 
 	// 任务上下文派生自 rootCtx，这样引擎关闭能统一取消在途任务。
@@ -408,16 +408,16 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("job: 等待在途任务收尾超时: %w", ctx.Err())
+		return fmt.Errorf(i18n.T("job.err.drain_timeout"), ctx.Err())
 	}
 }
 
 // 哨兵错误。
 var (
 	// ErrNotFound 表示任务不存在。
-	ErrNotFound = errors.New("job: 任务不存在")
+	ErrNotFound = errors.New(i18n.T("job.err.not_found"))
 	// ErrNotCancelable 表示任务已处于终态，无法取消。
-	ErrNotCancelable = errors.New("job: 任务已结束，无法取消")
+	ErrNotCancelable = errors.New(i18n.T("job.err.finished"))
 )
 
 // ---------------------------------------------------------------------------

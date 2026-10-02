@@ -4,6 +4,7 @@ package paths
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,7 +61,7 @@ func tightenDir(dir string) string {
 	if err := applyDirACL(dir); err != nil {
 		// 不返回 error 而是返回警告：ACL 设置失败（例如在 FAT32 或
 		// 某些网络文件系统上）不应阻止内核启动，但必须让用户看见。
-		return fmt.Sprintf("收紧 %s 的访问权限失败，内核仍会运行但令牌可能被其他用户读取：%v", dir, err)
+		return fmt.Sprintf(i18n.T("paths.warn.acl"), dir, err)
 	}
 	return ""
 }
@@ -74,7 +75,7 @@ func applyDirACL(dir string) error {
 
 	acl, err := windows.ACLFromEntries(entries, nil)
 	if err != nil {
-		return fmt.Errorf("构造访问控制列表失败: %w", err)
+		return fmt.Errorf(i18n.T("paths.err.acl_build"), err)
 	}
 	// ⚠️ 不要对 acl 调用 LocalFree。
 	//
@@ -96,7 +97,7 @@ func applyDirACL(dir string) error {
 	)
 	runtime.KeepAlive(acl)
 	if err != nil {
-		return fmt.Errorf("设置目录安全信息失败: %w", err)
+		return fmt.Errorf(i18n.T("paths.err.acl_apply"), err)
 	}
 	return nil
 }
@@ -114,7 +115,7 @@ func aclEntries() ([]windows.EXPLICIT_ACCESS, error) {
 	} {
 		sid, err := windows.CreateWellKnownSid(t)
 		if err != nil {
-			return nil, fmt.Errorf("解析内置账户 SID (类型 %d) 失败: %w", t, err)
+			return nil, fmt.Errorf(i18n.T("paths.err.sid_lookup"), t, err)
 		}
 		sids = append(sids, sid)
 	}

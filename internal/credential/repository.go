@@ -3,6 +3,7 @@ package credential
 import (
 	"context"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"time"
 )
 
@@ -60,7 +61,7 @@ type Repository interface {
 // 仓储层错误。它们由持久化实现返回，由服务层向上翻译。
 var (
 	// ErrNotFound 表示凭据不存在。
-	ErrNotFound = errors.New("credential: 凭据不存在")
+	ErrNotFound = errors.New(i18n.T("cred.err.not_found"))
 	// ErrDuplicateLabel 表示同一服务商下标签重复。
-	ErrDuplicateLabel = errors.New("credential: 同一服务商下标签重复")
+	ErrDuplicateLabel = errors.New(i18n.T("cred.err.dup_label"))
 )

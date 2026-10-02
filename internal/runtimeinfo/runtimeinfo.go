@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"path/filepath"
 	"time"
@@ -60,18 +61,18 @@ type Info struct {
 // 先写临时文件再重命名，避免客户端读到写了一半的内容。
 func Write(path string, info Info) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("runtimeinfo: 创建运行时目录: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.mkdir"), err)
 	}
 
 	byt, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
-		return fmt.Errorf("runtimeinfo: 序列化: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.marshal"), err)
 	}
 	byt = append(byt, '\n')
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".runtime-*.json")
 	if err != nil {
-		return fmt.Errorf("runtimeinfo: 创建临时文件: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.tempfile"), err)
 	}
 	tmpName := tmp.Name()
 	// 任何失败路径都要清掉临时文件。
@@ -83,22 +84,22 @@ func Write(path string, info Info) error {
 
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("runtimeinfo: 设置权限: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.chmod"), err)
 	}
 	if _, err := tmp.Write(byt); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("runtimeinfo: 写入: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.write"), err)
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("runtimeinfo: 落盘: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.sync"), err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("runtimeinfo: 关闭临时文件: %w", err)
+		return fmt.Errorf(i18n.T("runtime.err.close"), err)
 	}
 
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("runtimeinfo: 替换 %s: %w", path, err)
+		return fmt.Errorf(i18n.T("runtime.err.rename"), path, err)
 	}
 	tmpName = "" // 已重命名，无需清理
 	return nil
@@ -112,7 +113,7 @@ func Read(path string) (Info, error) {
 		return info, err
 	}
 	if err := json.Unmarshal(byt, &info); err != nil {
-		return info, fmt.Errorf("runtimeinfo: 解析 %s: %w", path, err)
+		return info, fmt.Errorf(i18n.T("runtime.err.parse"), path, err)
 	}
 	return info, nil
 }

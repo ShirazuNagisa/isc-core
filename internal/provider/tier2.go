@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
 	"github.com/ShirazuNagisa/isc-core/internal/ddnsgo"
@@ -101,10 +103,10 @@ func (a *dynamicAdapter) UpdateDynamic(
 	ctx context.Context, cred dns.Credential, req dns.DynamicRequest,
 ) (dns.DynamicResult, error) {
 	if a.new == nil {
-		return dns.DynamicResult{}, fmt.Errorf("provider: %s 未注册实现", a.meta.Name)
+		return dns.DynamicResult{}, fmt.Errorf(i18n.T("provider.err.no_impl"), a.meta.Name)
 	}
 	if req.IP == "" {
-		return dns.DynamicResult{}, fmt.Errorf("provider: 未提供 IP")
+		return dns.DynamicResult{}, errors.New(i18n.T("provider.err.no_ip"))
 	}
 
 	conf := &ddnsgo.DnsConfig{

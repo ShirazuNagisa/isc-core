@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // idBytes 是任务 ID 的随机字节数。
@@ -19,7 +20,7 @@ const idBytes = 16
 func newID() (string, error) {
 	buf := make([]byte, idBytes)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("job: 生成任务 ID 失败: %w", err)
+		return "", fmt.Errorf(i18n.T("job.err.gen_id"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

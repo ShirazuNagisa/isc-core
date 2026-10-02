@@ -13,6 +13,7 @@ package provider
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"sort"
 	"sync"
 
@@ -129,7 +130,7 @@ func (r *Registry) Register(p Provider) {
 	defer r.mu.Unlock()
 
 	if _, dup := r.byKey[p.Name]; dup {
-		panic(fmt.Sprintf("provider: 服务商 %q 被重复登记", p.Name))
+		panic(fmt.Sprintf(i18n.T("provider.err.dup"), p.Name))
 	}
 	r.byKey[p.Name] = p
 	r.order = append(r.order, p.Name)

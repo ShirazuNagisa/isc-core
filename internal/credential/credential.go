@@ -7,6 +7,7 @@ package credential
 import (
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"time"
 )
@@ -43,13 +44,13 @@ type Credential struct {
 // 校验错误。
 var (
 	// ErrLabelEmpty 表示标签为空。
-	ErrLabelEmpty = errors.New("credential: 标签不能为空")
+	ErrLabelEmpty = errors.New(i18n.T("cred.err.no_label"))
 	// ErrProviderEmpty 表示服务商标识为空。
-	ErrProviderEmpty = errors.New("credential: 服务商不能为空")
+	ErrProviderEmpty = errors.New(i18n.T("cred.err.no_provider"))
 	// ErrMissingField 表示缺少必填字段。
-	ErrMissingField = errors.New("credential: 缺少必填字段")
+	ErrMissingField = errors.New(i18n.T("cred.err.no_fields"))
 	// ErrUnknownField 表示出现了未声明的字段。
-	ErrUnknownField = errors.New("credential: 存在未声明的字段")
+	ErrUnknownField = errors.New(i18n.T("cred.err.extra_fields"))
 )
 
 // FieldSpec 描述一个凭据字段。

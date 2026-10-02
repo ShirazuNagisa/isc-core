@@ -4,6 +4,7 @@ package paths
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 )
 
@@ -25,7 +26,7 @@ func defaultRoots() (defaults, error) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return defaults{}, fmt.Errorf("paths: 无法确定用户主目录: %w", err)
+		return defaults{}, fmt.Errorf(i18n.T("paths.err.no_home"), err)
 	}
 	root := home + "/Library/Application Support/ISC"
 	return defaults{data: root, config: root}, nil
@@ -49,7 +50,7 @@ func writable(dir string) bool {
 // tightenDir 在 macOS 上把运行时目录权限收紧到 0700。
 func tightenDir(dir string) string {
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Sprintf("无法将 %s 权限收紧至 0700：%v", dir, err)
+		return fmt.Sprintf(i18n.T("paths.warn.chmod"), dir, err)
 	}
 	return ""
 }

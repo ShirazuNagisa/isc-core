@@ -41,7 +41,7 @@
 | `internal/verify` | 43 | 外部验证会话的说明 |
 | `internal/change` | ✅ **0** | 已完成；计划/执行/失败/回滚整条路径 |
 | `internal/daemon` | ✅ **0** | 已完成；大部分是日志（已按调用排除） |
-| 其余 11 个包 | 148 | |
+| 其余小包 | ✅ **0** | credential / secret / paths / dns / job / runtimeinfo / configio / provider 均已完成 |
 
 **建议顺序按用户可见度**，而不是按包大小：
 `provider/tier1` → `reach` → `acme` → `proxy` → `verify` → `change` →
@@ -82,7 +82,7 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 | `internal/change` | 40 | **22** |
 | `internal/proxy` | 55 | 41 |
 | `internal/acme` | 67 | 60 |
-| `internal/ddns` | 30 | 17 |
+| `internal/ddns` | 17 | 动态解析的错误 |
 | `internal/notify` | ✅ **0** |
 | `internal/job` | 9 | 6 |
 | `internal/credential` | 17 | 16 |

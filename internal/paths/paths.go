@@ -57,11 +57,11 @@ func Resolve() (Paths, error) {
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return Paths{}, fmt.Errorf("paths: 解析数据目录 %q: %w", root, err)
+		return Paths{}, fmt.Errorf(i18n.T("paths.err.data_dir"), root, err)
 	}
 	absCfg, err := filepath.Abs(cfg)
 	if err != nil {
-		return Paths{}, fmt.Errorf("paths: 解析配置目录 %q: %w", cfg, err)
+		return Paths{}, fmt.Errorf(i18n.T("paths.err.config_dir"), cfg, err)
 	}
 	return Paths{root: absRoot, config: absCfg}, nil
 }
@@ -109,7 +109,7 @@ func (p Paths) String() string {
 func (p Paths) EnsureDirs() (warnings []string, err error) {
 	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return warnings, fmt.Errorf("paths: 创建目录 %q: %w", dir, err)
+			return warnings, fmt.Errorf(i18n.T("paths.err.mkdir"), dir, err)
 		}
 	}
 	// run/ 与 secrets/ 都含机密（访问令牌、主密钥密文），

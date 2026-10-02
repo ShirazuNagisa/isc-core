@@ -27,6 +27,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 )
@@ -77,12 +78,12 @@ type Manager struct {
 // 首次启动走的就是这条路，因此它不是异常路径。
 func Open(ctx context.Context, store platform.SecretStore) (*Manager, error) {
 	if store == nil {
-		return nil, errors.New("secret: 密钥存储为 nil")
+		return nil, errors.New(i18n.T("secret.err.nil_store"))
 	}
 
 	existing, found, err := store.Get(ctx, masterKeyName)
 	if err != nil {
-		return nil, fmt.Errorf("secret: 读取主密钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("secret.err.read_master"), err)
 	}
 
 	if found {
@@ -91,8 +92,7 @@ func Open(ctx context.Context, store platform.SecretStore) (*Manager, error) {
 			// 绝不能"凑合用"——用一把长度不对的密钥加密会静默地
 			// 降低安全性，而用户永远不会发现。
 			return nil, fmt.Errorf(
-				"secret: 主密钥长度异常（期望 %d 字节，实际 %d 字节）；"+
-					"密钥存储可能已损坏，请删除主密钥后重新录入凭据",
+				i18n.T("secret.err.bad_len"),
 				masterKeyBytes, len(existing))
 		}
 		m := &Manager{store: store, master: existing}
@@ -101,10 +101,10 @@ func Open(ctx context.Context, store platform.SecretStore) (*Manager, error) {
 
 	master := make([]byte, masterKeyBytes)
 	if _, err := rand.Read(master); err != nil {
-		return nil, fmt.Errorf("secret: 生成主密钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("secret.err.gen_master"), err)
 	}
 	if err := store.Put(ctx, masterKeyName, master); err != nil {
-		return nil, fmt.Errorf("secret: 保存主密钥失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("secret.err.save_master"), err)
 	}
 	return &Manager{store: store, master: master, created: true}, nil
 }
@@ -131,7 +131,7 @@ func (m *Manager) Encrypt(plaintext []byte) ([]byte, error) {
 
 	nonce := make([]byte, nonceBytes)
 	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("secret: 生成 nonce 失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("secret.err.gen_nonce"), err)
 	}
 
 	out := make([]byte, 0, 1+nonceBytes+len(plaintext)+gcm.Overhead())
@@ -143,10 +143,10 @@ func (m *Manager) Encrypt(plaintext []byte) ([]byte, error) {
 // Decrypt 解开由 Encrypt 产生的信封。
 func (m *Manager) Decrypt(envelope []byte) ([]byte, error) {
 	if len(envelope) < 1+nonceBytes {
-		return nil, errors.New("secret: 密文过短，不是合法的信封")
+		return nil, errors.New(i18n.T("secret.err.short"))
 	}
 	if envelope[0] != envelopeVersion {
-		return nil, fmt.Errorf("secret: 不支持的密文格式版本 %d", envelope[0])
+		return nil, fmt.Errorf(i18n.T("secret.err.bad_version"), envelope[0])
 	}
 
 	gcm, err := m.aead()
@@ -161,8 +161,7 @@ func (m *Manager) Decrypt(envelope []byte) ([]byte, error) {
 		// 对用户来说两者都意味着"这份密文在当前主密钥下不可读"，
 		// 而最常见的原因就是换了机器或换了账户。
 		return nil, errors.New(
-			"secret: 解密失败（密文已损坏，或当前主密钥与加密时不一致；" +
-				"若刚迁移过数据目录，请重新录入凭据）")
+			i18n.T("secret.err.decrypt"))
 	}
 	return plaintext, nil
 }
@@ -170,15 +169,15 @@ func (m *Manager) Decrypt(envelope []byte) ([]byte, error) {
 // aead 构造 AES-256-GCM。
 func (m *Manager) aead() (cipher.AEAD, error) {
 	if len(m.master) != masterKeyBytes {
-		return nil, fmt.Errorf("secret: 主密钥长度异常（%d 字节）", len(m.master))
+		return nil, fmt.Errorf(i18n.T("secret.err.bad_key_len"), len(m.master))
 	}
 	block, err := aes.NewCipher(m.master)
 	if err != nil {
-		return nil, fmt.Errorf("secret: 构造 AES 失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("secret.err.new_aes"), err)
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("secret: 构造 GCM 失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("secret.err.new_gcm"), err)
 	}
 	return gcm, nil
 }

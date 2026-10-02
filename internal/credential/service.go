@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ type InUseError struct {
 
 // Error 实现 error。
 func (e *InUseError) Error() string {
-	return fmt.Sprintf("credential: 凭据仍被 %d 个任务使用", e.Count)
+	return fmt.Sprintf(i18n.T("cred.err.in_use"), e.Count)
 }
 
 // List 返回凭据列表（Fields 为明文）。
@@ -152,7 +153,7 @@ func (s *Service) Update(ctx context.Context, id string, incoming Credential) (C
 	// 真要换就删了重建。
 	if incoming.Provider != "" && incoming.Provider != current.Provider {
 		return Credential{}, fmt.Errorf(
-			"%w: 服务商不可修改（当前 %s，请求 %s）",
+			i18n.T("cred.err.immutable_provider"),
 			ErrProviderImmutable, current.Provider, incoming.Provider)
 	}
 
@@ -192,7 +193,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if s.usage != nil {
 		n, err := s.usage.CountByCredential(ctx, id)
 		if err != nil {
-			return fmt.Errorf("credential: 检查引用失败: %w", err)
+			return fmt.Errorf(i18n.T("cred.err.check_refs"), err)
 		}
 		if n > 0 {
 			return &InUseError{Count: n}
@@ -255,11 +256,11 @@ func (s *Service) encode(c Credential) (Record, error) {
 	}
 	plaintext, err := json.Marshal(fields)
 	if err != nil {
-		return Record{}, fmt.Errorf("credential: 序列化字段失败: %w", err)
+		return Record{}, fmt.Errorf(i18n.T("cred.err.marshal"), err)
 	}
 	cipher, err := s.secrets.Encrypt(plaintext)
 	if err != nil {
-		return Record{}, fmt.Errorf("credential: 加密字段失败: %w", err)
+		return Record{}, fmt.Errorf(i18n.T("cred.err.encrypt"), err)
 	}
 	return Record{
 		ID:              c.ID,
@@ -279,11 +280,11 @@ func (s *Service) encode(c Credential) (Record, error) {
 func (s *Service) decode(rec Record) (Credential, error) {
 	plaintext, err := s.secrets.Decrypt(rec.SecretCipher)
 	if err != nil {
-		return Credential{}, fmt.Errorf("credential: 解密 %s 的字段失败: %w", rec.ID, err)
+		return Credential{}, fmt.Errorf(i18n.T("cred.err.decrypt"), rec.ID, err)
 	}
 	var fields map[string]string
 	if err := json.Unmarshal(plaintext, &fields); err != nil {
-		return Credential{}, fmt.Errorf("credential: 解析 %s 的字段失败: %w", rec.ID, err)
+		return Credential{}, fmt.Errorf(i18n.T("cred.err.parse_fields"), rec.ID, err)
 	}
 	if fields == nil {
 		fields = map[string]string{}
@@ -308,7 +309,7 @@ func (s *Service) decode(rec Record) (Credential, error) {
 func newID() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("credential: 生成 ID 失败: %w", err)
+		return "", fmt.Errorf(i18n.T("cred.err.gen_id"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
@@ -316,7 +317,7 @@ func newID() (string, error) {
 // 服务层错误。
 var (
 	// ErrUnknownProvider 表示服务商不在注册表中。
-	ErrUnknownProvider = errors.New("credential: 未知的服务商")
+	ErrUnknownProvider = errors.New(i18n.T("cred.err.unknown_provider"))
 	// ErrProviderImmutable 表示试图修改凭据的服务商。
-	ErrProviderImmutable = errors.New("credential: 服务商不可修改")
+	ErrProviderImmutable = errors.New(i18n.T("cred.err.provider_locked"))
 )

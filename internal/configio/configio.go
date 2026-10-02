@@ -111,7 +111,7 @@ func (s *Service) Export(ctx context.Context, includeSecrets bool) ([]byte, erro
 
 	body, err := yaml.Marshal(doc)
 	if err != nil {
-		return nil, fmt.Errorf("configio: 序列化导出内容失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("configio.err.marshal"), err)
 	}
 	return body, nil
 }
@@ -152,7 +152,7 @@ func (s *Service) Import(ctx context.Context, body []byte, dryRun bool) (Result,
 	}
 	if doc.FormatVersion > FormatVersion {
 		return Result{}, fmt.Errorf(
-			"%w: 文件格式版本为 %d，本内核最高支持 %d（请升级内核）",
+			i18n.T("configio.err.too_new"),
 			ErrInvalidDocument, doc.FormatVersion, FormatVersion)
 	}
 
@@ -187,10 +187,10 @@ func (s *Service) Import(ctx context.Context, body []byte, dryRun bool) (Result,
 // importCredential 导入（或更新）一条凭据。
 func (s *Service) importCredential(ctx context.Context, ec ExportCredential, dryRun bool, res *Result) error {
 	if strings.TrimSpace(ec.Provider) == "" || strings.TrimSpace(ec.Label) == "" {
-		return errors.New("缺少 provider 或 label")
+		return errors.New(i18n.T("configio.err.no_provider"))
 	}
 	if _, ok := s.registry.Get(ec.Provider); !ok {
-		return fmt.Errorf("未知的服务商 %q", ec.Provider)
+		return fmt.Errorf(i18n.T("configio.err.unknown_prov"), ec.Provider)
 	}
 
 	// 按 (服务商, 标签) 判断是新建还是更新 —— 与数据库的唯一索引一致。
@@ -245,4 +245,4 @@ func (s *Service) findExisting(ctx context.Context, providerName, label string) 
 }
 
 // ErrInvalidDocument 表示导入内容无法识别。
-var ErrInvalidDocument = errors.New("configio: 无法识别的配置文档")
+var ErrInvalidDocument = errors.New(i18n.T("configio.err.unrecognised"))

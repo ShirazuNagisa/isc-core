@@ -2,6 +2,7 @@ package provider
 
 import (
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 本文件登记内核内置的服务商元信息。
@@ -110,7 +111,7 @@ func builtin() []Provider {
 		},
 		{
 			Name:        "alidns",
-			DisplayName: "阿里云 DNS",
+			DisplayName: i18n.T("provider.name.alidns"),
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldAccessKeyID, fieldAccessKeySecret,
@@ -118,7 +119,7 @@ func builtin() []Provider {
 		},
 		{
 			Name:        "tencentcloud",
-			DisplayName: "腾讯云 DNS",
+			DisplayName: i18n.T("provider.name.tencentcloud"),
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldSecretID, fieldSecretKey,
@@ -137,7 +138,7 @@ func builtin() []Provider {
 		},
 		{
 			Name:        "huaweicloud",
-			DisplayName: "华为云 DNS",
+			DisplayName: i18n.T("provider.name.huaweicloud"),
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldAccessKeyID, fieldAccessKeySecret,
@@ -159,15 +160,15 @@ func builtin() []Provider {
 	// 名称必须与 ddns-go 的 `dns.Name` 完全一致，否则导入配置时无法对应。
 	// ------------------------------------------------------------------
 	tier2 := []struct{ name, display string }{
-		{"aliesa", "阿里云 ESA"},
-		{"baiducloud", "百度云 DNS"},
-		{"callback", "Callback（自定义回调）"},
+		{"aliesa", i18n.T("provider.name.ali_esa")},
+		{"baiducloud", i18n.T("provider.name.baiducloud")},
+		{"callback", i18n.T("provider.name.callback")},
 		{"cloudns", "ClouDNS"},
 		{"desec", "deSEC"},
 		{"dnsla", "DNSLA"},
 		{"dynadot", "Dynadot"},
 		{"dynv6", "dynv6"},
-		{"edgeone", "腾讯 EdgeOne"},
+		{"edgeone", i18n.T("provider.name.edgeone")},
 		{"eranet", "Eranet"},
 		{"gcore", "Gcore"},
 		{"hipmdnsmgr", "HiPM DNS Manager"},
@@ -177,10 +178,10 @@ func builtin() []Provider {
 		{"nowcn", "Now.cn"},
 		{"nsone", "IBM NS1 Connect"},
 		{"porkbun", "Porkbun"},
-		{"rainyun", "雨云"},
+		{"rainyun", i18n.T("provider.name.rainyun")},
 		{"spaceship", "Spaceship"},
 		{"tnethk", "TnetHK"},
-		{"trafficroute", "火山引擎 TrafficRoute"},
+		{"trafficroute", i18n.T("provider.name.volcengine")},
 		{"vercel", "Vercel"},
 	}
 	for _, t := range tier2 {
