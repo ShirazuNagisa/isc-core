@@ -341,6 +341,52 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### `internal/platform` 第一批：本地通道与密钥存储（204 → 158）
+
+做完**本机能编译**的那几个"地基"文件：`endpoint.go`（地址解析与校验）、
+`platform.go`（后端分发）、`transport_windows.go`（命名管道）、
+`secret_file.go`（兜底密钥存储）、`secret_windows.go`（DPAPI）。
+
+其中最要紧的一条文案是 `endpoint.go` 里的：
+
+> platform: 拒绝非回环的管理地址 %q —— **管理面绝不能对外暴露**
+
+它是"管理接口只监听本机"这条设计约束的**执行点**：地址串一旦指向外部，
+这里直接拒绝，而不是等鉴权去兜。文案里保留这句解释是有意的 —— 看到这条
+错误的人多半是配置写错了，而不是想对外暴露，因此要告诉他这不是"权限不够"
+而是"设计上不允许"。
+
+##### 顺带修掉两处由 i18n 暴露的脆弱点
+
+**一、`go vet` 拦下一处无参数的 `fmt.Errorf`**
+
+`fmt.Errorf(i18n.T("platform.empty_endpoint"))` —— 没有可变参数，而格式串
+现在来自数据。一旦译文里出现 `%`，就会打出 `%!x(MISSING)`。改成 `errors.New`。
+
+这已经是**第二次**遇到这个形状（第一次在 `doctor.go` 的三处）。规律很清楚：
+**把文案搬进目录之后，"格式串来自数据"变成了一种新的风险面** —— 而在硬编码
+的年代它不存在。
+
+**二、两处 `Describe` 的断言写死了中文片段**
+
+它们原本断言说明里含 `"无法解开"` / `"文件系统权限"`。而文案现在跟着**全局
+默认语言**走，于是并行测试一旦把语言设成英文，这两条就会莫名其妙地变红 ——
+**与它们要验证的东西毫无关系**。
+
+改成语言无关的结构性断言（长度 + 与语言无关的标识，如 `DPAPI`）。
+
+这已经是同一类问题的**第二次**（第一次在 CLI 包：`TestNextStepsIncludesVerify`
+断言"公网"两个字）。规律同样清楚：**一条断言某种语言的测试，实际上在断言
+一个全局变量的值** —— 而那个全局变量会被别的测试改。
+
+##### 剩余 158 处的分布
+
+主要是三个平台各自的后端：`service_windows.go`（34）、`firewall_darwin.go`（22）、
+`firewall_windows.go`（18）、`secret_windows.go`、`firewall_linux.go`、
+`firewall_pf_def.go`、`secret_unix.go`、`firewall_nft_def.go` 等。
+
+它们比前两批更"硬"：文案里嵌着平台特有的术语（nftables 的 chain、pf 的 anchor、
+SCM 的 start type），翻译时需要一并把术语对齐。
 ##### 继续清：Windows 服务后端 + 进程存活判定 + 目录 ACL
 
 **54 → 27。** 这一轮补了三组本机可测的：

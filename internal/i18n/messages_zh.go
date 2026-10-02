@@ -744,6 +744,47 @@ var messagesZh = map[string]string{
 	"settings.need_port":  "settings: 开启反向代理时必须指定监听端口",
 	"settings.need_dns01": "settings: 启用 HTTPS 前必须先指定用于 DNS-01 校验的凭据",
 
+	// --- 本地管理通道 ---
+	"platform.listen_failed":  "platform: 监听 %s 失败: %w",
+	"platform.bad_scheme":     "platform: 不支持的传输 scheme %q",
+	"platform.empty_endpoint": "platform: endpoint 为空",
+	"platform.no_scheme":      "platform: endpoint %q 缺少 scheme:// 前缀",
+	"platform.empty_addr":     "platform: endpoint %q 的地址部分为空",
+	"platform.bad_pipe":       "platform: 命名管道地址 %q 无效",
+	"platform.need_abs_sock":  "platform: Unix 套接字路径必须是绝对路径，得到 %q",
+	"platform.bad_tcp":        "platform: TCP 地址 %q 无效: %w",
+	"platform.refuse_public": "platform: 拒绝非回环的管理地址 %q —— " +
+		"管理面绝不能对外暴露",
+	"platform.backend_missing": "后端未注册",
+	"platform.windows_only":    "platform: Windows 仅支持 %s 传输，收到 %s",
+	"platform.pipe_failed":     "platform: 创建命名管道 %s 失败: %w",
+
+	// --- 密钥存储 ---
+	"platform.keyname_empty":   "platform: 密钥名不能为空",
+	"platform.keyname_dots":    "platform: 密钥名 %q 含非法字符",
+	"platform.keyname_badchar": "platform: 密钥名 %q 含不允许的字符 %q",
+	"platform.keyname_dot":     "platform: 密钥名 %q 不能以点开头",
+	"platform.mkdir_failed":    "platform: 创建密钥目录失败: %w",
+	"platform.tmp_failed":      "platform: 创建密钥临时文件失败: %w",
+	"platform.chmod_failed":    "platform: 设置密钥文件权限失败: %w",
+	"platform.write_failed":    "platform: 写入密钥失败: %w",
+	"platform.sync_failed":     "platform: 密钥落盘失败: %w",
+	"platform.close_failed":    "platform: 关闭密钥临时文件失败: %w",
+	"platform.replace_failed":  "platform: 替换密钥文件失败: %w",
+	"platform.read_failed":     "platform: 读取密钥失败: %w",
+	"platform.delete_failed":   "platform: 删除密钥失败: %w",
+	"platform.file_store_note": "当前使用文件存储保护主密钥，" +
+		"保护级别等同文件系统权限；%s",
+	"platform.dpapi_note": "主密钥由 DPAPI 保护（与运行账户绑定）；" +
+		"加密后的密钥文件位于数据目录，拷到其它机器或账户下无法解开",
+	"platform.dpapi_empty": "platform: 待保护的密钥为空",
+	"platform.dpapi_seal":  "platform: DPAPI 加密失败: %w",
+	"platform.dpapi_unseal": "platform: DPAPI 解密失败（主密钥可能由其它账户或其它机器加密，" +
+		"无法在当前账户下解开；请删除密钥文件后重新录入凭据）: %w",
+
+	"platform.plain_not_implemented": "platform: 该平台后端尚未实现",
+	"platform.dpapi_unsealed_empty":  "platform: 待解密的密钥为空",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

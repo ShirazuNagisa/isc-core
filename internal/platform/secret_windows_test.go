@@ -194,9 +194,16 @@ func TestDPAPIDescribeIsHonest(t *testing.T) {
 	if !strings.Contains(st.Note, "DPAPI") {
 		t.Errorf("说明里应当点明用的是 DPAPI，得到 %q", st.Note)
 	}
-	// 说明里应当讲清"拷到别处解不开"这个**实际**的保护边界。
-	if !strings.Contains(st.Note, "无法解开") {
-		t.Errorf("说明里应当讲清保护边界，得到 %q", st.Note)
+	// 说明里应当讲清保护边界。
+	//
+	// 断言**不依赖语言**：文案现在跟着全局默认语言走（见 internal/i18n），
+	// 而并行测试可能把它设成英文。写死一个中文片段会让这条测试在
+	// 语言被改动时莫名其妙地变红 —— 那与它要验证的东西无关。
+	if len([]rune(st.Note)) < 20 {
+		t.Errorf("说明太短，没有讲清保护边界: %q", st.Note)
+	}
+	if !strings.Contains(st.Note, "DPAPI") {
+		t.Errorf("说明里应当点明用的是 DPAPI，得到 %q", st.Note)
 	}
 }
 

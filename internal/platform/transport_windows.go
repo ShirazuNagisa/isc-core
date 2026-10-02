@@ -5,6 +5,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 
 	"github.com/Microsoft/go-winio"
@@ -75,7 +76,7 @@ func localEndpoint(string) Endpoint {
 // listenLocal 实现命名管道的监听。
 func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 	if scheme != SchemeNamedPipe {
-		return nil, fmt.Errorf("platform: Windows 仅支持 %s 传输，收到 %s", SchemeNamedPipe, scheme)
+		return nil, fmt.Errorf(i18n.T("platform.windows_only"), SchemeNamedPipe, scheme)
 	}
 	l, err := winio.ListenPipe(addr, &winio.PipeConfig{
 		SecurityDescriptor: pipeSecurityDescriptor,
@@ -85,7 +86,7 @@ func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 		OutputBufferSize: 4096,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("platform: 创建命名管道 %s 失败: %w", addr, err)
+		return nil, fmt.Errorf(i18n.T("platform.pipe_failed"), addr, err)
 	}
 	return l, nil
 }
@@ -93,7 +94,7 @@ func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 // dialLocal 连接命名管道。
 func dialLocal(ctx context.Context, scheme, addr string) (net.Conn, error) {
 	if scheme != SchemeNamedPipe {
-		return nil, fmt.Errorf("platform: Windows 仅支持 %s 传输，收到 %s", SchemeNamedPipe, scheme)
+		return nil, fmt.Errorf(i18n.T("platform.windows_only"), SchemeNamedPipe, scheme)
 	}
 	return winio.DialPipeContext(ctx, addr)
 }

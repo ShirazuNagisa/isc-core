@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -90,13 +91,13 @@ func (e Endpoint) Listen(ctx context.Context) (net.Listener, error) {
 	case SchemeTCP:
 		l, err := net.Listen("tcp", p.addr)
 		if err != nil {
-			return nil, fmt.Errorf("platform: 监听 %s 失败: %w", e, err)
+			return nil, fmt.Errorf(i18n.T("platform.listen_failed"), e, err)
 		}
 		return l, nil
 	case SchemeNamedPipe, SchemeUnix:
 		return listenLocal(ctx, p.scheme, p.addr)
 	default:
-		return nil, fmt.Errorf("platform: 不支持的传输 scheme %q", p.scheme)
+		return nil, fmt.Errorf(i18n.T("platform.bad_scheme"), p.scheme)
 	}
 }
 
@@ -124,7 +125,7 @@ func (e Endpoint) DialContext() (DialContext, error) {
 			return dialLocal(ctx, p.scheme, p.addr)
 		}, nil
 	default:
-		return nil, fmt.Errorf("platform: 不支持的传输 scheme %q", p.scheme)
+		return nil, fmt.Errorf(i18n.T("platform.bad_scheme"), p.scheme)
 	}
 }
 
@@ -164,14 +165,14 @@ type parsedEndpoint struct {
 
 func parseEndpoint(s string) (parsedEndpoint, error) {
 	if s == "" {
-		return parsedEndpoint{}, fmt.Errorf("platform: endpoint 为空")
+		return parsedEndpoint{}, errors.New(i18n.T("platform.empty_endpoint"))
 	}
 	scheme, rest, ok := strings.Cut(s, "://")
 	if !ok {
-		return parsedEndpoint{}, fmt.Errorf("platform: endpoint %q 缺少 scheme:// 前缀", s)
+		return parsedEndpoint{}, fmt.Errorf(i18n.T("platform.no_scheme"), s)
 	}
 	if rest == "" {
-		return parsedEndpoint{}, fmt.Errorf("platform: endpoint %q 的地址部分为空", s)
+		return parsedEndpoint{}, fmt.Errorf(i18n.T("platform.empty_addr"), s)
 	}
 
 	switch strings.ToLower(scheme) {
@@ -183,33 +184,33 @@ func parseEndpoint(s string) (parsedEndpoint, error) {
 		p := strings.ReplaceAll(rest, "/", `\`)
 		p = strings.TrimLeft(p, `.\`)
 		if p == "" {
-			return parsedEndpoint{}, fmt.Errorf("platform: 命名管道地址 %q 无效", s)
+			return parsedEndpoint{}, fmt.Errorf(i18n.T("platform.bad_pipe"), s)
 		}
 		return parsedEndpoint{scheme: SchemeNamedPipe, addr: `\\.\` + p}, nil
 
 	case SchemeUnix:
 		if !strings.HasPrefix(rest, "/") {
 			return parsedEndpoint{}, fmt.Errorf(
-				"platform: Unix 套接字路径必须是绝对路径，得到 %q", rest)
+				i18n.T("platform.need_abs_sock"), rest)
 		}
 		return parsedEndpoint{scheme: SchemeUnix, addr: rest}, nil
 
 	case SchemeTCP:
 		host, _, err := net.SplitHostPort(rest)
 		if err != nil {
-			return parsedEndpoint{}, fmt.Errorf("platform: TCP 地址 %q 无效: %w", rest, err)
+			return parsedEndpoint{}, fmt.Errorf(i18n.T("platform.bad_tcp"), rest, err)
 		}
 		// 安全约束：只允许回环地址，防止误把管理面暴露到局域网。
 		switch host {
 		case "127.0.0.1", "::1", "localhost":
 		default:
 			return parsedEndpoint{}, fmt.Errorf(
-				"platform: 拒绝非回环的管理地址 %q —— 管理面绝不能对外暴露", rest)
+				i18n.T("platform.refuse_public"), rest)
 		}
 		return parsedEndpoint{scheme: SchemeTCP, addr: rest}, nil
 
 	default:
-		return parsedEndpoint{}, fmt.Errorf("platform: 不支持的传输 scheme %q", scheme)
+		return parsedEndpoint{}, fmt.Errorf(i18n.T("platform.bad_scheme"), scheme)
 	}
 }
 

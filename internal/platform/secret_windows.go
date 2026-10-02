@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"path/filepath"
 	"unsafe"
@@ -42,8 +43,7 @@ func (s *dpapiSecretStore) Describe() ImplState {
 	return ImplState{
 		Available: true,
 		Backend:   "windows-dpapi",
-		Note: "主密钥由 DPAPI 保护（与运行账户绑定）；" +
-			"加密后的密钥文件位于数据目录，拷到其它机器或账户下无法解开",
+		Note:      i18n.T("platform.dpapi_note"),
 	}
 }
 
@@ -54,7 +54,7 @@ func (s *dpapiSecretStore) Put(_ context.Context, name string, value []byte) err
 		return err
 	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return fmt.Errorf("platform: 创建密钥目录失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.mkdir_failed"), err)
 	}
 
 	sealed, err := dpapiProtect(value)
@@ -65,24 +65,24 @@ func (s *dpapiSecretStore) Put(_ context.Context, name string, value []byte) err
 	// 先写临时文件再重命名，避免中途失败留下截断的密钥文件。
 	tmp, err := os.CreateTemp(s.dir, ".key-*")
 	if err != nil {
-		return fmt.Errorf("platform: 创建密钥临时文件失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.tmp_failed"), err)
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(sealed); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("platform: 写入密钥失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.write_failed"), err)
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("platform: 密钥落盘失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.sync_failed"), err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("platform: 关闭密钥临时文件失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.close_failed"), err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("platform: 替换密钥文件失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.replace_failed"), err)
 	}
 	return nil
 }
@@ -98,7 +98,7 @@ func (s *dpapiSecretStore) Get(_ context.Context, name string) ([]byte, bool, er
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("platform: 读取密钥失败: %w", err)
+		return nil, false, fmt.Errorf(i18n.T("platform.read_failed"), err)
 	}
 	value, err := dpapiUnprotect(sealed)
 	if err != nil {
@@ -114,7 +114,7 @@ func (s *dpapiSecretStore) Delete(_ context.Context, name string) error {
 		return err
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("platform: 删除密钥失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.delete_failed"), err)
 	}
 	return nil
 }
@@ -137,7 +137,7 @@ func (s *dpapiSecretStore) path(name string) (string, error) {
 // 而熵本身又需要一个安全的地方存 —— 收益为零。
 func dpapiProtect(plaintext []byte) ([]byte, error) {
 	if len(plaintext) == 0 {
-		return nil, errors.New("platform: 待保护的密钥为空")
+		return nil, errors.New(i18n.T("platform.dpapi_empty"))
 	}
 	in := windows.DataBlob{Size: uint32(len(plaintext)), Data: &plaintext[0]}
 	var out windows.DataBlob
@@ -154,7 +154,7 @@ func dpapiProtect(plaintext []byte) ([]byte, error) {
 		&out,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("platform: DPAPI 加密失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("platform.dpapi_seal"), err)
 	}
 	defer func() {
 		_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data))) //nolint:govet // Windows API 要求
@@ -166,7 +166,7 @@ func dpapiProtect(plaintext []byte) ([]byte, error) {
 // dpapiUnprotect 解开由 dpapiProtect 产生的密文。
 func dpapiUnprotect(sealed []byte) ([]byte, error) {
 	if len(sealed) == 0 {
-		return nil, errors.New("platform: 待解密的密钥为空")
+		return nil, errors.New(i18n.T("platform.dpapi_unsealed_empty"))
 	}
 	in := windows.DataBlob{Size: uint32(len(sealed)), Data: &sealed[0]}
 	var out windows.DataBlob
@@ -184,9 +184,7 @@ func dpapiUnprotect(sealed []byte) ([]byte, error) {
 		// 这里最常见的失败原因是"换了账户或换了机器"——
 		// 错误信息必须点明这一点，否则用户只会看到一个语义不明的
 		// "参数错误"，然后完全不知道该怎么办。
-		return nil, fmt.Errorf(
-			"platform: DPAPI 解密失败（主密钥可能由其它账户或其它机器加密，"+
-				"无法在当前账户下解开；请删除密钥文件后重新录入凭据）: %w", err)
+		return nil, fmt.Errorf(i18n.T("platform.dpapi_unseal"), err)
 	}
 	defer func() {
 		_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data))) //nolint:govet // Windows API 要求

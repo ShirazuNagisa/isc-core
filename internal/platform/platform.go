@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"net/netip"
 	"strings"
@@ -24,7 +25,7 @@ import (
 // ErrNotImplemented 表示当前平台的该后端尚未实现。
 //
 // 上层应当捕获此错误并降级为引导模式，而不是把它当作致命错误。
-var ErrNotImplemented = errors.New("platform: 该平台后端尚未实现")
+var ErrNotImplemented = errors.New(i18n.T("platform.plain_not_implemented"))
 
 // Bundle 聚合当前平台的全部后端实现。
 //
@@ -85,7 +86,7 @@ type describer interface {
 
 func stateOf(v any) ImplState {
 	if v == nil {
-		return ImplState{Available: false, Backend: "nil", Note: "后端未注册"}
+		return ImplState{Available: false, Backend: "nil", Note: i18n.T("platform.backend_missing")}
 	}
 	if d, ok := v.(describer); ok {
 		return d.Describe()
@@ -470,7 +471,7 @@ type Unsupported struct {
 func (u Unsupported) Describe() ImplState {
 	reason := u.Reason
 	if reason == "" {
-		reason = "当前平台的该后端尚未实现，将降级为引导模式"
+		reason = i18n.T("platform.unsupported")
 	}
 	return ImplState{Available: false, Backend: "unsupported:" + u.Name, Note: reason}
 }

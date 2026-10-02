@@ -770,6 +770,49 @@ var messagesEn = map[string]string{
 	"settings.need_port":  "settings: a listen port is required when the reverse proxy is enabled",
 	"settings.need_dns01": "settings: a credential for the DNS-01 challenge must be set before enabling HTTPS",
 
+	// --- local management channel ---
+	"platform.listen_failed":  "platform: failed to listen on %s: %w",
+	"platform.bad_scheme":     "platform: unsupported transport scheme %q",
+	"platform.empty_endpoint": "platform: the endpoint is empty",
+	"platform.no_scheme":      "platform: endpoint %q is missing the scheme:// prefix",
+	"platform.empty_addr":     "platform: endpoint %q has an empty address part",
+	"platform.bad_pipe":       "platform: named pipe address %q is invalid",
+	"platform.need_abs_sock":  "platform: a Unix socket path must be absolute, got %q",
+	"platform.bad_tcp":        "platform: TCP address %q is invalid: %w",
+	"platform.refuse_public": "platform: refused a non-loopback management address %q — " +
+		"the management plane must never be exposed",
+	"platform.backend_missing": "no backend registered",
+	"platform.windows_only":    "platform: Windows supports only the %s transport, got %s",
+	"platform.pipe_failed":     "platform: failed to create the named pipe %s: %w",
+
+	// --- secret storage ---
+	"platform.keyname_empty":   "platform: the key name cannot be empty",
+	"platform.keyname_dots":    "platform: the key name %q contains illegal characters",
+	"platform.keyname_badchar": "platform: the key name %q contains a disallowed character %q",
+	"platform.keyname_dot":     "platform: the key name %q cannot start with a dot",
+	"platform.mkdir_failed":    "platform: failed to create the key directory: %w",
+	"platform.tmp_failed":      "platform: failed to create a temporary key file: %w",
+	"platform.chmod_failed":    "platform: failed to set the key file permissions: %w",
+	"platform.write_failed":    "platform: failed to write the key: %w",
+	"platform.sync_failed":     "platform: failed to flush the key to disk: %w",
+	"platform.close_failed":    "platform: failed to close the temporary key file: %w",
+	"platform.replace_failed":  "platform: failed to replace the key file: %w",
+	"platform.read_failed":     "platform: failed to read the key: %w",
+	"platform.delete_failed":   "platform: failed to delete the key: %w",
+	"platform.file_store_note": "The master key is currently protected by file storage, " +
+		"a protection level equal to filesystem permissions; %s",
+	"platform.dpapi_note": "The master key is protected by DPAPI (bound to the running " +
+		"account); the encrypted key file lives in the data directory and cannot be " +
+		"decrypted on another machine or under another account",
+	"platform.dpapi_empty": "platform: the key to protect is empty",
+	"platform.dpapi_seal":  "platform: DPAPI encryption failed: %w",
+	"platform.dpapi_unseal": "platform: DPAPI decryption failed (the master key may have " +
+		"been encrypted under another account or on another machine, and cannot be " +
+		"decrypted here; delete the key file and re-enter the credentials): %w",
+
+	"platform.plain_not_implemented": "platform: this backend is not implemented on this platform yet",
+	"platform.dpapi_unsealed_empty":  "platform: the key to unprotect is empty",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

@@ -72,7 +72,7 @@ var convertedFiles = []string{
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
 	"internal/ddnsgo":         318,
-	"internal/platform":       204,
+	"internal/platform":       158,
 	"internal/provider/tier1": 158,
 	"internal/reach":          90,
 	"internal/store":          73,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,20 +34,20 @@ func NewSecretStore(dataRoot string) SecretStore {
 // （`../../etc/passwd`）。因此这里只接受保守的字符集。
 func keyFileName(dir, name string) (string, error) {
 	if name == "" {
-		return "", errors.New("platform: 密钥名不能为空")
+		return "", errors.New(i18n.T("platform.keyname_empty"))
 	}
 	if strings.Contains(name, "..") {
-		return "", fmt.Errorf("platform: 密钥名 %q 含非法字符", name)
+		return "", fmt.Errorf(i18n.T("platform.keyname_dots"), name)
 	}
 	for _, r := range name {
 		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
 			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
 		if !ok {
-			return "", fmt.Errorf("platform: 密钥名 %q 含不允许的字符 %q", name, r)
+			return "", fmt.Errorf(i18n.T("platform.keyname_badchar"), name, r)
 		}
 	}
 	if strings.HasPrefix(name, ".") {
-		return "", fmt.Errorf("platform: 密钥名 %q 不能以点开头", name)
+		return "", fmt.Errorf(i18n.T("platform.keyname_dot"), name)
 	}
 	return filepath.Join(dir, name), nil
 }
@@ -66,7 +67,7 @@ func newFileSecretStore(dir, reason string) *fileSecretStore {
 
 // Describe 实现 describer。
 func (s *fileSecretStore) Describe() ImplState {
-	note := "当前使用文件存储保护主密钥，保护级别等同文件系统权限；" + s.reason
+	note := i18n.T("platform.file_store_note", s.reason)
 	return ImplState{Available: true, Backend: "file", Note: note}
 }
 
@@ -77,35 +78,35 @@ func (s *fileSecretStore) Put(_ context.Context, name string, value []byte) erro
 		return err
 	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return fmt.Errorf("platform: 创建密钥目录失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.mkdir_failed"), err)
 	}
 
 	// 先写临时文件再重命名：中途失败时不会留下一个被截断的密钥文件，
 	// 那会导致主密钥丢失、所有已加密的凭据永久无法解密。
 	tmp, err := os.CreateTemp(s.dir, ".key-*")
 	if err != nil {
-		return fmt.Errorf("platform: 创建密钥临时文件失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.tmp_failed"), err)
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }() // 重命名成功后此调用无副作用
 
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("platform: 设置密钥文件权限失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.chmod_failed"), err)
 	}
 	if _, err := tmp.Write(value); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("platform: 写入密钥失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.write_failed"), err)
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("platform: 密钥落盘失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.sync_failed"), err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("platform: 关闭密钥临时文件失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.close_failed"), err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("platform: 替换密钥文件失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.replace_failed"), err)
 	}
 	return nil
 }
@@ -121,7 +122,7 @@ func (s *fileSecretStore) Get(_ context.Context, name string) ([]byte, bool, err
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("platform: 读取密钥失败: %w", err)
+		return nil, false, fmt.Errorf(i18n.T("platform.read_failed"), err)
 	}
 	return value, true, nil
 }
@@ -133,7 +134,7 @@ func (s *fileSecretStore) Delete(_ context.Context, name string) error {
 		return err
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("platform: 删除密钥失败: %w", err)
+		return fmt.Errorf(i18n.T("platform.delete_failed"), err)
 	}
 	return nil
 }
