@@ -27,6 +27,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"net/http"
 	"net/netip"
@@ -67,7 +68,7 @@ const (
 	// 从本机访问自己的公网 IPv6 地址时，连接是直连的，
 	// 来源地址就是那个**全局单播地址** —— 光看地址类型会判成公网。
 	//
-	// 真机上实测到过：用户"在自己电脑上试一下"，页面显示"链路是通的"，
+	// 真机上实测到过：用户"在自己电脑上试一下"，页面显示i18n.T("verify.page.headline_ok")，
 	// 而他关掉电脑去打手机时才发现根本连不上。
 	SourceSelf SourceKind = "self"
 	// SourceLoopback 本机回环。
@@ -297,15 +298,14 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (Session, error) 
 	ln, err := net.Listen("tcp", address)
 	if err != nil {
 		return Session{}, fmt.Errorf(
-			"verify: 无法监听端口 %d：%w"+
-				"（该端口可能已被其它程序占用）", req.Port, err)
+			i18n.T("verify.err.listen"), req.Port, err)
 	}
 
 	// 读回真实端口（req.Port 为 0 时由系统分配）。
 	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		_ = ln.Close()
-		return Session{}, errors.New("verify: 监听地址不是 TCP 地址")
+		return Session{}, errors.New(i18n.T("verify.err.not_tcp"))
 	}
 
 	token, err := newToken()
@@ -334,7 +334,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (Session, error) 
 		Status:    StatusWaiting,
 		CreatedAt: now,
 		ExpiresAt: now.Add(m.ttl),
-		Message:   "等待外部访问。请用手机（关闭 Wi-Fi，走 4G/5G）打开下面的地址。",
+		Message:   i18n.T("verify.msg.waiting"),
 	}
 
 	m.sessions[id] = sess
@@ -343,7 +343,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (Session, error) 
 	go m.serve(ln, id)
 
 	if m.logf != nil {
-		m.logf("外部验证会话已开始：端口 %d，地址 %s", sess.Port, sess.URL())
+		m.logf(i18n.T("verify.msg.started"), sess.Port, sess.URL())
 	}
 	return *sess, nil
 }
@@ -367,7 +367,7 @@ func (m *Manager) serve(ln net.Listener, id string) {
 
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) {
 		if m.logf != nil {
-			m.logf("外部验证监听异常结束：%v", err)
+			m.logf(i18n.T("verify.msg.listen_ended"), err)
 		}
 	}
 }
@@ -421,7 +421,7 @@ func (m *Manager) recordHit(id string, r *http.Request) SourceKind {
 		if sess.Status != StatusReachable {
 			sess.Status = StatusReachable
 			defer m.publishVerdict(sess)
-			sess.Message = "外部访问成功 —— 链路是通的。"
+			sess.Message = i18n.T("verify.msg.success")
 		}
 	} else if sess.Status == StatusWaiting {
 		sess.Status = StatusHairpinOnly
@@ -437,19 +437,13 @@ func hairpinMessage(kind SourceKind) string {
 	case SourceSelf:
 		// 最容易被误判成成功的一类：IPv6 没有 NAT，从本机访问自己的
 		// 公网地址时来源就是那个公网地址，光看地址类型完全正常。
-		return "这次访问来自这台机器自己 —— IPv6 没有 NAT，" +
-			"本机访问自己的公网地址是直连的，不经过运营商，" +
-			"因此什么也证明不了。请用手机（关闭 Wi-Fi，走 4G/5G）重新打开。"
+		return i18n.T("verify.hairpin.self")
 	case SourceLoopback:
-		return "只收到了来自本机的访问 —— 那是回环路径，不经过网络，" +
-			"什么也证明不了。请用手机（关闭 Wi-Fi）重新打开。"
+		return i18n.T("verify.hairpin.loopback")
 	case SourceLinkLocal:
-		return "只收到了链路本地地址的访问 —— 不经过运营商。" +
-			"请用手机（关闭 Wi-Fi，走 4G/5G）重新打开。"
+		return i18n.T("verify.hairpin.linklocal")
 	default:
-		return "只收到了来自内网的访问 —— 手机可能还连着 Wi-Fi，" +
-			"或者这是个运营商级 NAT 地址。" +
-			"请关闭 Wi-Fi、走移动数据重新打开。"
+		return i18n.T("verify.hairpin.private")
 	}
 }
 
@@ -463,9 +457,7 @@ func (m *Manager) expire(id string) {
 		return
 	}
 	sess.Status = StatusUnreachable
-	sess.Message = "在有效期内没有收到任何外部访问。若本机检测全部通过，" +
-		"这一条指向**上游封禁**（运营商或路由器防火墙）—— " +
-		"本机已经没得改了。"
+	sess.Message = i18n.T("verify.msg.no_visit")
 
 	// 取一份快照，然后**先解锁再发布**。
 	//
@@ -530,7 +522,7 @@ func (m *Manager) Stop(id string) error {
 	}
 	if sess.Status == StatusWaiting {
 		sess.Status = StatusStopped
-		sess.Message = "验证已被手动停止。"
+		sess.Message = i18n.T("verify.msg.stopped")
 	}
 	return nil
 }
@@ -547,7 +539,7 @@ func (m *Manager) sweepLocked() {
 	for _, sess := range m.sessions {
 		if sess.Status == StatusWaiting && now.After(sess.ExpiresAt) {
 			sess.Status = StatusUnreachable
-			sess.Message = "在有效期内没有收到任何外部访问。"
+			sess.Message = i18n.T("verify.msg.timeout")
 			// 收集起来，出了锁再发布 —— 理由见 expire 的说明。
 			expired = append(expired, *sess)
 		}
@@ -581,10 +573,10 @@ func (m *Manager) sweepLocked() {
 }
 
 // ErrNotFound 表示会话不存在。
-var ErrNotFound = errors.New("verify: 验证会话不存在")
+var ErrNotFound = errors.New(i18n.T("verify.err.no_session"))
 
 // ErrBusy 表示已有活跃会话。
-var ErrBusy = errors.New("verify: 已有正在进行的验证")
+var ErrBusy = errors.New(i18n.T("verify.err.in_progress"))
 
 // ---------------------------------------------------------------------------
 // 辅助
@@ -614,7 +606,7 @@ func remoteAddr(r *http.Request) netip.Addr {
 func newToken() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("verify: 生成验证令牌失败: %w", err)
+		return "", fmt.Errorf(i18n.T("verify.err.gen_token"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
@@ -622,7 +614,7 @@ func newToken() (string, error) {
 func newID() (string, error) {
 	buf := make([]byte, 9)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("verify: 生成会话 ID 失败: %w", err)
+		return "", fmt.Errorf(i18n.T("verify.err.gen_session"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

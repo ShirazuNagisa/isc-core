@@ -38,7 +38,7 @@
 | `internal/acme` | ✅ **0** | 已完成；DNS-01 失败那条把四种成因逐条列出 |
 | `scripts/release` | ✅ 豁免 | 构建工具，跑在维护者机器上，拿不到用户的语言设置 |
 | `internal/proxy` | 55 | 反代启动与路由错误 |
-| `internal/verify` | 43 | 外部验证会话的说明 |
+| `internal/verify` | ✅ **0** | 已完成；含发给手机的验证页 |
 | `internal/change` | ✅ **0** | 已完成；计划/执行/失败/回滚整条路径 |
 | `internal/daemon` | ✅ **0** | 已完成；大部分是日志（已按调用排除） |
 | 其余小包 | ✅ **0** | credential / secret / paths / dns / job / runtimeinfo / configio / provider 均已完成 |

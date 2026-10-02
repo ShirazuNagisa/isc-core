@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"time"
 )
 
@@ -87,7 +88,7 @@ func verdictFromSession(s Session) (Verdict, bool) {
 			Reachable: true,
 			Port:      s.Port,
 			At:        time.Now().UTC(),
-			Detail:    "已收到来自公网的访问，链路确实可用",
+			Detail:    i18n.T("verify.verdict.reachable"),
 		}, true
 
 	case StatusUnreachable:
@@ -95,8 +96,7 @@ func verdictFromSession(s Session) (Verdict, bool) {
 			Blocked: true,
 			Port:    s.Port,
 			At:      time.Now().UTC(),
-			Detail: "外部验证超时，且一次公网访问都没有收到 —— " +
-				"本机监听正常但流量没有到达，说明上游挡住了这个端口",
+			Detail:  i18n.T("verify.verdict.blocked"),
 		}, true
 
 	default:

@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"html"
 	"net/http"
 	"strings"
@@ -39,19 +40,18 @@ func renderPage(kind SourceKind, sess *Session) string {
 
 	accent := "#e0a33e"
 	icon := "⚠️"
-	headline := "这次访问不能作为凭据"
+	headline := i18n.T("verify.page.headline_fail")
 	body := hairpinMessage(kind)
 
 	if ok {
 		accent = "#3ecf8e"
 		icon = "✅"
-		headline = "链路是通的"
-		body = "这台机器能从公网被访问到。回到 ISC 控制台即可看到结果，" +
-			"并可以关闭这个临时端口。"
+		headline = i18n.T("verify.page.headline_ok")
+		body = i18n.T("verify.page.body_ok")
 	}
 
 	var b strings.Builder
-	b.WriteString(pageHead)
+	b.WriteString(pageHead())
 	b.WriteString("<style>:root{--accent:" + accent + "}</style>")
 	b.WriteString(`</head><body><div class="card">`)
 	b.WriteString(`<div class="icon">` + icon + `</div>`)
@@ -59,14 +59,14 @@ func renderPage(kind SourceKind, sess *Session) string {
 	b.WriteString(`<p>` + html.EscapeString(body) + `</p>`)
 
 	b.WriteString(`<div class="meta">`)
-	writeMetaRow(&b, "本次来源", kindLabel(kind))
+	writeMetaRow(&b, i18n.T("verify.page.label_source"), kindLabel(kind))
 	if len(sess.Hits) > 0 {
-		writeMetaRow(&b, "来源地址", sess.Hits[len(sess.Hits)-1].RemoteAddr)
+		writeMetaRow(&b, i18n.T("verify.page.label_addr"), sess.Hits[len(sess.Hits)-1].RemoteAddr)
 	}
 	b.WriteString(`</div>`)
 
 	b.WriteString(`</div>`)
-	b.WriteString(`<p class="foot">ISC · 一次性验证页面，可以关闭</p>`)
+	b.WriteString(`<p class="foot">` + html.EscapeString(i18n.T("verify.page.footer")) + `</p>`)
 	b.WriteString(`</body></html>`)
 
 	return b.String()
@@ -80,17 +80,17 @@ func writeMetaRow(b *strings.Builder, label, value string) {
 func kindLabel(k SourceKind) string {
 	switch k {
 	case SourcePublic:
-		return "公网地址（有效凭据）"
+		return i18n.T("verify.page.kind_public")
 	case SourceSelf:
-		return "本机自己的地址（无效凭据）"
+		return i18n.T("verify.page.kind_self")
 	case SourceLoopback:
-		return "本机回环（无效凭据）"
+		return i18n.T("verify.page.kind_loopback")
 	case SourceLinkLocal:
-		return "链路本地（无效凭据）"
+		return i18n.T("verify.page.kind_linklocal")
 	case SourcePrivate:
-		return "内网或运营商级 NAT（无效凭据）"
+		return i18n.T("verify.page.kind_private")
 	default:
-		return "无法识别（无效凭据）"
+		return i18n.T("verify.page.kind_unknown")
 	}
 }
 
@@ -98,12 +98,20 @@ func kindLabel(k SourceKind) string {
 //
 // 全部内联：手机上通过移动网络打开，多一次外部请求就多一次失败机会，
 // 而失败的表现是"页面一片空白"—— 用户会以为验证没成功。
-const pageHead = `<!DOCTYPE html>
-<html lang="zh-CN"><head>
+//
+// 它是**函数**而不是常量，因为 `lang` 与 `<title>` 要跟随内核的语言设置。
+// 这是引入 i18n 时暴露的：常量里放不了函数调用，而那句 `<title>` 里
+// 有中文 —— 编译器当场拦下（"not constant"）。
+//
+// 语言取**内核的**设置而不是请求头的 Accept-Language：拿手机的是同一个
+// 用户，而他在 ISC 里已经选过语言了；跟随手机反而可能给出第三种语言。
+func pageHead() string {
+	return `<!DOCTYPE html>
+<html lang="` + i18n.DefaultLangTag() + `"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>ISC 外部验证</title>
+<title>` + html.EscapeString(i18n.T("verify.page.title")) + `</title>
 <style>
 :root{--accent:#8b93a4;--bg:#14161a;--card:#1c1f26;--text:#dfe3ea;--dim:#8b93a4}
 *{box-sizing:border-box}
@@ -125,3 +133,4 @@ p{margin:0 0 18px;color:var(--dim);font-size:15px}
 .foot{text-align:center;color:#5b6273;font-size:12px;margin:18px 0 0}
 </style>
 `
+}

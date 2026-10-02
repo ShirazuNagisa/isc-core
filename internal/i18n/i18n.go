@@ -62,10 +62,10 @@ type Catalog struct {
 // 基础表会让那个文件无法浏览。
 func New(lang Lang) *Catalog {
 	src := messagesZh
-	extra := []map[string]string{apiMessagesZh, tier1MessagesZh, reachMessagesZh, opsMessagesZh, acmeMessagesZh, notifyMessagesZh, storeMessagesZh, credentialMessagesZh, infraMessagesZh, ddnsMessagesZh, proxyMessagesZh}
+	extra := []map[string]string{apiMessagesZh, tier1MessagesZh, reachMessagesZh, opsMessagesZh, acmeMessagesZh, notifyMessagesZh, storeMessagesZh, credentialMessagesZh, infraMessagesZh, ddnsMessagesZh, proxyMessagesZh, verifyMessagesZh}
 	if lang == En {
 		src = messagesEn
-		extra = []map[string]string{apiMessagesEn, tier1MessagesEn, reachMessagesEn, opsMessagesEn, acmeMessagesEn, notifyMessagesEn, storeMessagesEn, credentialMessagesEn, infraMessagesEn, ddnsMessagesEn, proxyMessagesEn}
+		extra = []map[string]string{apiMessagesEn, tier1MessagesEn, reachMessagesEn, opsMessagesEn, acmeMessagesEn, notifyMessagesEn, storeMessagesEn, credentialMessagesEn, infraMessagesEn, ddnsMessagesEn, proxyMessagesEn, verifyMessagesEn}
 	}
 
 	// 没有补充层时直接用基础表，避免每次构造都复制一遍。
@@ -173,6 +173,21 @@ func SetDefault(lang Lang) {
 	defaultCatalog.Store(New(lang))
 }
 
+// DefaultLangTag 返回当前默认语言在 HTML 里用的标签（"zh-CN" / "en"）。
+//
+// 需要它的是**发给外部设备的页面**：`<html lang="…">` 让浏览器知道该用
+// 哪种字体与断行规则，而它必须是**内核的**语言设置 —— 拿手机的是同一个
+// 用户，他在 ISC 里已经选过语言了，跟随手机的 Accept-Language 反而可能
+// 给出第三种语言。
+func DefaultLangTag() string {
+	switch defaultOrInit().lang {
+	case En:
+		return "en"
+	default:
+		return "zh-CN"
+	}
+}
+
 // Default2 返回当前默认目录。
 func defaultOrInit() *Catalog {
 	if c := defaultCatalog.Load(); c != nil {
@@ -240,5 +255,6 @@ func layeredCatalogMaps() []map[string]string {
 		infraMessagesZh, infraMessagesEn,
 		ddnsMessagesZh, ddnsMessagesEn,
 		proxyMessagesZh, proxyMessagesEn,
+		verifyMessagesZh, verifyMessagesEn,
 	}
 }
