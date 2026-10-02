@@ -48,7 +48,7 @@ sudo ./isc service install      # Linux / macOS
 
 ```bash
 ./isc ddns add \
-  --name 家里的IPv6 \
+  --label 家里的IPv6 \
   --credential <凭据ID> \
   --domain home.example.com \
   --type AAAA \
@@ -110,7 +110,7 @@ WiFi）打开。
 | `isc credential` | 管理 DNS 服务商凭据 |
 | `isc ddns` | 管理动态解析任务 |
 | `isc zones` / `isc records` | 浏览与编辑 DNS 记录 |
-| `isc reach` | 可达性检查 |
+| `isc doctor` | 可达性检查与故障定位 |
 | `isc verify` | 引导式外部验证 |
 | `isc proxy` | 反向代理路由 |
 | `isc cert` | 查看与续期 TLS 证书 |
@@ -154,7 +154,7 @@ WiFi）打开。
 
 2. **IPv6 通不通？**
    ```bash
-   isc reach
+   isc ip
    ```
    运营商的 IPv6 可能是「有地址但不通」。这时任务会一直失败，
    而错误信息通常只有一句超时。

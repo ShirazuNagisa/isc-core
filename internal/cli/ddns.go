@@ -75,6 +75,8 @@ func newDdnsCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(
 		newDdnsListCmd(app),
+		newDdnsAddCmd(app),
+		newDdnsRemoveCmd(app),
 		newDdnsRunCmd(app),
 	)
 	return cmd

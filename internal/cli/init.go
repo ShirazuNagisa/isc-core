@@ -290,7 +290,7 @@ func nextSteps(env environment, port int, domain string, running bool) []step {
 		steps = append(steps, step{
 			Desc: "创建动态解析任务",
 			Command: fmt.Sprintf(
-				"isc ddns add --name 我的域名 --credential <凭据ID> "+
+				"isc ddns add --label 我的域名 --credential <凭据ID> "+
 					"--domain %s --type %s --source %s",
 				domain, recType, sourceFor(env, recType)),
 			Note: "凭据 ID 从上一步的输出里取（或 isc credential list）。",
@@ -303,7 +303,7 @@ func nextSteps(env environment, port int, domain string, running bool) []step {
 		})
 		steps = append(steps, step{
 			Desc: "创建动态解析任务",
-			Command: "isc ddns add --name 我的域名 --credential <凭据ID> " +
+			Command: "isc ddns add --label 我的域名 --credential <凭据ID> " +
 				"--domain home.example.com --type AAAA --source ipv6",
 			Note: "加 --domain 参数重跑 isc init 可以得到填好域名的版本。",
 		})
