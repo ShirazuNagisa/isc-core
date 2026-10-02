@@ -45,6 +45,8 @@ const (
 	ActionChangeApply    = "change.apply"
 	ActionChangeRollback = "change.rollback"
 
+	ActionProxyRoutes = "proxy.routes"
+
 	ActionRecordCreate = "dns_record.create"
 	ActionRecordUpdate = "dns_record.update"
 	ActionRecordDelete = "dns_record.delete"

@@ -21,6 +21,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
+	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
@@ -90,6 +91,12 @@ type Deps struct {
 
 	// Verify 是引导式外部验证的管理器。
 	Verify *verify.Manager
+
+	// Proxy 是反向代理的管理器。
+	Proxy *proxy.Manager
+
+	// ProxyRoutes 是代理路由的持久化仓储。
+	ProxyRoutes proxy.RouteStore
 }
 
 // Server 实现 gen.ServerInterface。

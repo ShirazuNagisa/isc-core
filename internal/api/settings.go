@@ -22,6 +22,8 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		LogLevel         *string `json:"log_level"`
 		EventBufferSize  *int    `json:"event_buffer_size"`
 		NotifyOnIPChange *bool   `json:"notify_on_ip_change"`
+		ProxyEnabled     *bool   `json:"proxy_enabled"`
+		ProxyPort        *int    `json:"proxy_port"`
 	}
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
@@ -39,6 +41,8 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		LogLevel:         body.LogLevel,
 		EventBufferSize:  body.EventBufferSize,
 		NotifyOnIPChange: body.NotifyOnIPChange,
+		ProxyEnabled:     body.ProxyEnabled,
+		ProxyPort:        body.ProxyPort,
 	})
 	if err != nil {
 		s.auditFailure(r, audit.ActionSettingsUpdate, "settings", err)
@@ -48,8 +52,45 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 代理相关设置变化后立即调整监听。
+	//
+	// 不做这一步的话，用户在界面上开启代理之后什么都看不到变化 ——
+	// 他得重启内核才行，而界面完全没提示这一点。
+	s.applyProxySettings(r, next)
+
 	s.auditSuccess(r, audit.ActionSettingsUpdate, "settings", "")
 	writeJSON(w, s.Log, http.StatusOK, "application/json", toGenSettings(next))
+}
+
+// applyProxySettings 按最新设置调整代理监听。
+//
+// 失败**不**让整个设置更新失败：其它设置（语言、日志级别）已经生效了，
+// 把它们一起回滚是更糟的选择。错误会留在代理状态里，用户能在界面上
+// 看到"为什么没起来"。
+func (s *Server) applyProxySettings(r *http.Request, next settings.Settings) {
+	if s.Proxy == nil {
+		return
+	}
+
+	status := s.Proxy.Status()
+
+	switch {
+	case !next.ProxyEnabled && status.Running:
+		_ = s.Proxy.Stop(r.Context())
+
+	case next.ProxyEnabled && !status.Running:
+		if err := s.Proxy.Start(r.Context(), next.ProxyPort); err != nil {
+			s.Log.Error("按设置启动反向代理失败",
+				"port", next.ProxyPort, "err", err)
+		}
+
+	case next.ProxyEnabled && status.Running && status.Port != next.ProxyPort:
+		// 端口变了：Start 内部会先停掉旧的再按新端口监听。
+		if err := s.Proxy.Start(r.Context(), next.ProxyPort); err != nil {
+			s.Log.Error("按新端口重启反向代理失败",
+				"port", next.ProxyPort, "err", err)
+		}
+	}
 }
 
 func toGenSettings(s settings.Settings) gen.Settings {
@@ -58,6 +99,8 @@ func toGenSettings(s settings.Settings) gen.Settings {
 		LogLevel:         gen.SettingsLogLevel(s.LogLevel),
 		EventBufferSize:  &s.EventBufferSize,
 		NotifyOnIpChange: &s.NotifyOnIPChange,
+		ProxyEnabled:     &s.ProxyEnabled,
+		ProxyPort:        &s.ProxyPort,
 	}
 }
 

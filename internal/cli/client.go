@@ -151,6 +151,11 @@ func (c *Client) postInto(ctx context.Context, path string, body []byte, out any
 	return c.doBody(ctx, http.MethodPost, path, body, out)
 }
 
+// putInto 发起一次带请求体的 PUT 并解码响应。
+func (c *Client) putInto(ctx context.Context, path string, body []byte, out any) error {
+	return c.doBody(ctx, http.MethodPut, path, body, out)
+}
+
 // delete 发起一次带鉴权的 DELETE。
 func (c *Client) delete(ctx context.Context, path string) error {
 	return c.do(ctx, http.MethodDelete, path, nil)

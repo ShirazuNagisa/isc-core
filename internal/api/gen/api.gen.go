@@ -1039,6 +1039,50 @@ type ProviderField struct {
 	Secret bool `json:"secret"`
 }
 
+// ProxyRoute defines model for ProxyRoute.
+type ProxyRoute struct {
+	// Domains 要匹配的域名。支持两种写法：
+	//
+	//   home.example.com    精确匹配
+	//   *.example.com       匹配**一级**子域名
+	//
+	// `*.example.com` 不匹配 `example.com` 本身，也不匹配
+	// `a.b.example.com` —— 这与 TLS 证书的通配规则一致。
+	// 放宽它的后果是用户拿到一个证书不匹配的域名，
+	// 而浏览器只会说"证书无效"。
+	Domains []string `json:"domains"`
+	Id      string   `json:"id"`
+
+	// Label 用户可读的名称。
+	Label *string `json:"label,omitempty"`
+
+	// Tls 该域名是否需要 HTTPS。
+	Tls *bool `json:"tls,omitempty"`
+
+	// Upstream 转发目标，形如 `http://127.0.0.1:8096`。
+	//
+	// **必须是本机或内网地址。** 反代监听在公网上，若允许任意
+	// 上游，任何人都能拿它当跳板 —— 而所有流量都记在用户头上。
+	Upstream string `json:"upstream"`
+}
+
+// ProxyRouteList defines model for ProxyRouteList.
+type ProxyRouteList struct {
+	Items []ProxyRoute `json:"items"`
+}
+
+// ProxyStatus defines model for ProxyStatus.
+type ProxyStatus struct {
+	// Error 最近一次启动失败的原因。
+	//
+	// 它必须被展示 —— 端口被占用之类的失败如果只写进日志，
+	// 用户在界面上看到的就是"代理没开"，而不知道为什么。
+	Error   *string `json:"error,omitempty"`
+	Port    int     `json:"port"`
+	Routes  int     `json:"routes"`
+	Running bool    `json:"running"`
+}
+
 // ReachCheck defines model for ReachCheck.
 type ReachCheck struct {
 	// Detail 观察到的具体事实。
@@ -1166,8 +1210,21 @@ type Settings struct {
 	Lang            SettingsLang     `json:"lang"`
 	LogLevel        SettingsLogLevel `json:"log_level"`
 
-	// NotifyOnIpChange 地址或 IPv6 前缀变化时是否发送通知（M4 起生效）。
+	// NotifyOnIpChange 地址或 IPv6 前缀变化时是否发送通知。
 	NotifyOnIpChange *bool `json:"notify_on_ip_change,omitempty"`
+
+	// ProxyEnabled 是否启动反向代理。
+	//
+	// 默认**关闭**：反代监听在公网上，开启它是一个需要明确决定的
+	// 动作。默认开着会让"我只是想用动态解析"的用户莫名其妙地多出
+	// 一个对外的监听端口。
+	ProxyEnabled *bool `json:"proxy_enabled,omitempty"`
+
+	// ProxyPort 反向代理的监听端口。
+	//
+	// 默认 443 而不是 8080：用户访问的地址里不该带端口号，
+	// 而 443 是浏览器默认补的那个。
+	ProxyPort *int `json:"proxy_port,omitempty"`
 }
 
 // SettingsLang defines model for Settings.Lang.
@@ -1182,6 +1239,8 @@ type SettingsPatch struct {
 	Lang             *SettingsPatchLang     `json:"lang,omitempty"`
 	LogLevel         *SettingsPatchLogLevel `json:"log_level,omitempty"`
 	NotifyOnIpChange *bool                  `json:"notify_on_ip_change,omitempty"`
+	ProxyEnabled     *bool                  `json:"proxy_enabled,omitempty"`
+	ProxyPort        *int                   `json:"proxy_port,omitempty"`
 }
 
 // SettingsPatchLang defines model for SettingsPatch.Lang.
@@ -1414,6 +1473,9 @@ type UpdateDdnsTaskJSONRequestBody = DdnsTaskInput
 // RunNoopJobJSONRequestBody defines body for RunNoopJob for application/json ContentType.
 type RunNoopJobJSONRequestBody = NoopRequest
 
+// ReplaceProxyRoutesJSONRequestBody defines body for ReplaceProxyRoutes for application/json ContentType.
+type ReplaceProxyRoutesJSONRequestBody = ProxyRouteList
+
 // PlanReachExposeJSONRequestBody defines body for PlanReachExpose for application/json ContentType.
 type PlanReachExposeJSONRequestBody = ExposeRequest
 
@@ -1536,6 +1598,15 @@ type ServerInterface interface {
 	// ListProviders 列出支持的 DNS 服务商及其能力与凭据字段
 	// (GET /v1/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
+	// ListProxyRoutes 列出全部转发规则
+	// (GET /v1/proxy/routes)
+	ListProxyRoutes(w http.ResponseWriter, r *http.Request)
+	// ReplaceProxyRoutes 整体替换转发规则
+	// (PUT /v1/proxy/routes)
+	ReplaceProxyRoutes(w http.ResponseWriter, r *http.Request)
+	// GetProxyStatus 读取反向代理的运行时状态
+	// (GET /v1/proxy/status)
+	GetProxyStatus(w http.ResponseWriter, r *http.Request)
 	// ListReachProviders 列出全部可达方式
 	// (GET /v1/reach/providers)
 	ListReachProviders(w http.ResponseWriter, r *http.Request)
@@ -2652,6 +2723,48 @@ func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListProxyRoutes operation middleware
+func (siw *ServerInterfaceWrapper) ListProxyRoutes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProxyRoutes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceProxyRoutes operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceProxyRoutes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceProxyRoutes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProxyStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetProxyStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProxyStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListReachProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListReachProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -2992,6 +3105,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/pending", wrapper.ListPendingChanges)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/changes/{planId}/apply", wrapper.ApplyChange)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/changes/{planId}/rollback", wrapper.RollbackChange)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/proxy/status", wrapper.GetProxyStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ListProxyRoutes)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ReplaceProxyRoutes)
 
 	return m
 }

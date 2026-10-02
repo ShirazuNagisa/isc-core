@@ -152,6 +152,9 @@ var messagesEn = map[string]string{
 	"change.rollback_failed": "Rollback failed",
 	"reach.plan_failed":      "Could not build the change plan",
 
+	// --- reverse proxy ---
+	"proxy.invalid_routes": "The forwarding rules are invalid",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

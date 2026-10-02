@@ -7,6 +7,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -18,6 +19,8 @@ const (
 	KeyLogLevel         = "log_level"
 	KeyEventBufferSize  = "event_buffer_size"
 	KeyNotifyOnIPChange = "notify_on_ip_change"
+	KeyProxyEnabled     = "proxy_enabled"
+	KeyProxyPort        = "proxy_port"
 )
 
 // 允许的取值。
@@ -40,6 +43,13 @@ const (
 	MinEventBufferSize     = 100
 	MaxEventBufferSize     = 100000
 	DefaultEventBufferSize = 1000
+
+	// DefaultProxyPort 是反向代理的默认监听端口。
+	//
+	// 用 443 而不是 8080：用户访问的地址里不该带端口号，而 443 是
+	// 浏览器默认补的那个。非标端口意味着每个链接都要手写端口，
+	// 而分享出去的链接很容易忘。
+	DefaultProxyPort = 443
 )
 
 // Settings 是完整的设置快照。
@@ -48,6 +58,20 @@ type Settings struct {
 	LogLevel         string `json:"log_level"`
 	EventBufferSize  int    `json:"event_buffer_size"`
 	NotifyOnIPChange bool   `json:"notify_on_ip_change"`
+
+	// ProxyEnabled 控制是否启动反向代理的监听。
+	//
+	// 默认**关闭**：反代监听在公网上，开启它是一个需要用户明确决定的
+	// 动作。默认开着会让"我只是想用动态解析"的用户莫名其妙地多出一个
+	// 对外的监听端口。
+	ProxyEnabled bool `json:"proxy_enabled"`
+
+	// ProxyPort 是反代监听的端口。
+	//
+	// 默认 443 而不是 8080：用户访问的地址里不该带端口号 ——
+	// 而 443 是浏览器默认补的那个。用非标端口意味着每个链接都要
+	// 手写端口，而用户分享出去的链接很容易忘。
+	ProxyPort int `json:"proxy_port"`
 }
 
 // Default 返回默认设置。
@@ -57,6 +81,8 @@ func Default() Settings {
 		LogLevel:         LevelInfo,
 		EventBufferSize:  DefaultEventBufferSize,
 		NotifyOnIPChange: true,
+		ProxyEnabled:     false,
+		ProxyPort:        DefaultProxyPort,
 	}
 }
 
@@ -75,6 +101,8 @@ type Patch struct {
 	LogLevel         *string `json:"log_level,omitempty"`
 	EventBufferSize  *int    `json:"event_buffer_size,omitempty"`
 	NotifyOnIPChange *bool   `json:"notify_on_ip_change,omitempty"`
+	ProxyEnabled     *bool   `json:"proxy_enabled,omitempty"`
+	ProxyPort        *int    `json:"proxy_port,omitempty"`
 }
 
 // Service 提供设置的读写。
@@ -132,6 +160,12 @@ func (s *Service) Update(ctx context.Context, p Patch) (Settings, error) {
 	if p.NotifyOnIPChange != nil {
 		next.NotifyOnIPChange = *p.NotifyOnIPChange
 	}
+	if p.ProxyEnabled != nil {
+		next.ProxyEnabled = *p.ProxyEnabled
+	}
+	if p.ProxyPort != nil {
+		next.ProxyPort = *p.ProxyPort
+	}
 	if err := next.Validate(); err != nil {
 		s.mu.Unlock()
 		return s.current, err
@@ -172,6 +206,16 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("settings: 事件缓冲容量 %d 超出允许范围 [%d, %d]",
 			s.EventBufferSize, MinEventBufferSize, MaxEventBufferSize)
 	}
+
+	if s.ProxyPort < 0 || s.ProxyPort > 65535 {
+		return fmt.Errorf("settings: 代理端口 %d 不合法（0-65535）", s.ProxyPort)
+	}
+	if s.ProxyEnabled && s.ProxyPort == 0 {
+		// 开启代理却不给端口：那不是"用默认值"，而是一个明确的矛盾 ——
+		// 静默补一个默认值会让用户以为自己选了端口。
+		return errors.New("settings: 开启反向代理时必须指定监听端口")
+	}
+
 	return nil
 }
 
@@ -208,6 +252,16 @@ func merge(base Settings, kv map[string]string) Settings {
 			base.NotifyOnIPChange = b
 		}
 	}
+	if v, ok := kv[KeyProxyEnabled]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.ProxyEnabled = b
+		}
+	}
+	if v, ok := kv[KeyProxyPort]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 65535 {
+			base.ProxyPort = n
+		}
+	}
 	return base
 }
 
@@ -218,5 +272,7 @@ func encode(s Settings) map[string]string {
 		KeyLogLevel:         s.LogLevel,
 		KeyEventBufferSize:  strconv.Itoa(s.EventBufferSize),
 		KeyNotifyOnIPChange: strconv.FormatBool(s.NotifyOnIPChange),
+		KeyProxyEnabled:     strconv.FormatBool(s.ProxyEnabled),
+		KeyProxyPort:        strconv.Itoa(s.ProxyPort),
 	}
 }

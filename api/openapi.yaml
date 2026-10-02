@@ -1251,6 +1251,77 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 反向代理
+  # ---------------------------------------------------------------------------
+
+  /v1/proxy/status:
+    get:
+      tags: [Proxy]
+      operationId: getProxyStatus
+      summary: 读取反向代理的运行时状态
+      responses:
+        "200":
+          description: 状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/proxy/routes:
+    get:
+      tags: [Proxy]
+      operationId: listProxyRoutes
+      summary: 列出全部转发规则
+      responses:
+        "200":
+          description: 规则列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyRouteList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    put:
+      tags: [Proxy]
+      operationId: replaceProxyRoutes
+      summary: 整体替换转发规则
+      description: |
+        **整体替换**，不是增删改。
+
+        规则表必须始终自洽：同一个域名不能同时指向两个上游。增量修改会
+        让"检查冲突"变成一件需要跨多次调用才能完成的事，而中间任何一个
+        时刻的状态都可能有冲突 —— 那期间进来的请求会打到哪一条是不确定的。
+
+        整体替换让"检查 + 生效"变成一次原子操作。保存成功后会**立即生效**，
+        不需要重启监听（在途请求不会被切断）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxyRouteList"
+      responses:
+        "200":
+          description: 保存后的规则列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyRouteList"
+        "400":
+          description: |
+            规则不合法。常见的几种：上游不是本机地址、上游缺少端口、
+            域名格式不对、同一个域名被两条路由使用。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1775,12 +1846,35 @@ components:
           description: 事件环形缓冲容量。调大可延长断线补发的覆盖窗口。
         notify_on_ip_change:
           type: boolean
-          description: 地址或 IPv6 前缀变化时是否发送通知（M4 起生效）。
+          description: 地址或 IPv6 前缀变化时是否发送通知。
+        proxy_enabled:
+          type: boolean
+          description: |
+            是否启动反向代理。
+
+            默认**关闭**：反代监听在公网上，开启它是一个需要明确决定的
+            动作。默认开着会让"我只是想用动态解析"的用户莫名其妙地多出
+            一个对外的监听端口。
+        proxy_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: |
+            反向代理的监听端口。
+
+            默认 443 而不是 8080：用户访问的地址里不该带端口号，
+            而 443 是浏览器默认补的那个。
 
     SettingsPatch:
       type: object
       description: 只提交需要修改的字段。
       properties:
+        proxy_enabled:
+          type: boolean
+        proxy_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
         lang:
           type: string
           enum: [zh-CN, en]
@@ -2349,6 +2443,71 @@ components:
 
             界面必须在应用**之前**显示它 —— 用户有权知道"这一步做错了
             能不能退"。
+
+    # ------------------------------------------------------------------
+    # 反向代理
+    # ------------------------------------------------------------------
+
+    ProxyStatus:
+      type: object
+      required: [running, port, routes]
+      properties:
+        running:
+          type: boolean
+        port:
+          type: integer
+        routes:
+          type: integer
+        error:
+          type: string
+          description: |
+            最近一次启动失败的原因。
+
+            它必须被展示 —— 端口被占用之类的失败如果只写进日志，
+            用户在界面上看到的就是"代理没开"，而不知道为什么。
+
+    ProxyRouteList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProxyRoute"
+
+    ProxyRoute:
+      type: object
+      required: [id, domains, upstream]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          description: 用户可读的名称。
+        domains:
+          type: array
+          items:
+            type: string
+          description: |
+            要匹配的域名。支持两种写法：
+
+              home.example.com    精确匹配
+              *.example.com       匹配**一级**子域名
+
+            `*.example.com` 不匹配 `example.com` 本身，也不匹配
+            `a.b.example.com` —— 这与 TLS 证书的通配规则一致。
+            放宽它的后果是用户拿到一个证书不匹配的域名，
+            而浏览器只会说"证书无效"。
+        upstream:
+          type: string
+          description: |
+            转发目标，形如 `http://127.0.0.1:8096`。
+
+            **必须是本机或内网地址。** 反代监听在公网上，若允许任意
+            上游，任何人都能拿它当跳板 —— 而所有流量都记在用户头上。
+        tls:
+          type: boolean
+          description: 该域名是否需要 HTTPS。
 
     ChangeRecord:
       type: object

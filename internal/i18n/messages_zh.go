@@ -153,6 +153,9 @@ var messagesZh = map[string]string{
 	"change.rollback_failed": "撤销失败",
 	"reach.plan_failed":      "无法生成变更计划",
 
+	// --- 反向代理 ---
+	"proxy.invalid_routes": "转发规则不合法",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

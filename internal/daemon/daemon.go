@@ -31,6 +31,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
+	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
@@ -117,6 +118,7 @@ type Daemon struct {
 	changeRunner *change.Runner
 	reach        *reach.Registry
 	verifyMgr    *verify.Manager
+	proxyMgr     *proxy.Manager
 	// monitorCancel 停掉 IP 监控与调度器的后台 goroutine。
 	monitorCancel context.CancelFunc
 
@@ -262,6 +264,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.reach.Register(reach.NewIPv6Native(
 		d.bundle.IPMonitor, d.bundle.Firewall, d.bundle.Capabilities().Firewall))
 
+	// 反向代理。
+	//
+	// 它默认**不启动**：反代监听在公网上，开启它是一个需要用户明确
+	// 决定的动作。默认开着会让"我只是想用动态解析"的用户莫名其妙地
+	// 多出一个对外的监听端口。
+	d.proxyMgr = proxy.NewManager(st.ProxyRoutes(), d.log)
+
 	// 引导式外部验证。
 	//
 	// 目标地址取当前的主全局 IPv6：那是用户要用手机打开的那个地址。
@@ -333,6 +342,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Reach:          d.reach,
 		Changes:        d.changeRunner,
 		Verify:         d.verifyMgr,
+		Proxy:          d.proxyMgr,
+		ProxyRoutes:    d.proxyMgr.RouteStore(),
 	})
 
 	// 11. 建立传输通道
@@ -367,6 +378,29 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.log.Info(i18n.T("daemon.stopping"))
 
 	return d.shutdown()
+}
+
+// startProxy 按设置启动反向代理。
+func (d *Daemon) startProxy(ctx context.Context) {
+	if d.proxyMgr == nil || d.settings == nil {
+		return
+	}
+
+	s := d.settings.Get()
+	if !s.ProxyEnabled {
+		d.log.Info("反向代理未开启（可在设置中启用）")
+		return
+	}
+
+	if err := d.proxyMgr.Start(ctx, s.ProxyPort); err != nil {
+		// 启动失败**不阻断内核**：动态解析等其它功能仍然可用，
+		// 而用户需要界面可用才能去改端口。
+		//
+		// 但错误必须留在状态里（Manager.Status().Error），
+		// 否则用户在界面上只看到"代理没开"，不知道为什么。
+		d.log.Error("反向代理启动失败", "port", s.ProxyPort, "err", err)
+		return
+	}
 }
 
 // currentTargetIP 返回给用户用手机打开的那个地址。
@@ -497,6 +531,12 @@ func (d *Daemon) startBackground(parent context.Context) {
 	}()
 
 	go d.watchInterfaces(ctx)
+
+	// 反向代理：只在设置里开启时才启动。
+	//
+	// 默认关闭是刻意的 —— 反代监听在公网上，开启它是一个需要用户
+	// 明确决定的动作。
+	d.startProxy(ctx)
 
 	// 启动后立刻跑一轮。
 	//
@@ -690,6 +730,16 @@ func (d *Daemon) shutdown() error {
 	if d.monitorCancel != nil {
 		d.monitorCancel()
 		d.monitorCancel = nil
+	}
+
+	// 停掉反向代理：它会等待在途请求结束（可能有正在传输的大文件），
+	// 因此有自己的超时上限，不会让关闭流程无限期挂住。
+	//
+	// 用一个独立于调用方 ctx 的上下文：关闭流程本身可能就是被
+	// "取消 ctx"触发的，而用一个已取消的 ctx 去关停会让代理
+	// 来不及把在途请求收尾。
+	if d.proxyMgr != nil {
+		_ = d.proxyMgr.Stop(context.Background())
 	}
 
 	if d.bus != nil {
