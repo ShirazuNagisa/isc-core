@@ -341,7 +341,64 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### 迁移的第一步：`internal/cli/credential.go` 已完全转换
+
+棘轮建好之后开始真正降低它。第一个目标是 `credential.go`（51 处）——
+它是整条链路的入口（没有凭据什么都做不了），自包含，而且是我最近写的。
+
+**443 → 392**（`internal/cli`）。基线已跟着调低。
+
+真机验证 —— `--lang en` 现在确实出英文了：
+
+```
+$ isc --lang en credential list
+No credentials yet.
+Add one with isc credential add <provider>; the fields subcommand lists supported providers.
+
+$ isc --lang en credential add cloudflare --label test --field token=fake
+✅ Credential added (cH2HdYII7AropVfIfn84yQ)
+
+$ isc --lang en credential list
+Credentials (1)
+  cH2HdYII7AropVfIfn84yQ  test（cloudflare）
+      token = ********
+
+$ isc --lang en credential verify <id>
+❌ Credential does not work
+```
+
+默认 zh-CN 不受影响。
+
+`hardcoded_test.go` 里另加了一个 `convertedFiles` 列表按**文件**记录进度：
+一个包有十几个文件，而迁移是一文件一文件推进的 —— 只记总数看不出
+哪些已经做完。
+
+##### 仍然显示中文的部分，以及它们的性质
+
+同一次输出里还有两处中文，而它们**不在 `internal/cli`**：
+
+| 位置 | 来源 | 性质 |
+|---|---|---|
+| `cloudflare（Cloudflare）` 的展示名 | `internal/provider` 的服务商注册表 | 数据，本地化需要注册表在查询时感知语言 |
+| `--field token=<API 令牌>` 的字段说明 | 同上（`FieldSpec`） | 同上 |
+
+而 `internal/provider` 里那 21 处中，**9 处是服务商展示名**（「阿里云 DNS」
+等），其余多数是**开发者错误**（如「服务商 %q 被重复登记」）—— D21 说的是
+"用户可见"，而这两类性质不同：前者要本地化，后者不该出现在用户面前。
+
 ##### 遗留工作（如实记录）
+
+全量转换是明确未完成的工作。建议的顺序是**按用户可见度**而不是按包：
+
+1. `internal/provider`（21）—— 展示名与字段说明，做完之后整条凭据流程
+   就是全英文的（含上面那两处）
+2. `internal/cli` 的其余文件（392，`records.go` 73 / `init.go` 54 最大）
+3. `internal/api`（105）
+4. `internal/provider/tier1`（158）—— 凭据报错时用户看到的第一手信息
+5. `internal/ddnsgo`（318）—— 移植代码，转换后要记着**与上游的差异**，
+   否则将来重新移植时会丢失这些改动
+6. 其余
+
 
 全量转换是明确未完成的工作。建议的顺序是**按用户可见度**而不是按包：
 

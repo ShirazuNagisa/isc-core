@@ -172,4 +172,73 @@ var messagesEn = map[string]string{
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
 	"store.closed":         "The database is closed",
+	// --- credential management (CLI) ---
+	"cli.credential.short":      "Manage DNS provider credentials",
+	"cli.credential.list_short": "List saved credentials",
+	"cli.credential.add_short":  "Add a credential",
+	"cli.credential.rm_short":   "Delete a credential",
+	"cli.credential.long": "Manage DNS provider credentials.\n\n" +
+		"Credentials are stored encrypted under a master key held in the system\n" +
+		"key store (Windows DPAPI / macOS Keychain / Linux Secret Service).\n" +
+		"The API only ever returns **masked** values for secret fields; the\n" +
+		"plaintext is never sent back.\n\n" +
+		"Use 'isc credential fields <provider>' to see which fields a provider needs.",
+	"cli.credential.list_empty":       "No credentials yet.",
+	"cli.credential.list_empty_hint":  "Add one with isc credential add <provider>; the fields subcommand lists supported providers.",
+	"cli.credential.list_title":       "Credentials (%d)",
+	"cli.credential.not_implemented":  "this provider is not implemented yet",
+	"cli.credential.verify_failed_at": "last check failed (%s)",
+
+	"cli.credential.add_long": "Add a DNS provider credential.\n\n" +
+		"Fields are passed with --field, repeatable:\n\n" +
+		"  isc credential add cloudflare --label my-cf --field token=<API-TOKEN>\n" +
+		"  isc credential add dnspod --label primary \\\n" +
+		"      --field id=<ID> --field secret=<TOKEN>\n\n" +
+		"Use 'isc credential fields <provider>' to see the field names.\n\n" +
+		"**Least privilege**: DNS record editing is all that is needed.\n" +
+		"For Cloudflare, a token with Zone:DNS:Edit is enough — the kernel\n" +
+		"does not touch any other setting.",
+	"cli.credential.provider_empty": "the provider name cannot be empty",
+	"cli.credential.label_required": "--label is required to name the credential — " +
+		"one provider can have several credentials, and the label is how they are told apart",
+	"cli.credential.added":       "✅ Credential added (%s)",
+	"cli.credential.added_hint":  "Next: create a dynamic DNS task with this ID, or manage DNS records in the console.",
+	"cli.credential.fields_hint": "run 'isc credential fields %s' to see which fields it needs",
+
+	"cli.credential.fields_short":   "Show which credential fields a provider needs",
+	"cli.credential.fields_long":    "Show which credential fields a provider needs.\n\nWith no argument, lists every provider.",
+	"cli.credential.fields_unknown": "No provider named %q. Run without an argument to see them all",
+	"cli.credential.no_fields":      "(no credential fields needed)",
+	"cli.credential.field_required": "(required)",
+	"cli.credential.field_secret":   " [secret]",
+	"cli.credential.field_example":  "  e.g. %s",
+	"cli.credential.capabilities":   "    Capabilities: %s",
+	"cli.credential.cap_dynamic":    "dynamic DNS",
+	"cli.credential.cap_zones":      "list zones",
+	"cli.credential.cap_create":     "create records",
+	"cli.credential.cap_update":     "update records",
+	"cli.credential.cap_delete":     "delete records",
+	"cli.credential.cap_dns01":      "DNS-01 certificates",
+	"cli.credential.tier":           "  [Tier-%d]",
+	"cli.credential.unavailable":    "  ⚠ not implemented yet",
+
+	"cli.credential.rm_confirm": "Deleting credential %s invalidates every dynamic DNS task that references it.\nAdd --yes to confirm.",
+	"cli.credential.removed":    "✅ Credential %s deleted",
+
+	"cli.credential.verify_short": "Check whether a credential works",
+	"cli.credential.verify_long": "Check whether a credential works (\"test connection\").\n\n" +
+		"**Not every provider supports this**: Alibaba Cloud / Tencent Cloud /\n" +
+		"Huawei Cloud / GoDaddy have no read-only check endpoint, and faking one\n" +
+		"by listing domains would demand extra permissions — misjudging a\n" +
+		"least-privilege account as invalid.\n\n" +
+		"When unsupported, this command says so instead of reporting a fake failure.",
+	"cli.credential.verify_ok":  "✅ Credential works",
+	"cli.credential.verify_bad": "❌ Credential does not work",
+
+	"cli.credential.field_format": "--field takes name=value, got %q",
+	"cli.credential.field_noname": "--field is missing a field name: %q",
+	"cli.credential.field_none":   "at least one --field is required. Use 'isc credential fields <provider>' to see which",
+	"cli.credential.yes_flag":     "skip confirmation",
+	"cli.credential.label_flag":   "human-readable name (required) — one provider can have several credentials",
+	"cli.credential.field_flag":   "a field as name=value, repeatable",
 }

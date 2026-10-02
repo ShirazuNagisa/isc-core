@@ -43,12 +43,20 @@ import (
 // 转换完一处之后，把对应包的基线改成实际值（**只能调低**）。
 // 某个包降到 0 时，从下面的表里删掉它 —— 那时它会受"完全不许有"的约束。
 
+// convertedFiles 是**已经完全转换**的文件。
+//
+// 按文件而不是按包记录进度：一个包有几十个文件，而迁移是一文件一文件
+// 推进的。这个列表让"哪些已经做完"一目了然，而不是只能从总数推断。
+var convertedFiles = []string{
+	"internal/cli/credential.go",
+}
+
 // hardcodedBaseline 是各包当前硬编码中文串的数量。
 //
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	"internal/cli":            443,
+	"internal/cli":            392,
 	"internal/ddnsgo":         318,
 	"internal/platform":       204,
 	"internal/provider/tier1": 158,

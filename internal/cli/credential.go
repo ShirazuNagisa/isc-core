@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 本文件补齐**凭据管理的命令行入口**。
@@ -26,14 +27,8 @@ import (
 func newCredentialCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "credential",
-		Short: "管理 DNS 服务商凭据",
-		Long: `管理 DNS 服务商凭据。
-
-凭据加密存储在主密钥保护的信封里，而主密钥在系统密钥库里
-（Windows DPAPI / macOS 钥匙串 / Linux Secret Service）。
-接口只返回敏感字段的**掩码值**，明文永远不会被发回来。
-
-用 'isc credential fields <服务商>' 查看某家需要哪些字段。`,
+		Short: i18n.T("cli.credential.short"),
+		Long:  i18n.T("cli.credential.long"),
 	}
 
 	cmd.AddCommand(
@@ -49,7 +44,7 @@ func newCredentialCmd(app *App) *cobra.Command {
 func newCredentialListCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "列出已保存的凭据",
+		Short: i18n.T("cli.credential.list_short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
@@ -70,14 +65,13 @@ func newCredentialListCmd(app *App) *cobra.Command {
 			}
 
 			if len(list.Items) == 0 {
-				_, _ = fmt.Fprintln(app.out, "还没有任何凭据。")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.credential.list_empty"))
 				_, _ = fmt.Fprintln(app.out,
-					"用 isc credential add <服务商> 添加一个；"+
-						"isc credential providers 可以看到支持哪些服务商。")
+					i18n.T("cli.credential.list_empty_hint"))
 				return nil
 			}
 
-			_, _ = fmt.Fprintf(app.out, "凭据（%d）\n", len(list.Items))
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.credential.list_title")+"\n", len(list.Items))
 			_, _ = fmt.Fprintln(app.out, strings.Repeat("-", 66))
 			for _, c := range list.Items {
 				_, _ = fmt.Fprintf(app.out, "  %s  %s（%s）\n",
@@ -97,18 +91,18 @@ func newCredentialListCmd(app *App) *cobra.Command {
 				// 这是真机上跑出来的（isc credential list 打出了
 				// nil pointer dereference），而不是从代码里看出来的。
 				if c.Capabilities != nil && !c.Capabilities.Available {
-					_, _ = fmt.Fprintf(app.out,
-						"      ⚠ 该服务商的实现尚未完成\n")
+					_, _ = fmt.Fprintf(app.out, "      ⚠ %s\n",
+						i18n.T("cli.credential.not_implemented"))
 				}
 
 				// 上次校验的结果：用户最关心的"这个凭据还能用吗"。
 				if c.LastVerifyOk != nil && !*c.LastVerifyOk {
-					_, _ = fmt.Fprintf(app.out, "      ⚠ 上次校验未通过")
+					when := ""
 					if c.LastVerifiedAt != nil {
-						_, _ = fmt.Fprintf(app.out, "（%s）",
-							c.LastVerifiedAt.Local().Format("2006-01-02 15:04"))
+						when = c.LastVerifiedAt.Local().Format("2006-01-02 15:04")
 					}
-					_, _ = fmt.Fprintln(app.out)
+					_, _ = fmt.Fprintf(app.out, "      ⚠ %s\n",
+						i18n.T("cli.credential.verify_failed_at", when))
 					if c.LastVerifyError != nil && *c.LastVerifyError != "" {
 						_, _ = fmt.Fprintf(app.out, "        %s\n",
 							firstLine(*c.LastVerifyError))
@@ -127,30 +121,18 @@ func newCredentialAddCmd(app *App) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "add <服务商>",
-		Short: "添加一个凭据",
-		Long: `添加一个 DNS 服务商凭据。
-
-字段用 --field 传入，可以重复：
-
-  isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>
-  isc credential add dnspod --label 主域名 \
-      --field id=<ID> --field secret=<TOKEN>
-
-用 'isc credential fields <服务商>' 查看它需要哪些字段名。
-
-**最小权限**：只需 DNS 记录的编辑权限。以 Cloudflare 为例，
-Token 只开 Zone:DNS:Edit 即可 —— 内核不会碰其它任何设置。`,
-		Args: cobra.ExactArgs(1),
+		Use:   "add <provider>",
+		Short: i18n.T("cli.credential.add_short"),
+		Long:  i18n.T("cli.credential.add_long"),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			provider := strings.TrimSpace(args[0])
 			if provider == "" {
-				return app.fail(cmd, fmt.Errorf("服务商名不能为空"))
+				return app.fail(cmd, fmt.Errorf("%s", i18n.T("cli.credential.provider_empty")))
 			}
 			if strings.TrimSpace(label) == "" {
-				return app.fail(cmd, fmt.Errorf(
-					"必须用 --label 给凭据起一个名字 —— "+
-						"同一家服务商可以有多组凭据，而名字是界面上区分它们的方式"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.credential.label_required")))
 			}
 
 			kv, err := parseFields(fields)
@@ -177,40 +159,37 @@ Token 只开 Zone:DNS:Edit 即可 —— 内核不会碰其它任何设置。`,
 			if err := client.postInto(ctx, "/v1/credentials", payload, &created); err != nil {
 				// 缺字段之类的错误，补一句"怎么查需要哪些字段"——
 				// 那是用户下一步唯一想做的事。
-				return app.fail(cmd, fmt.Errorf(
-					"%w\n用 'isc credential fields %s' 查看它需要哪些字段",
-					err, provider))
+				return app.fail(cmd, fmt.Errorf("%w\n%s", err,
+					i18n.T("cli.credential.fields_hint", provider)))
 			}
 
 			if app.jsonOut {
 				return writeJSONOut(app.out, created)
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 凭据已添加（%s）\n", created.Id)
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.credential.added")+"\n", created.Id)
 			_, _ = fmt.Fprintf(app.out, "   %s（%s）\n",
 				created.Label, created.Provider)
 			_, _ = fmt.Fprintln(app.out,
-				"\n下一步：用这个 ID 创建动态解析任务，或在控制台里管理 DNS 记录。")
+				"\n"+i18n.T("cli.credential.added_hint"))
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&label, "label", "",
-		"凭据的可读名称（必填）—— 同一家服务商可以有多组凭据")
+		i18n.T("cli.credential.label_flag"))
 	cmd.Flags().StringArrayVar(&fields, "field", nil,
-		"字段，形如 name=value，可重复")
+		i18n.T("cli.credential.field_flag"))
 	return cmd
 }
 
 func newCredentialFieldsCmd(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:     "fields <服务商>",
+		Use:     "fields <provider>",
 		Aliases: []string{"providers"},
-		Short:   "查看某家服务商需要哪些凭据字段",
-		Long: `查看某家服务商需要哪些凭据字段。
-
-不带参数时列出全部服务商。`,
-		Args: cobra.MaximumNArgs(1),
+		Short:   i18n.T("cli.credential.fields_short"),
+		Long:    i18n.T("cli.credential.fields_long"),
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -246,8 +225,8 @@ func newCredentialFieldsCmd(app *App) *cobra.Command {
 			}
 
 			if want != "" && !found {
-				return app.fail(cmd, fmt.Errorf(
-					"没有名为 %q 的服务商。不带参数运行可以看到全部", want))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.credential.fields_unknown", want)))
 			}
 			return nil
 		},
@@ -259,25 +238,25 @@ func renderProviderFields(app *App, p gen.Provider) {
 
 	status := ""
 	if !p.Capabilities.Available {
-		status = "  ⚠ 尚未实现"
+		status = i18n.T("cli.credential.unavailable")
 	}
 	tier := ""
 	if p.Tier != nil {
-		tier = fmt.Sprintf("  [Tier-%d]", int(*p.Tier))
+		tier = i18n.T("cli.credential.tier", int(*p.Tier))
 	}
 	_, _ = fmt.Fprintf(w, "%s（%s）%s%s\n", p.Name, p.DisplayName, tier, status)
 
 	if len(p.CredentialFields) == 0 {
-		_, _ = fmt.Fprintln(w, "    （无需凭据字段）")
+		_, _ = fmt.Fprintln(w, "    "+i18n.T("cli.credential.no_fields"))
 	}
 	for _, f := range p.CredentialFields {
 		required := ""
 		if f.Required {
-			required = "（必填）"
+			required = i18n.T("cli.credential.field_required")
 		}
 		secret := ""
 		if f.Secret {
-			secret = " [敏感]"
+			secret = i18n.T("cli.credential.field_secret")
 		}
 		_, _ = fmt.Fprintf(w, "    --field %s=<%s>  %s%s%s%s\n",
 			f.Key, f.Label, required, secret, fieldHint(f), exampleHint(f))
@@ -291,14 +270,15 @@ func renderProviderFields(app *App, p gen.Provider) {
 				caps = append(caps, name)
 			}
 		}
-		add(p.Capabilities.Dynamic, "动态解析")
-		add(p.Capabilities.ZoneList, "列区域")
-		add(p.Capabilities.RecordCreate, "新增记录")
-		add(p.Capabilities.RecordUpdate, "修改记录")
-		add(p.Capabilities.RecordDelete, "删除记录")
-		add(p.Capabilities.Dns01, "DNS-01 证书")
+		add(p.Capabilities.Dynamic, i18n.T("cli.credential.cap_dynamic"))
+		add(p.Capabilities.ZoneList, i18n.T("cli.credential.cap_zones"))
+		add(p.Capabilities.RecordCreate, i18n.T("cli.credential.cap_create"))
+		add(p.Capabilities.RecordUpdate, i18n.T("cli.credential.cap_update"))
+		add(p.Capabilities.RecordDelete, i18n.T("cli.credential.cap_delete"))
+		add(p.Capabilities.Dns01, i18n.T("cli.credential.cap_dns01"))
 		if len(caps) > 0 {
-			_, _ = fmt.Fprintf(w, "    能力：%s\n", strings.Join(caps, " / "))
+			_, _ = fmt.Fprintf(w, "%s\n",
+				i18n.T("cli.credential.capabilities", strings.Join(caps, " / ")))
 		}
 	}
 	_, _ = fmt.Fprintln(w)
@@ -313,7 +293,7 @@ func fieldHint(f gen.ProviderField) string {
 
 func exampleHint(f gen.ProviderField) string {
 	if f.Example != nil && *f.Example != "" {
-		return "  例如 " + *f.Example
+		return i18n.T("cli.credential.field_example", *f.Example)
 	}
 	return ""
 }
@@ -322,9 +302,9 @@ func newCredentialRemoveCmd(app *App) *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:     "rm <凭据ID>",
+		Use:     "rm <credential-id>",
 		Aliases: []string{"remove", "delete"},
-		Short:   "删除一个凭据",
+		Short:   i18n.T("cli.credential.rm_short"),
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
@@ -333,8 +313,7 @@ func newCredentialRemoveCmd(app *App) *cobra.Command {
 				// 默认要确认：删掉凭据会让引用它的任务全部失效，
 				// 而那是一个用户不容易自己发现的连锁后果。
 				_, _ = fmt.Fprintf(app.out,
-					"删除凭据 %s 会让引用它的动态解析任务全部失效。\n"+
-						"确认请加 --yes。\n", id)
+					i18n.T("cli.credential.rm_confirm")+"\n", id)
 				return nil
 			}
 
@@ -350,27 +329,21 @@ func newCredentialRemoveCmd(app *App) *cobra.Command {
 				return app.fail(cmd, err)
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 凭据 %s 已删除\n", id)
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.credential.removed")+"\n", id)
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&force, "yes", false, "跳过确认")
+	cmd.Flags().BoolVar(&force, "yes", false, i18n.T("cli.credential.yes_flag"))
 	return cmd
 }
 
 func newCredentialVerifyCmd(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:   "verify <凭据ID>",
-		Short: "校验凭据是否可用",
-		Long: `校验凭据是否可用（"测试连接"）。
-
-**不是所有服务商都支持**：阿里云 / 腾讯云 / 华为云 / GoDaddy 没有只读的
-校验端点，用"列一次域名"来冒充会要求额外的权限，把只有 DNS 编辑权限的
-最小权限账号误判为无效。
-
-不支持时这条命令会明确说明，而不是给你一个假的"失败"。`,
-		Args: cobra.ExactArgs(1),
+		Use:   "verify <credential-id>",
+		Short: i18n.T("cli.credential.verify_short"),
+		Long:  i18n.T("cli.credential.verify_long"),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -391,9 +364,9 @@ func newCredentialVerifyCmd(app *App) *cobra.Command {
 			}
 
 			if res.Ok {
-				_, _ = fmt.Fprintln(app.out, "✅ 凭据可用")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.credential.verify_ok"))
 			} else {
-				_, _ = fmt.Fprintln(app.out, "❌ 凭据不可用")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.credential.verify_bad"))
 			}
 			if res.Message != nil && *res.Message != "" {
 				_, _ = fmt.Fprintf(app.out, "   %s\n", *res.Message)
@@ -425,22 +398,21 @@ func firstLine(s string) string {
 // 而症状是"凭据看起来填对了但校验失败"。
 func parseFields(items []string) (map[string]string, error) {
 	if len(items) == 0 {
-		return nil, fmt.Errorf(
-			"至少要用 --field 提供一个字段。" +
-				"用 'isc credential fields <服务商>' 查看需要哪些")
+		return nil, fmt.Errorf("%s", i18n.T("cli.credential.field_none"))
 	}
 
 	out := make(map[string]string, len(items))
 	for _, item := range items {
 		idx := strings.Index(item, "=")
 		if idx <= 0 {
-			return nil, fmt.Errorf(
-				"--field 的格式是 name=value，收到 %q", item)
+			return nil, fmt.Errorf("%s",
+				i18n.T("cli.credential.field_format", item))
 		}
 		name := strings.TrimSpace(item[:idx])
 		value := item[idx+1:] // 值里允许有等号，因此不 Trim 也不切分
 		if name == "" {
-			return nil, fmt.Errorf("--field 缺少字段名：%q", item)
+			return nil, fmt.Errorf("%s",
+				i18n.T("cli.credential.field_noname", item))
 		}
 		out[name] = value
 	}

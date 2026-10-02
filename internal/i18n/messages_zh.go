@@ -173,4 +173,70 @@ var messagesZh = map[string]string{
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",
 	"store.closed":         "数据库已关闭",
+	// --- 凭据管理（CLI） ---
+	"cli.credential.short":      "管理 DNS 服务商凭据",
+	"cli.credential.list_short": "列出已保存的凭据",
+	"cli.credential.add_short":  "添加一个凭据",
+	"cli.credential.rm_short":   "删除一个凭据",
+	"cli.credential.long": "管理 DNS 服务商凭据。\n\n" +
+		"凭据加密存储在主密钥保护的信封里，而主密钥在系统密钥库里\n" +
+		"（Windows DPAPI / macOS 钥匙串 / Linux Secret Service）。\n" +
+		"接口只返回敏感字段的**掩码值**，明文永远不会被发回来。\n\n" +
+		"用 'isc credential fields <服务商>' 查看某家需要哪些字段。",
+	"cli.credential.list_empty":       "还没有任何凭据。",
+	"cli.credential.list_empty_hint":  "用 isc credential add <服务商> 添加一个；isc credential list 的子命令 fields 可以看到支持哪些服务商。",
+	"cli.credential.list_title":       "凭据（%d）",
+	"cli.credential.not_implemented":  "该服务商的实现尚未完成",
+	"cli.credential.verify_failed_at": "上次校验未通过（%s）",
+
+	"cli.credential.add_long": "添加一个 DNS 服务商凭据。\n\n" +
+		"字段用 --field 传入，可以重复：\n\n" +
+		"  isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>\n" +
+		"  isc credential add dnspod --label 主域名 \\\n" +
+		"      --field id=<ID> --field secret=<TOKEN>\n\n" +
+		"用 'isc credential fields <服务商>' 查看它需要哪些字段名。\n\n" +
+		"**最小权限**：只需 DNS 记录的编辑权限。以 Cloudflare 为例，\n" +
+		"Token 只开 Zone:DNS:Edit 即可 —— 内核不会碰其它任何设置。",
+	"cli.credential.provider_empty": "服务商名不能为空",
+	"cli.credential.label_required": "必须用 --label 给凭据起一个名字 —— " +
+		"同一家服务商可以有多组凭据，而名字是界面上区分它们的方式",
+	"cli.credential.added":       "✅ 凭据已添加（%s）",
+	"cli.credential.added_hint":  "下一步：用这个 ID 创建动态解析任务，或在控制台里管理 DNS 记录。",
+	"cli.credential.fields_hint": "用 'isc credential fields %s' 查看它需要哪些字段",
+
+	"cli.credential.fields_short":   "查看某家服务商需要哪些凭据字段",
+	"cli.credential.fields_long":    "查看某家服务商需要哪些凭据字段。\n\n不带参数时列出全部服务商。",
+	"cli.credential.fields_unknown": "没有名为 %q 的服务商。不带参数运行可以看到全部",
+	"cli.credential.no_fields":      "（无需凭据字段）",
+	"cli.credential.field_required": "（必填）",
+	"cli.credential.field_secret":   " [敏感]",
+	"cli.credential.field_example":  "  例如 %s",
+	"cli.credential.capabilities":   "    能力：%s",
+	"cli.credential.cap_dynamic":    "动态解析",
+	"cli.credential.cap_zones":      "列区域",
+	"cli.credential.cap_create":     "新增记录",
+	"cli.credential.cap_update":     "修改记录",
+	"cli.credential.cap_delete":     "删除记录",
+	"cli.credential.cap_dns01":      "DNS-01 证书",
+	"cli.credential.tier":           "  [Tier-%d]",
+	"cli.credential.unavailable":    "  ⚠ 尚未实现",
+
+	"cli.credential.rm_confirm": "删除凭据 %s 会让引用它的动态解析任务全部失效。\n确认请加 --yes。",
+	"cli.credential.removed":    "✅ 凭据 %s 已删除",
+
+	"cli.credential.verify_short": "校验凭据是否可用",
+	"cli.credential.verify_long": "校验凭据是否可用（\"测试连接\"）。\n\n" +
+		"**不是所有服务商都支持**：阿里云 / 腾讯云 / 华为云 / GoDaddy 没有只读的\n" +
+		"校验端点，用\"列一次域名\"来冒充会要求额外的权限，把只有 DNS 编辑权限的\n" +
+		"最小权限账号误判为无效。\n\n" +
+		"不支持时这条命令会明确说明，而不是给你一个假的\"失败\"。",
+	"cli.credential.verify_ok":  "✅ 凭据可用",
+	"cli.credential.verify_bad": "❌ 凭据不可用",
+
+	"cli.credential.field_format": "--field 的格式是 name=value，收到 %q",
+	"cli.credential.field_noname": "--field 缺少字段名：%q",
+	"cli.credential.field_none":   "至少要用 --field 提供一个字段。用 'isc credential fields <服务商>' 查看需要哪些",
+	"cli.credential.yes_flag":     "跳过确认",
+	"cli.credential.label_flag":   "凭据的可读名称（必填）—— 同一家服务商可以有多组凭据",
+	"cli.credential.field_flag":   "字段，形如 name=value，可重复",
 }
