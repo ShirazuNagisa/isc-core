@@ -3,7 +3,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,20 +30,6 @@ import (
 //
 // **版本要求会写进错误信息**：装错版本的表现是一句语焉不详的 WIX7015，
 // 而那句话不告诉人该怎么办。
-
-// MSIOptions 是生成 .msi 所需的输入。
-type MSIOptions struct {
-	BinaryPath  string // 要打包的 isc.exe
-	Version     string // 版本号（MSI 要求 x.y.z 形式）
-	UpgradeCode string // 跨版本标识，升级时靠它认亲
-	OutPath     string // 产物路径
-}
-
-// msiWixVersion 是要求的最低 WiX 版本，也是已知不受 OSMF 约束的上限。
-const msiWixVersion = "5.0.2"
-
-// ErrWixMissing 表示 PATH 上没有 wix。
-var ErrWixMissing = errors.New("wix")
 
 // BuildMSI 生成 .msi。
 //

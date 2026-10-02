@@ -21,6 +21,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -224,6 +225,38 @@ func run(outDir, versionArg string, runTests bool) error {
 			} else {
 				artifacts = append(artifacts, rpmPath)
 				fmt.Printf("    %s\n", filepath.Base(rpmPath))
+			}
+		}
+
+		// Windows 额外产出 .msi。
+		//
+		// 与 .deb / .rpm 不同，它需要**外部工具**（WiX），因此只在本机构建
+		// Windows 目标且 wix 在 PATH 上时才有。这也是它的失败
+		// **不中止整个发布**的原因：另外九个产物与它无关。
+		if t.GOOS == "windows" {
+			msiPath := filepath.Join(outDir,
+				fmt.Sprintf("%s_%s_%s.msi", binaryName, version, t.GOARCH))
+			err := BuildMSI(MSIOptions{
+				BinaryPath:  filepath.Join(stage, exeNameFor(t)),
+				Version:     version,
+				UpgradeCode: msiUpgradeCode,
+				OutPath:     msiPath,
+			})
+			switch {
+			case err == nil:
+				artifacts = append(artifacts, msiPath)
+				fmt.Printf("    %s\n", filepath.Base(msiPath))
+			case errors.Is(err, ErrWixMissing):
+				// 没装 WiX 不是错误，是**这台机器打不了 MSI**。
+				// 把该怎么装写出来 —— 否则用户只看到"少了一个包"，
+				// 而不知道少的那个是可以装的。
+				fmt.Fprintf(os.Stderr,
+					"    跳过 msi：PATH 上没有 wix。"+
+						"装法：dotnet tool install --global wix --version %s\n",
+					msiWixVersion)
+			default:
+				fmt.Fprintf(os.Stderr,
+					"    警告：生成 msi 失败（其余产物不受影响）：%v\n", err)
 			}
 		}
 	}
