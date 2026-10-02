@@ -93,6 +93,7 @@ SOFTWARE.
 | `github.com/spf13/pflag` | v1.0.9 | BSD-3-Clause | cobra 的间接依赖 |
 | `golang.org/x/sys` | v0.48.0 | BSD-3-Clause | 平台系统调用（命名管道、DPAPI、ACL 等） |
 | `golang.org/x/net` | v0.59.0 | BSD-3-Clause | IDNA 与 publicsuffix（根域名识别） |
+| `golang.org/x/crypto` | v0.57.0 | BSD-3-Clause | ACME 协议（x/crypto/acme），用于 DNS-01 证书签发 |
 | `golang.org/x/text` | v0.42.0 | BSD-3-Clause | 国际化文本处理 |
 | `modernc.org/libc` | v1.77.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
 | `modernc.org/mathutil` | v1.7.1 | BSD-3-Clause | modernc.org/sqlite 的间接依赖 |
