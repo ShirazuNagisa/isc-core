@@ -103,6 +103,49 @@ var consoleMessagesZh = map[string]string{
 	"web.raw.send":  "发送",
 	"web.raw.ready": "就绪",
 
+	// --- 说明段落（含内联标签，用 data-i18n-html 注入）---
+	//
+	// 这些句子被 <strong> / <code> 切开，逐文本节点抽取会得到不可翻译的碎片。
+	// 整句作为一条消息是唯一的办法 —— 译者需要看到完整的句子才知道
+	// 那个 <strong> 圈的是哪一部分。
+	"web.overview.p1":    "每一项都来自内核的<strong>代码事实</strong>（接口断言），不是配置。「引导模式」表示该平台后端尚未实现，相关功能会降级而不是假装成功。",
+	"web.ip.p2":          "<strong>前缀</strong>是这套系统的核心概念：ISP 重拨后变化的是整个 <code>/64</code> 前缀，该前缀下的<strong>所有</strong> AAAA 记录都要重写，而不是只改一个地址。列表里只会出现 <code>/64</code> 及更粗的前缀 ——Windows 会把 IPv6 主机地址报成 <code>/128</code>，而隐私扩展地址每小时轮换，把它当委派前缀会造成每小时一次的无意义全量更新。",
+	"web.credentials.p3": "凭据加密存储在主密钥保护的信封里。列表中只显示掩码值 ——内核<strong>不会</strong>把明文凭据发回界面。",
+	"web.tasks.p4":       "一条任务 = 一组凭据 + 一组域名 + 一组地址来源。地址变化会被立即触发，另有定时轮询兜底。<br> 勾选任务的「立即执行」会<strong>清空防抖缓存</strong>，因此必定与服务商比对一次。",
+	"web.records.p5":     "仅 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / DNSPod / 华为云 / GoDaddy）。<br> <strong>注意各家的记录模型不同</strong>：华为云的一条记录属于一个「记录集」，GoDaddy 的记录没有独立 ID ——它们的删除会波及同名的其它值。详见 <code>docs/PROVIDER-MATRIX.md</code>。",
+	"web.proxy.p6":       "按域名把外部请求转发到本机的服务上。<strong>没有默认上游</strong> ——未配置的域名会返回 404，而不是回落到某个本地服务。<br> 上游只允许本机与内网地址：允许公网地址会让这个功能变成一个 <strong>开放代理</strong>，任何人都能借你的机器转发流量。",
+	"web.proxy.p7":       "规则是<strong>整体保存</strong>的：同一个域名不能同时指向两个上游，而增量修改会让「检查冲突」变成一件跨多次调用才能完成的事。",
+	"web.certs.p8":       "证书由内核自动申请与续期：到期前 <strong>1/3 寿命</strong>时进入续期窗口 （对 90 天的证书即提前 30 天）。一般情况下不需要手动干预。<br> 「需要续期」后面会给出<strong>理由</strong> ——一类是快过期了，另一类是 「现有证书不覆盖某个新加的域名」，而后者与剩余有效期无关。",
+	"web.notify.p9":      "同一个事件在静默期内只发一条，防止地址抖动刷屏；静默期过后若期间有被抑制的消息，会补发一条汇总。<br> <strong>日志通道始终可用</strong> ——即使没有配置任何外部通道，通知也会出现在事件流与内核日志里。",
+	"web.notify.p10":     "配置通道时最常被问到的问题是「我的通知到底发出去了没有」——这里是答案。",
+	"web.service.p11":    "把内核注册为系统服务之后会开机自启、崩溃自动重启，不必一直开着终端。<br> <strong>安装与卸载需要管理员权限</strong>；在 Windows 上，连<strong>查询</strong>服务状态也需要 ——因此下面同时报出「内核是否可达」，那个问题不需要任何权限就能回答。",
+	"web.service.p12":    "卸载<strong>不会</strong>删除数据目录 ——里面有你的凭据与配置。",
+	"web.events.p13":     "通过 WebSocket 实时推送。浏览器无法为 WebSocket 设置请求头，因此令牌走 <code>Sec-WebSocket-Protocol</code> 子协议传递。<br> 断线重连时会带上 <code>lastEventId</code> 补发漏掉的事件；若补发链已断（环形缓冲被覆盖），会收到一条 <code>events.gap</code> 而不是静默丢事件。",
+	"web.raw.p14":        "直接对内核发一次请求并看到<strong>原始响应</strong>。验证功能的最后一道手段 ——界面有 bug 时，这里仍然可信。<br> 契约原文：<a href=\"/v1/openapi.yaml\" target=\"_blank\" rel=\"noopener\">/v1/openapi.yaml</a>",
+
+	// --- 混合内容标签 ---
+	//
+	// 这些标签里**既有文字又有表单控件**（`<label>凭据 <select>…`）。
+	// 直接给 label 加 data-i18n 会把控件一起替换掉 —— 界面会少一个下拉框，
+	// 而那种错误在页面上不显眼、在代码里也看不出来。因此把纯文本包进
+	// <span data-i18n>，控件留在外面。
+	"web.ov.th_cap":       "能力",
+	"web.ov.th_avail":     "可用",
+	"web.ov.th_backend":   "后端",
+	"web.ov.th_note":      "说明",
+	"web.rec.l_cred":      "凭据",
+	"web.rec.l_zone":      "区域",
+	"web.rec.pick_cred":   "（先选凭据）",
+	"web.px.l_enable":     "启用反向代理",
+	"web.px.l_port":       "端口",
+	"web.px.l_https":      "使用 HTTPS",
+	"web.svc.l_autostart": "开机自启",
+	"web.svc.l_restart":   "崩溃后自动重启",
+	"web.ev.l_follow":     "自动滚动",
+	"web.raw.l_method":    "方法",
+	"web.raw.l_path":      "路径",
+	"web.raw.l_body":      "请求体（JSON，可留空）",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }

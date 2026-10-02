@@ -52,12 +52,9 @@
   <div class="grid" id="overviewCards"></div>
 
   <h2 data-i18n="web.ov.cap_title"></h2>
-  <p class="hint">
-    每一项都来自内核的<strong>代码事实</strong>（接口断言），不是配置。
-    「引导模式」表示该平台后端尚未实现，相关功能会降级而不是假装成功。
-  </p>
+  <p class="hint" data-i18n-html="web.overview.p1"></p>
   <table class="data" id="capTable">
-    <thead><tr><th>能力</th><th>可用</th><th>后端</th><th>说明</th></tr></thead>
+    <thead><tr></tr></thead>
     <tbody></tbody>
   </table>
 </section>
@@ -65,14 +62,7 @@
 <!-- ==================== IP 与前缀 ==================== -->
 <section id="tab-ip" class="tab-panel">
   <h2 data-i18n="web.ip.title"></h2>
-  <p class="hint">
-    <strong>前缀</strong>是这套系统的核心概念：ISP 重拨后变化的是整个
-    <code>/64</code> 前缀，该前缀下的<strong>所有</strong> AAAA 记录都要重写，
-    而不是只改一个地址。
-    列表里只会出现 <code>/64</code> 及更粗的前缀 —— Windows 会把 IPv6 主机地址
-    报成 <code>/128</code>，而隐私扩展地址每小时轮换，把它当委派前缀会造成
-    每小时一次的无意义全量更新。
-  </p>
+  <p class="hint" data-i18n-html="web.ip.p2"></p>
   <div class="row">
     <button id="ipRefresh" data-i18n="web.ip.refresh"></button>
   </div>
@@ -83,10 +73,7 @@
 <!-- ==================== 凭据 ==================== -->
 <section id="tab-credentials" class="tab-panel">
   <h2 data-i18n="web.cred.title"></h2>
-  <p class="hint">
-    凭据加密存储在主密钥保护的信封里。列表中只显示掩码值 ——
-    内核<strong>不会</strong>把明文凭据发回界面。
-  </p>
+  <p class="hint" data-i18n-html="web.credentials.p3"></p>
   <div class="row">
     <button id="credRefresh" data-i18n="web.cred.refresh"></button>
     <button id="credNew" class="primary" data-i18n="web.cred.new"></button>
@@ -98,12 +85,7 @@
 <!-- ==================== 动态解析 ==================== -->
 <section id="tab-tasks" class="tab-panel">
   <h2 data-i18n="web.task.title"></h2>
-  <p class="hint">
-    一条任务 = 一组凭据 + 一组域名 + 一组地址来源。
-    地址变化会被立即触发，另有定时轮询兜底。
-    <br>
-    勾选任务的「立即执行」会<strong>清空防抖缓存</strong>，因此必定与服务商比对一次。
-  </p>
+  <p class="hint" data-i18n-html="web.tasks.p4"></p>
   <div class="row">
     <button id="taskRefresh" data-i18n="web.task.refresh"></button>
     <button id="taskNew" class="primary" data-i18n="web.task.new"></button>
@@ -115,16 +97,10 @@
 <!-- ==================== DNS 记录 ==================== -->
 <section id="tab-records" class="tab-panel">
   <h2 data-i18n="web.rec.title"></h2>
-  <p class="hint">
-    仅 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / DNSPod / 华为云 / GoDaddy）。
-    <br>
-    <strong>注意各家的记录模型不同</strong>：华为云的一条记录属于一个「记录集」，
-    GoDaddy 的记录没有独立 ID —— 它们的删除会波及同名的其它值。
-    详见 <code>docs/PROVIDER-MATRIX.md</code>。
-  </p>
+  <p class="hint" data-i18n-html="web.records.p5"></p>
   <div class="row">
-    <label>凭据 <select id="recCred"></select></label>
-    <label>区域 <select id="recZone" disabled><option>（先选凭据）</option></select></label>
+    <label><span data-i18n="web.rec.l_cred"></span> <select id="recCred"></select></label>
+    <label><span data-i18n="web.rec.l_zone"></span> <select id="recZone" disabled><option data-i18n="web.rec.pick_cred"></option></select></label>
     <button id="recLoad" data-i18n="web.rec.load"></button>
     <button id="recNew" class="primary" disabled data-i18n="web.rec.new"></button>
   </div>
@@ -136,24 +112,18 @@
 <!-- ==================== 反向代理 ==================== -->
 <section id="tab-proxy" class="tab-panel">
   <h2 data-i18n="web.px.title"></h2>
-  <p class="hint">
-    按域名把外部请求转发到本机的服务上。<strong>没有默认上游</strong> ——
-    未配置的域名会返回 404，而不是回落到某个本地服务。
-    <br>
-    上游只允许本机与内网地址：允许公网地址会让这个功能变成一个
-    <strong>开放代理</strong>，任何人都能借你的机器转发流量。
-  </p>
+  <p class="hint" data-i18n-html="web.proxy.p6"></p>
 
   <div class="card">
     <div class="row">
       <label class="check">
         <input type="checkbox" id="pxEnabled">
-        启用反向代理
+        <span data-i18n="web.px.l_enable"></span>
       </label>
-      <label>端口 <input type="number" id="pxPort" min="1" max="65535" style="width:6rem"></label>
+      <label><span data-i18n="web.px.l_port"></span> <input type="number" id="pxPort" min="1" max="65535" style="width:6rem"></label>
       <label class="check">
         <input type="checkbox" id="pxTls">
-        使用 HTTPS
+        <span data-i18n="web.px.l_https"></span>
       </label>
       <button id="pxSave" class="primary" data-i18n="web.px.save"></button>
       <button id="pxStatus" data-i18n="web.px.status"></button>
@@ -162,10 +132,7 @@
   </div>
 
   <h3 data-i18n="web.px.rules"></h3>
-  <p class="hint">
-    规则是<strong>整体保存</strong>的：同一个域名不能同时指向两个上游，
-    而增量修改会让「检查冲突」变成一件跨多次调用才能完成的事。
-  </p>
+  <p class="hint" data-i18n-html="web.proxy.p7"></p>
   <div class="row">
     <button id="pxRefresh" data-i18n="web.px.refresh"></button>
     <button id="pxNew" class="primary" data-i18n="web.px.new"></button>
@@ -177,13 +144,7 @@
 <!-- ==================== 证书 ==================== -->
 <section id="tab-certs" class="tab-panel">
   <h2 data-i18n="web.cert.title"></h2>
-  <p class="hint">
-    证书由内核自动申请与续期：到期前 <strong>1/3 寿命</strong>时进入续期窗口
-    （对 90 天的证书即提前 30 天）。一般情况下不需要手动干预。
-    <br>
-    「需要续期」后面会给出<strong>理由</strong> —— 一类是快过期了，另一类是
-    「现有证书不覆盖某个新加的域名」，而后者与剩余有效期无关。
-  </p>
+  <p class="hint" data-i18n-html="web.certs.p8"></p>
   <div class="row">
     <button id="certRefresh" data-i18n="web.cert.refresh"></button>
     <button id="certRenew" class="primary" data-i18n="web.cert.renew"></button>
@@ -194,13 +155,7 @@
 <!-- ==================== 通知 ==================== -->
 <section id="tab-notify" class="tab-panel">
   <h2 data-i18n="web.nt.title"></h2>
-  <p class="hint">
-    同一个事件在静默期内只发一条，防止地址抖动刷屏；静默期过后若期间有
-    被抑制的消息，会补发一条汇总。
-    <br>
-    <strong>日志通道始终可用</strong> —— 即使没有配置任何外部通道，
-    通知也会出现在事件流与内核日志里。
-  </p>
+  <p class="hint" data-i18n-html="web.notify.p9"></p>
   <div class="row">
     <button id="ntRefresh" data-i18n="web.nt.refresh"></button>
     <button id="ntNew" class="primary" data-i18n="web.nt.new"></button>
@@ -210,23 +165,14 @@
   <div id="ntList"></div>
 
   <h3 data-i18n="web.nt.recent"></h3>
-  <p class="hint">
-    配置通道时最常被问到的问题是「我的通知到底发出去了没有」——
-    这里是答案。
-  </p>
+  <p class="hint" data-i18n-html="web.notify.p10"></p>
   <div id="ntDeliveries"></div>
 </section>
 
 <!-- ==================== 系统服务 ==================== -->
 <section id="tab-service" class="tab-panel">
   <h2 data-i18n="web.svc.title"></h2>
-  <p class="hint">
-    把内核注册为系统服务之后会开机自启、崩溃自动重启，不必一直开着终端。
-    <br>
-    <strong>安装与卸载需要管理员权限</strong>；在 Windows 上，
-    连<strong>查询</strong>服务状态也需要 —— 因此下面同时报出「内核是否可达」，
-    那个问题不需要任何权限就能回答。
-  </p>
+  <p class="hint" data-i18n-html="web.service.p11"></p>
 
   <div class="card">
     <div id="svcState" class="hint" data-i18n="web.common.loading"></div>
@@ -242,39 +188,30 @@
     <div class="row">
       <label class="check">
         <input type="checkbox" id="svcAuto" checked>
-        开机自启
+        <span data-i18n="web.svc.l_autostart"></span>
       </label>
       <label class="check">
         <input type="checkbox" id="svcRestart" checked>
-        崩溃后自动重启
+        <span data-i18n="web.svc.l_restart"></span>
       </label>
     </div>
     <div class="row">
       <button id="svcInstall" class="primary" data-i18n="web.svc.install"></button>
       <button id="svcUninstall" class="danger" data-i18n="web.svc.uninstall"></button>
     </div>
-    <p class="hint">
-      卸载<strong>不会</strong>删除数据目录 —— 里面有你的凭据与配置。
-    </p>
+    <p class="hint" data-i18n-html="web.service.p12"></p>
   </div>
 </section>
 
 <!-- ==================== 事件流 ==================== -->
 <section id="tab-events" class="tab-panel">
   <h2 data-i18n="web.ev.title"></h2>
-  <p class="hint">
-    通过 WebSocket 实时推送。浏览器无法为 WebSocket 设置请求头，
-    因此令牌走 <code>Sec-WebSocket-Protocol</code> 子协议传递。
-    <br>
-    断线重连时会带上 <code>lastEventId</code> 补发漏掉的事件；
-    若补发链已断（环形缓冲被覆盖），会收到一条 <code>events.gap</code>
-    而不是静默丢事件。
-  </p>
+  <p class="hint" data-i18n-html="web.events.p13"></p>
   <div class="row">
     <button id="evConnect" data-i18n="web.ev.connect"></button>
     <button id="evDisconnect" disabled data-i18n="web.ev.disconnect"></button>
     <button id="evClear" data-i18n="web.ev.clear"></button>
-    <label class="inline"><input type="checkbox" id="evFollow" checked> 自动滚动</label>
+    <label class="inline"><input type="checkbox" id="evFollow" checked> <span data-i18n="web.ev.l_follow"></span></label>
   </div>
   <div id="evLog" class="event-log"></div>
 </section>
@@ -282,21 +219,16 @@
 <!-- ==================== 原始接口 ==================== -->
 <section id="tab-raw" class="tab-panel">
   <h2 data-i18n="web.raw.title"></h2>
-  <p class="hint">
-    直接对内核发一次请求并看到<strong>原始响应</strong>。
-    验证功能的最后一道手段 —— 界面有 bug 时，这里仍然可信。
-    <br>
-    契约原文：<a href="/v1/openapi.yaml" target="_blank" rel="noopener">/v1/openapi.yaml</a>
-  </p>
+  <p class="hint" data-i18n-html="web.raw.p14"></p>
   <div class="row">
-    <label>方法 <select id="rawMethod">
+    <label><span data-i18n="web.raw.l_method"></span> <select id="rawMethod">
       <option>GET</option><option>POST</option><option>PATCH</option>
       <option>PUT</option><option>DELETE</option>
     </select></label>
-    <label class="grow">路径 <input id="rawPath" value="/v1/meta" spellcheck="false"></label>
+    <label class="grow"><span data-i18n="web.raw.l_path"></span> <input id="rawPath" value="/v1/meta" spellcheck="false"></label>
     <button id="rawSend" class="primary" data-i18n="web.raw.send"></button>
   </div>
-  <label class="block">请求体（JSON，可留空）
+  <label class="block"><span data-i18n="web.raw.l_body"></span>
     <textarea id="rawBody" rows="6" spellcheck="false"></textarea>
   </label>
   <div class="raw-out">
