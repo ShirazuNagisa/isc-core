@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"time"
 
@@ -34,7 +35,7 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var patch settings.Patch
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -108,7 +109,7 @@ func (s *Server) startProxyWithSettings(ctx context.Context, next settings.Setti
 		// 启动失败**不让整个设置更新失败**：其它设置（语言、日志级别）
 		// 已经生效了，把它们一起回滚是更糟的选择。错误留在代理状态里，
 		// 用户能在界面上看到"为什么没起来"。
-		s.Log.Error("按设置启动反向代理失败",
+		s.Log.Error(i18n.T("api.settings.proxy_failed"),
 			"port", next.ProxyPort, "tls", next.ProxyTLS, "err", err)
 	}
 }
@@ -153,7 +154,7 @@ func (s *Server) ListAudit(w http.ResponseWriter, r *http.Request, params gen.Li
 
 	items, next, err := s.AuditWriter.ListAudit(r.Context(), f)
 	if err != nil {
-		s.internalError(w, r, "查询审计失败", err)
+		s.internalError(w, r, i18n.T("api.audit.query_failed"), err)
 		return
 	}
 

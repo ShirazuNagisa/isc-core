@@ -280,7 +280,7 @@ func (s *Server) ListJobs(w http.ResponseWriter, r *http.Request, params gen.Lis
 
 	items, next, err := s.Jobs.List(r.Context(), f)
 	if err != nil {
-		s.Log.Error("查询任务列表失败", "err", err)
+		s.Log.Error(i18n.T("api.job.list_failed"), "err", err)
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
 			CodeInternal, "error.internal", err.Error())
 		return
@@ -300,7 +300,7 @@ func (s *Server) ListJobs(w http.ResponseWriter, r *http.Request, params gen.Lis
 func (s *Server) GetJob(w http.ResponseWriter, r *http.Request, id gen.JobId) {
 	j, found, err := s.Jobs.Get(r.Context(), string(id))
 	if err != nil {
-		s.Log.Error("查询任务失败", "job_id", id, "err", err)
+		s.Log.Error(i18n.T("api.job.get_failed"), "job_id", id, "err", err)
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
 			CodeInternal, "error.internal", err.Error())
 		return
@@ -326,7 +326,7 @@ func (s *Server) CancelJob(w http.ResponseWriter, r *http.Request, id gen.JobId)
 		writeProblem(w, r, s.Log, http.StatusConflict,
 			CodeJobNotCancelable, "error.job_not_cancelable", string(id))
 	default:
-		s.Log.Error("取消任务失败", "job_id", id, "err", err)
+		s.Log.Error(i18n.T("api.job.cancel_failed"), "job_id", id, "err", err)
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
 			CodeInternal, "error.internal", err.Error())
 	}
@@ -349,7 +349,7 @@ func (s *Server) RunNoopJob(w http.ResponseWriter, r *http.Request) {
 
 	j, err := s.Jobs.Submit(r.Context(), "debug.noop", noopFunc(req))
 	if err != nil {
-		s.Log.Error("提交空转任务失败", "err", err)
+		s.Log.Error(i18n.T("api.job.noop_failed"), "err", err)
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
 			CodeInternal, "error.internal", err.Error())
 		return
@@ -380,7 +380,7 @@ func noopFunc(req gen.NoopRequest) job.Func {
 				return nil, &job.Error{
 					Code:   "noop_requested_failure",
 					Title:  i18n.T("job.noop.failed", i),
-					Detail: "fail_at_step 参数要求在第 N 步失败",
+					Detail: i18n.T("api.job.noop_required"),
 				}
 			}
 		}

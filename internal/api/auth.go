@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/subtle"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -39,7 +40,7 @@ func AuthMiddleware(token string, log *slog.Logger, next http.Handler) http.Hand
 		// 也不要静默放行 —— 后者会把管理接口变成人人可用的后门。
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if log != nil {
-				log.Error("访问令牌为空，拒绝所有请求（这是配置错误）", "path", r.URL.Path)
+				log.Error(i18n.T("api.token_empty"), "path", r.URL.Path)
 			}
 			writeProblem(w, r, log, http.StatusUnauthorized,
 				CodeUnauthorized, "error.unauthorized", "")

@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"strings"
 
@@ -19,7 +20,7 @@ import (
 func (s *Server) ListCerts(w http.ResponseWriter, r *http.Request) {
 	statuses, err := s.Certs.Status(s.certWants(r))
 	if err != nil {
-		s.internalError(w, r, "读取证书状态失败", err)
+		s.internalError(w, r, i18n.T("api.cert.list_failed"), err)
 		return
 	}
 	writeJSON(w, s.Log, http.StatusOK, "application/json", toGenCertList(statuses))
@@ -48,7 +49,7 @@ func (s *Server) RenewCerts(w http.ResponseWriter, r *http.Request) {
 		// Ensure 内部会先判断"现有证书够不够用"，因此这里是幂等的 ——
 		// 已经有效的证书不会被重新签发（那会白白消耗 ACME 的配额）。
 		if _, ok, err := s.Certs.Ensure(r.Context(), req); err != nil {
-			s.Log.Error("证书签发失败", "domains", req.Domains, "err", err)
+			s.Log.Error(i18n.T("api.cert.issue_failed"), "domains", req.Domains, "err", err)
 			failed = append(failed, req.Domains[0])
 			continue
 		} else if ok {
@@ -64,7 +65,7 @@ func (s *Server) RenewCerts(w http.ResponseWriter, r *http.Request) {
 
 	statuses, err := s.Certs.Status(s.certWants(r))
 	if err != nil {
-		s.internalError(w, r, "读取证书状态失败", err)
+		s.internalError(w, r, i18n.T("api.cert.list_failed"), err)
 		return
 	}
 
@@ -94,11 +95,11 @@ func (s *Server) certWants(r *http.Request) map[string][]string {
 func describeRenew(issued int, failed []string) string {
 	if len(failed) == 0 {
 		if issued == 0 {
-			return "全部证书均无需续期"
+			return i18n.T("api.cert.none_needed")
 		}
-		return fmt.Sprintf("已签发 %d 张证书", issued)
+		return fmt.Sprintf(i18n.T("api.cert.issued"), issued)
 	}
-	return "签发失败：" + strings.Join(failed, "、")
+	return i18n.T("api.cert.issued_partial") + strings.Join(failed, "、")
 }
 
 func toGenCertList(statuses []acme.CertStatus) gen.CertList {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -24,7 +25,7 @@ func (s *Server) ListCredentials(w http.ResponseWriter, r *http.Request, params 
 
 	items, next, err := s.Credentials.List(r.Context(), cursor, limit)
 	if err != nil {
-		s.internalError(w, r, "查询凭据列表失败", err)
+		s.internalError(w, r, i18n.T("api.credential.list_failed"), err)
 		return
 	}
 
@@ -129,7 +130,7 @@ func decodeCredentialInput(w http.ResponseWriter, r *http.Request, s *Server) (c
 	var in credentialInput
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return in, false
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -162,7 +163,7 @@ func (s *Server) credentialError(w http.ResponseWriter, r *http.Request, err err
 		// 一个光秃秃的"操作失败"会让人完全不知道从哪下手。
 		writeProblem(w, r, s.Log, http.StatusConflict,
 			CodeConflict, "ddns.credential_in_use",
-			fmt.Sprintf("该凭据仍被 %d 个任务使用", inUse.Count))
+			fmt.Sprintf(i18n.T("api.credential.in_use"), inUse.Count))
 	case errors.Is(err, credential.ErrUnknownProvider),
 		errors.Is(err, credential.ErrLabelEmpty),
 		errors.Is(err, credential.ErrProviderEmpty),
@@ -172,7 +173,7 @@ func (s *Server) credentialError(w http.ResponseWriter, r *http.Request, err err
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
 			CodeInvalidRequest, "error.invalid_request", err.Error())
 	default:
-		s.internalError(w, r, "凭据操作失败", err)
+		s.internalError(w, r, i18n.T("api.credential.op_failed"), err)
 	}
 }
 

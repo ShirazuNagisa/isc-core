@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"net/netip"
 
@@ -17,7 +18,7 @@ import (
 func (s *Server) GetCurrentIP(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := s.Platform.IPMonitor.Snapshot(r.Context())
 	if err != nil {
-		s.internalError(w, r, "读取网卡快照失败", err)
+		s.internalError(w, r, i18n.T("api.ddns.snapshot_failed"), err)
 		return
 	}
 
@@ -86,7 +87,7 @@ func firstPublicIPv4(addrs []netip.Addr) string {
 func (s *Server) ListDdnsTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := s.Tasks.List(r.Context())
 	if err != nil {
-		s.internalError(w, r, "查询任务列表失败", err)
+		s.internalError(w, r, i18n.T("api.job.list_failed"), err)
 		return
 	}
 
@@ -201,7 +202,7 @@ func decodeTaskInput(w http.ResponseWriter, r *http.Request, s *Server) (ddns.Ta
 	var in taskInput
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return ddns.Task{}, false
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -296,7 +297,7 @@ func (s *Server) taskError(w http.ResponseWriter, r *http.Request, err error, ta
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
 			CodeInvalidRequest, "error.invalid_request", err.Error())
 	default:
-		s.internalError(w, r, "任务操作失败", err)
+		s.internalError(w, r, i18n.T("api.ddns.op_failed"), err)
 	}
 }
 

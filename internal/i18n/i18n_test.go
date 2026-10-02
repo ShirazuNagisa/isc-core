@@ -15,13 +15,35 @@ func TestCatalogsHaveIdenticalKeys(t *testing.T) {
 	zh := New(ZhCN)
 	en := New(En)
 
+	// 逐层比对，而不是只比基础表。
+	//
+	// 分层之后"只比基础表"是一个**静默的漏洞**：新加的那一层中英文
+	// 对不上也不会有人发现。layeredCatalogMaps 是唯一的事实来源。
+	layers := layeredCatalogMaps()
+	if len(layers)%2 != 0 {
+		t.Fatalf("分层表必须按 (zh, en) 成对出现，实际 %d 个", len(layers))
+	}
+
 	var missingInEn, missingInZh []string
+	for i := 0; i+1 < len(layers); i += 2 {
+		zhLayer, enLayer := layers[i], layers[i+1]
+		for k := range zhLayer {
+			if _, ok := enLayer[k]; !ok {
+				missingInEn = append(missingInEn, k)
+			}
+		}
+		for k := range enLayer {
+			if _, ok := zhLayer[k]; !ok {
+				missingInZh = append(missingInZh, k)
+			}
+		}
+	}
+
+	// 合并后的目录也必须齐全（键值不能在这一步丢掉）。
 	for _, k := range Keys() {
 		if !en.Has(k) {
 			missingInEn = append(missingInEn, k)
 		}
-	}
-	for k := range messagesEn {
 		if !zh.Has(k) {
 			missingInZh = append(missingInZh, k)
 		}

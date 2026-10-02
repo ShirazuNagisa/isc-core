@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -75,7 +76,7 @@ func (s *Server) StopVerifySession(w http.ResponseWriter, r *http.Request, id ge
 				CodeNotFound, "verify.session_not_found", string(id))
 			return
 		}
-		s.internalError(w, r, "停止验证会话失败", err)
+		s.internalError(w, r, i18n.T("api.verify_stop_failed"), err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -89,7 +90,7 @@ func (s *Server) serveConsoleIndex(w http.ResponseWriter, assets fs.FS) {
 	body, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
 		// 内嵌资源在编译期就已确定，读不到说明二进制被破坏了。
-		s.Log.Error("读取控制台首页失败", "err", err)
+		s.Log.Error(i18n.T("api.console_index"), "err", err)
 		writeProblem(w, nil, s.Log, http.StatusInternalServerError,
 			CodeInternal, "error.internal", err.Error())
 		return
@@ -107,7 +108,7 @@ func (s *Server) handleConsoleBootstrap(w http.ResponseWriter, r *http.Request) 
 	if !isLoopbackHost(r.Host) {
 		// 用 403 而不是 404：这是一个明确的安全拒绝，
 		// 而不是"资源不存在"。日志里能据此看出有人在尝试。
-		s.Log.Warn("拒绝非回环 Host 的控制台引导请求",
+		s.Log.Warn(i18n.T("api.console_host"),
 			"host", r.Host, "remote", r.RemoteAddr)
 		writeProblem(w, r, s.Log, http.StatusForbidden,
 			CodeForbidden, "console.host_not_allowed", r.Host)
@@ -144,7 +145,7 @@ func (s *Server) handleConsoleBootstrap(w http.ResponseWriter, r *http.Request) 
 func LoopbackGuard(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackHost(r.Host) {
-			log.Warn("拒绝非本机 Host 的请求（可能是 DNS rebinding 尝试）",
+			log.Warn(i18n.T("api.console_rebind"),
 				"host", r.Host, "remote", r.RemoteAddr, "path", r.URL.Path)
 			writeProblem(w, r, log, http.StatusForbidden,
 				CodeForbidden, "console.host_not_allowed", r.Host)

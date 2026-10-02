@@ -86,7 +86,7 @@ func writeJSON(w http.ResponseWriter, log *slog.Logger, status int, contentType 
 	byt, err := json.Marshal(body)
 	if err != nil {
 		if log != nil {
-			log.Error("响应序列化失败", "err", err)
+			log.Error(i18n.T("api.encode_failed"), "err", err)
 		}
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(http.StatusInternalServerError)

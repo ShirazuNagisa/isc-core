@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -49,7 +50,7 @@ func (s *Server) ProbeReachProvider(w http.ResponseWriter, r *http.Request,
 
 	readiness, err := p.Probe(r.Context())
 	if err != nil {
-		s.Log.Error("可达性探测失败", "provider", name, "err", err)
+		s.Log.Error(i18n.T("api.reach.probe_failed"), "provider", name, "err", err)
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
 			CodeInternal, "error.internal", err.Error())
 		return
@@ -96,7 +97,7 @@ func (s *Server) ListChanges(w http.ResponseWriter, r *http.Request,
 
 	records, err := s.Changes.List(r.Context(), limit)
 	if err != nil {
-		s.internalError(w, r, "查询变更记录失败", err)
+		s.internalError(w, r, i18n.T("api.change.query_failed"), err)
 		return
 	}
 	writeJSON(w, s.Log, http.StatusOK, "application/json", toGenChangeList(records))
@@ -106,7 +107,7 @@ func (s *Server) ListChanges(w http.ResponseWriter, r *http.Request,
 func (s *Server) GetChange(w http.ResponseWriter, r *http.Request, planId gen.PlanId) {
 	rec, found, err := s.Changes.Get(r.Context(), string(planId))
 	if err != nil {
-		s.internalError(w, r, "读取变更记录失败", err)
+		s.internalError(w, r, i18n.T("api.change.read_failed"), err)
 		return
 	}
 	if !found {
@@ -124,7 +125,7 @@ func (s *Server) GetChange(w http.ResponseWriter, r *http.Request, planId gen.Pl
 func (s *Server) ListInterruptedChanges(w http.ResponseWriter, r *http.Request) {
 	interrupted, err := s.Changes.RecoverInterrupted(r.Context())
 	if err != nil {
-		s.internalError(w, r, "检查中断的变更失败", err)
+		s.internalError(w, r, i18n.T("api.change.interrupted_failed"), err)
 		return
 	}
 

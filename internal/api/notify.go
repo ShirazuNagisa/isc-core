@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"time"
 
@@ -31,14 +32,14 @@ func (s *Server) ListNotifyChannels(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) ReplaceNotifyChannels(w http.ResponseWriter, r *http.Request) {
 	if s.NotifyConfig == nil {
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
-			CodeInternal, "error.internal", "通知中心未初始化")
+			CodeInternal, "error.internal", i18n.T("api.notify.no_center"))
 		return
 	}
 
 	var in gen.NotifyChannelList
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -107,7 +108,7 @@ func (s *Server) ListNotifyDeliveries(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) TestNotifyChannels(w http.ResponseWriter, r *http.Request) {
 	if s.Notify == nil {
 		writeProblem(w, r, s.Log, http.StatusInternalServerError,
-			CodeInternal, "error.internal", "通知中心未初始化")
+			CodeInternal, "error.internal", i18n.T("api.notify.no_center"))
 		return
 	}
 
@@ -116,8 +117,8 @@ func (s *Server) TestNotifyChannels(w http.ResponseWriter, r *http.Request) {
 	results := s.Notify.SendNow(r.Context(), notify.Message{
 		Event:    "notify.test",
 		Severity: notify.SeverityInfo,
-		Title:    "ISC 测试通知",
-		Body:     "如果你看到这条消息，说明这个通道配置正确。",
+		Title:    i18n.T("api.notify.test_title"),
+		Body:     i18n.T("api.notify.test_body"),
 		At:       time.Now().UTC(),
 	})
 

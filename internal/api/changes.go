@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -41,7 +42,7 @@ func (s *Server) PlanReachExpose(w http.ResponseWriter, r *http.Request,
 	var in gen.ExposeRequest
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -66,7 +67,7 @@ func (s *Server) PlanReachExpose(w http.ResponseWriter, r *http.Request,
 
 	preview, err := s.Changes.Prepare(r.Context(), plan)
 	if err != nil {
-		s.internalError(w, r, "登记变更计划失败", err)
+		s.internalError(w, r, i18n.T("api.change.plan_failed"), err)
 		return
 	}
 
@@ -103,12 +104,12 @@ func (s *Server) ApplyChange(w http.ResponseWriter, r *http.Request, planId gen.
 		}
 		// 执行失败不是"程序出错"，而是**业务结果**：变更没做成，
 		// 且内核已经尽力回滚过。记录已经落库，这里返回它的最终状态。
-		s.Log.Warn("变更执行失败", "plan", id, "err", err,
+		s.Log.Warn(i18n.T("api.change.apply_failed"), "plan", id, "err", err,
 			"failed_step", res.FailedStep, "rollback_err", res.RollbackErr)
 
 		rec, found, getErr := s.Changes.Get(r.Context(), id)
 		if getErr != nil || !found {
-			s.internalError(w, r, "读取变更结果失败", err)
+			s.internalError(w, r, i18n.T("api.change.result_failed"), err)
 			return
 		}
 		s.auditFailure(r, audit.ActionChangeApply, id, err)
@@ -118,7 +119,7 @@ func (s *Server) ApplyChange(w http.ResponseWriter, r *http.Request, planId gen.
 
 	rec, found, getErr := s.Changes.Get(r.Context(), id)
 	if getErr != nil || !found {
-		s.internalError(w, r, "读取变更结果失败", getErr)
+		s.internalError(w, r, i18n.T("api.change.result_failed"), getErr)
 		return
 	}
 
@@ -160,7 +161,7 @@ func (s *Server) RollbackChange(w http.ResponseWriter, r *http.Request, planId g
 
 	rec, found, getErr := s.Changes.Get(r.Context(), id)
 	if getErr != nil || !found {
-		s.internalError(w, r, "读取撤销结果失败", getErr)
+		s.internalError(w, r, i18n.T("api.change.rollback_failed"), getErr)
 		return
 	}
 

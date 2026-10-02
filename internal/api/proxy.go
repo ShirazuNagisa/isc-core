@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -35,7 +36,7 @@ func (s *Server) GetProxyStatus(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) ListProxyRoutes(w http.ResponseWriter, r *http.Request) {
 	routes, err := s.ProxyRoutes.List(r.Context())
 	if err != nil {
-		s.internalError(w, r, "读取代理路由失败", err)
+		s.internalError(w, r, i18n.T("api.proxy.read_failed"), err)
 		return
 	}
 	writeJSON(w, s.Log, http.StatusOK, "application/json", toGenProxyRouteList(routes))
@@ -46,7 +47,7 @@ func (s *Server) ReplaceProxyRoutes(w http.ResponseWriter, r *http.Request) {
 	var in gen.ProxyRouteList
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

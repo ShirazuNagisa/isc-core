@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ import (
 // GetServiceStatus 实现 GET /v1/service/status。
 func (s *Server) GetServiceStatus(w http.ResponseWriter, r *http.Request) {
 	if s.Platform == nil {
-		s.internalError(w, r, "平台后端不可用", errors.New("platform 未装配"))
+		s.internalError(w, r, i18n.T("api.provider_missing"), errors.New(i18n.T("api.platform_missing")))
 		return
 	}
 
@@ -62,7 +63,7 @@ func (s *Server) GetServiceStatus(w http.ResponseWriter, r *http.Request) {
 // InstallService 实现 POST /v1/service/install。
 func (s *Server) InstallService(w http.ResponseWriter, r *http.Request) {
 	if s.Platform == nil {
-		s.internalError(w, r, "平台后端不可用", errors.New("platform 未装配"))
+		s.internalError(w, r, i18n.T("api.provider_missing"), errors.New(i18n.T("api.platform_missing")))
 		return
 	}
 
@@ -112,25 +113,25 @@ func (s *Server) InstallService(w http.ResponseWriter, r *http.Request) {
 
 	s.auditSuccess(r, audit.ActionServiceInstall, "service", exe)
 	writeJSON(w, s.Log, http.StatusOK, "application/json",
-		gen.ServiceActionResult{Ok: true, Message: okPtr("服务已安装")})
+		gen.ServiceActionResult{Ok: true, Message: okPtr(i18n.T("api.service.installed"))})
 }
 
 // UninstallService 实现 POST /v1/service/uninstall。
 func (s *Server) UninstallService(w http.ResponseWriter, r *http.Request) {
 	s.runServiceAction(w, r, audit.ActionServiceUninstall,
-		"服务已卸载", s.Platform.ServiceManager.Uninstall)
+		i18n.T("api.service.uninstalled"), s.Platform.ServiceManager.Uninstall)
 }
 
 // StartService 实现 POST /v1/service/start。
 func (s *Server) StartService(w http.ResponseWriter, r *http.Request) {
 	s.runServiceAction(w, r, audit.ActionServiceStart,
-		"服务已启动", s.Platform.ServiceManager.Start)
+		i18n.T("api.service.started"), s.Platform.ServiceManager.Start)
 }
 
 // StopService 实现 POST /v1/service/stop。
 func (s *Server) StopService(w http.ResponseWriter, r *http.Request) {
 	s.runServiceAction(w, r, audit.ActionServiceStop,
-		"服务已停止", s.Platform.ServiceManager.Stop)
+		i18n.T("api.service.stopped"), s.Platform.ServiceManager.Stop)
 }
 
 // runServiceAction 执行一个统一签名的服务操作。
@@ -141,7 +142,7 @@ func (s *Server) runServiceAction(w http.ResponseWriter, r *http.Request,
 	action, successMsg string, fn func(context.Context) error) {
 
 	if s.Platform == nil {
-		s.internalError(w, r, "平台后端不可用", errors.New("platform 未装配"))
+		s.internalError(w, r, i18n.T("api.provider_missing"), errors.New(i18n.T("api.platform_missing")))
 		return
 	}
 
@@ -165,7 +166,7 @@ func (s *Server) runServiceAction(w http.ResponseWriter, r *http.Request,
 func selfExecutable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", errors.New("无法确定当前可执行文件的路径：" + err.Error())
+		return "", errors.New(i18n.T("api.service.no_self_path") + err.Error())
 	}
 	// 解析符号链接：不解析的话，通过 /usr/local/bin/isc 这类链接调用
 	// 时会注册链接本身，而服务启动时的上下文不同，链接可能解析不到。
@@ -186,7 +187,7 @@ func isPermissionError(err error) bool {
 	}
 	msg := err.Error()
 	for _, marker := range []string{
-		"需要管理员权限", "需要 root 权限", "Access is denied", "拒绝访问",
+		i18n.T("api.service.needs_admin"), i18n.T("api.service.needs_root"), "Access is denied", i18n.T("api.service.access_denied"),
 	} {
 		if strings.Contains(msg, marker) {
 			return true

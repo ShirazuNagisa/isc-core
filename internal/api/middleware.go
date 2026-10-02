@@ -80,7 +80,7 @@ func Recover(log *slog.Logger) Middleware {
 			defer func() {
 				if rec := recover(); rec != nil {
 					if log != nil {
-						log.Error("请求处理 panic",
+						log.Error(i18n.T("api.handler_panic"),
 							"panic", rec,
 							"method", r.Method,
 							"path", r.URL.Path,
@@ -140,7 +140,7 @@ func LogRequests(log *slog.Logger) Middleware {
 			// WebSocket 升级后状态码是 101，且连接长期存活；
 			// 用 Info 级别记下来便于确认控制台是否真的连上了。
 			if log != nil {
-				log.Debug("http 请求",
+				log.Debug(i18n.T("api.http_request"),
 					"method", r.Method,
 					"path", r.URL.Path,
 					"status", rec.status,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"time"
 
@@ -74,7 +75,7 @@ func (s *Server) SubscribeEvents(w http.ResponseWriter, r *http.Request, params 
 	if err != nil {
 		// Accept 已经接管了响应写入，此时无法再写 problem+json，
 		// 只能记日志。库自身会向客户端发送合适的握手失败响应。
-		s.Log.Warn("事件流握手失败", "err", err, "remote", r.RemoteAddr)
+		s.Log.Warn(i18n.T("api.events.handshake"), "err", err, "remote", r.RemoteAddr)
 		return
 	}
 	defer conn.CloseNow() //nolint:errcheck // 关闭失败无可挽回
@@ -114,7 +115,7 @@ func (s *Server) sendGapAndClose(conn *websocket.Conn, subErr error) {
 	}
 
 	if err := wsjson.Write(ctx, conn, ev); err != nil {
-		s.Log.Debug("推送 events.gap 失败", "err", err)
+		s.Log.Debug(i18n.T("api.events.gap"), "err", err)
 	}
 	_ = conn.Close(websocket.StatusPolicyViolation, "event stream gap")
 }
@@ -138,7 +139,7 @@ func (s *Server) pumpEvents(conn *websocket.Conn, sub *event.Subscription) {
 			err := conn.Ping(pingCtx)
 			cancel()
 			if err != nil {
-				s.Log.Debug("事件流心跳失败，关闭连接", "err", err)
+				s.Log.Debug(i18n.T("api.events.heartbeat"), "err", err)
 				return
 			}
 
@@ -152,7 +153,7 @@ func (s *Server) pumpEvents(conn *websocket.Conn, sub *event.Subscription) {
 			cancel()
 			if err != nil {
 				// 客户端断开是最常见的原因，不值得记为错误。
-				s.Log.Debug("事件流写入失败，关闭连接", "err", err, "seq", ev.Seq)
+				s.Log.Debug(i18n.T("api.events.write"), "err", err, "seq", ev.Seq)
 				return
 			}
 		}
@@ -165,7 +166,7 @@ func (s *Server) closeOnSubscriptionEnd(conn *websocket.Conn, sub *event.Subscri
 		// 消费过慢被断开：告诉客户端"稍后重试"并带上 lastEventId 重连，
 		// 它会走补发路径。用 TryAgainLater 而不是 NormalClosure，
 		// 是为了让客户端的前端逻辑能区分"正常结束"与"需要重连"。
-		s.Log.Warn("事件流订阅被断开", "err", err)
+		s.Log.Warn(i18n.T("api.events.closed"), "err", err)
 		_ = conn.Close(websocket.StatusTryAgainLater, err.Error())
 		return
 	}

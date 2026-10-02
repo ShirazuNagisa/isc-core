@@ -54,12 +54,37 @@ type Catalog struct {
 }
 
 // New 构造指定语言的目录。
+//
+// # 目录是分层合并的
+//
+// 基础表（messagesZh / messagesEn）加上各层的补充表。按层分文件是为了
+// 让"这句话该去哪儿找/该往哪儿加"有唯一的答案 —— 接口层近百条文案塞进
+// 基础表会让那个文件无法浏览。
 func New(lang Lang) *Catalog {
 	src := messagesZh
+	extra := []map[string]string{apiMessagesZh}
 	if lang == En {
 		src = messagesEn
+		extra = []map[string]string{apiMessagesEn}
 	}
-	return &Catalog{lang: lang, msgs: src}
+
+	// 没有补充层时直接用基础表，避免每次构造都复制一遍。
+	msgs := src
+	for _, layer := range extra {
+		if len(layer) == 0 {
+			continue
+		}
+		merged := make(map[string]string, len(src)+len(layer))
+		for k, v := range src {
+			merged[k] = v
+		}
+		for k, v := range layer {
+			merged[k] = v
+		}
+		msgs = merged
+	}
+
+	return &Catalog{lang: lang, msgs: msgs}
 }
 
 // Lang 返回目录语言。
@@ -150,11 +175,44 @@ func T(key string, args ...any) string {
 // Keys 返回全部消息 key，供 i18n 完整性测试使用。
 //
 // 包含两类：本项目的点分标识符，以及移植自 ddns-go 的中文句子键。
+// Keys 返回全部已知的 key（含各分层表）。
+//
+// # 它必须是"全部"
+//
+// 目录完整性测试拿它当基准。早先它只返回基础表 —— 于是新加的分层表
+// （apiMessagesZh/En）**完全不受一致性检查**：中英文对不上也不会有
+// 任何提示。而 layeredCatalogMaps 的存在就是为了让"加了一层却忘了
+// 登记"这件事只有一个地方可犯。
 func Keys() []string {
-	out := make([]string, 0, len(messagesZh)+len(messagesEnDdnsGo))
-	for k := range messagesZh {
-		out = append(out, k)
+	maps := layeredCatalogMaps()
+	n := len(messagesEnDdnsGo)
+	for _, m := range maps {
+		n += len(m)
+	}
+
+	seen := make(map[string]bool, n)
+	out := make([]string, 0, n)
+	for _, m := range maps {
+		for k := range m {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, k)
+		}
 	}
 	out = append(out, ddnsGoKeys()...)
 	return out
+}
+
+// layeredCatalogMaps 返回全部**按语言成对**的消息表。
+//
+// 成对是关键：目录完整性测试要求每一层的 zh 与 en 拥有相同的 key 集合，
+// 而它只能检查它知道的那几层。新增一层时**必须**加进这里 —— 否则那一层
+// 会静默地脱离检查。
+func layeredCatalogMaps() []map[string]string {
+	return []map[string]string{
+		messagesZh, messagesEn,
+		apiMessagesZh, apiMessagesEn,
+	}
 }

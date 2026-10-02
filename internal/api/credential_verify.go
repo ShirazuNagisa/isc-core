@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -35,8 +36,8 @@ const verifyTimeout = 15 * time.Second
 // VerifyCredential 实现 POST /v1/credentials/{id}/verify。
 func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request, id string) {
 	if s.DNS == nil {
-		s.internalError(w, r, "记录管理服务不可用",
-			errors.New("DNS 服务未装配"))
+		s.internalError(w, r, i18n.T("api.verify.no_service"),
+			errors.New(i18n.T("api.verify.no_dns")))
 		return
 	}
 
@@ -54,7 +55,7 @@ func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request, id str
 	if s.Credentials != nil {
 		if markErr := s.Credentials.MarkVerified(
 			context.WithoutCancel(r.Context()), id, err); markErr != nil {
-			s.Log.Warn("记录凭据校验结果失败", "id", id, "err", markErr)
+			s.Log.Warn(i18n.T("api.verify.save_failed"), "id", id, "err", markErr)
 		}
 	}
 
@@ -67,7 +68,7 @@ func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request, id str
 	case err == nil:
 		s.auditSuccess(r, audit.ActionCredentialVerify, "credential", id)
 		writeJSON(w, s.Log, http.StatusOK, "application/json",
-			verifyResult(true, "连接正常"))
+			verifyResult(true, i18n.T("api.verify.ok")))
 
 	case errors.Is(err, dns.ErrVerifyUnsupported):
 		// **不支持校验不是失败。**
@@ -76,12 +77,11 @@ func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request, id str
 		// 用"列一次域名"来冒充会要求额外的权限 —— 那会把只有 DNS 编辑
 		// 权限的最小权限账号误判为无效。
 		//
-		// 这里必须说清是"不支持"而不是"连不上"，否则用户会去查一个
+		// 这里必须说清是"不支持"而不是i18n.T("api.verify.mark_unreachable")，否则用户会去查一个
 		// 根本不存在的连接问题。
 		writeJSON(w, s.Log, http.StatusOK, "application/json",
 			verifyResult(false,
-				"该服务商不支持凭据校验（它没有只读的校验端点）。"+
-					"这不代表凭据有问题 —— 可以用「DNS 记录」面板列一次区域来确认"))
+				i18n.T("api.verify.unsupported")))
 
 	default:
 		s.auditFailure(r, audit.ActionCredentialVerify, "credential", err)
@@ -112,24 +112,19 @@ func humanizeVerifyError(err error) string {
 
 	for _, marker := range []string{
 		"403", "401", "authentication", "unauthorized", "forbidden",
-		"permission", "denied", "invalid token", "签名", "鉴权", "权限",
+		"permission", "denied", "invalid token", i18n.T("api.verify.mark_auth"), i18n.T("api.verify.mark_auth2"), i18n.T("api.verify.mark_perm"),
 	} {
 		if strings.Contains(lower, marker) {
-			return msg + "\n\n这可能不是凭据填错了，而是**权限不足**：" +
-				"该凭据需要目标区域的 DNS 编辑权限。" +
-				"以 Cloudflare 为例，Token 至少要开 Zone:DNS:Edit；" +
-				"注意 Zone 的资源范围也要包含目标域名。"
+			return msg + i18n.T("api.verify.hint_auth")
 		}
 	}
 
 	for _, marker := range []string{
 		"timeout", "deadline", "connection refused", "no such host",
-		"超时", "连不上", "dial", "eof",
+		i18n.T("api.verify.mark_timeout"), i18n.T("api.verify.mark_unreachable"), "dial", "eof",
 	} {
 		if strings.Contains(lower, marker) {
-			return msg + "\n\n这看起来是**网络问题**而不是凭据问题 —— " +
-				"请确认这台机器能访问服务商的 API 地址" +
-				"（部分服务商的接口在国内网络下可能不稳定）。"
+			return msg + i18n.T("api.verify.hint_network")
 		}
 	}
 

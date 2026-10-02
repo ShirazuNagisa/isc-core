@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -22,7 +23,7 @@ import (
 func (s *Server) ListZones(w http.ResponseWriter, r *http.Request, id gen.CredentialId) {
 	zones, err := s.DNS.ListZones(r.Context(), string(id))
 	if err != nil {
-		s.dnsError(w, r, err, "列出区域")
+		s.dnsError(w, r, err, i18n.T("api.dns.list_zones"))
 		return
 	}
 
@@ -47,7 +48,7 @@ func (s *Server) ListRecords(w http.ResponseWriter, r *http.Request,
 
 	records, err := s.DNS.ListRecords(r.Context(), string(id), string(zoneId), filter)
 	if err != nil {
-		s.dnsError(w, r, err, "列出记录")
+		s.dnsError(w, r, err, i18n.T("api.dns.list_records"))
 		return
 	}
 	writeJSON(w, s.Log, http.StatusOK, "application/json", toGenRecordList(records))
@@ -59,7 +60,7 @@ func (s *Server) GetRecord(w http.ResponseWriter, r *http.Request,
 
 	rec, err := s.DNS.GetRecord(r.Context(), string(id), string(zoneId), string(recordId))
 	if err != nil {
-		s.dnsError(w, r, err, "读取记录")
+		s.dnsError(w, r, err, i18n.T("api.dns.get_record"))
 		return
 	}
 	writeJSON(w, s.Log, http.StatusOK, "application/json", toGenRecord(rec))
@@ -77,7 +78,7 @@ func (s *Server) CreateRecord(w http.ResponseWriter, r *http.Request,
 	rec, err := s.DNS.CreateRecord(r.Context(), string(id), string(zoneId), in)
 	if err != nil {
 		s.auditFailure(r, audit.ActionRecordCreate, rec.Name, err)
-		s.dnsError(w, r, err, "新增记录")
+		s.dnsError(w, r, err, i18n.T("api.dns.create"))
 		return
 	}
 
@@ -98,7 +99,7 @@ func (s *Server) UpdateRecord(w http.ResponseWriter, r *http.Request,
 	rec, err := s.DNS.UpdateRecord(r.Context(), string(id), string(zoneId), string(recordId), in)
 	if err != nil {
 		s.auditFailure(r, audit.ActionRecordUpdate, string(recordId), err)
-		s.dnsError(w, r, err, "修改记录")
+		s.dnsError(w, r, err, i18n.T("api.dns.update"))
 		return
 	}
 
@@ -113,7 +114,7 @@ func (s *Server) DeleteRecord(w http.ResponseWriter, r *http.Request,
 	err := s.DNS.DeleteRecord(r.Context(), string(id), string(zoneId), string(recordId))
 	if err != nil {
 		s.auditFailure(r, audit.ActionRecordDelete, string(recordId), err)
-		s.dnsError(w, r, err, "删除记录")
+		s.dnsError(w, r, err, i18n.T("api.dns.delete"))
 		return
 	}
 
@@ -139,7 +140,7 @@ func decodeRecordInput(w http.ResponseWriter, r *http.Request, s *Server) (dns.R
 	var in recordInput
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return dns.Record{}, false
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -219,7 +220,7 @@ func (s *Server) dnsError(w http.ResponseWriter, r *http.Request, err error, op 
 		writeProblem(w, r, s.Log, http.StatusNotFound,
 			CodeNotFound, "credential.not_found", "")
 	default:
-		s.Log.Error("DNS 操作失败", "op", op, "err", err,
+		s.Log.Error(i18n.T("api.dns.op_failed"), "op", op, "err", err,
 			"path", r.URL.Path, "request_id", RequestIDFrom(r.Context()))
 
 		// 服务商返回的错误要原样带给用户。

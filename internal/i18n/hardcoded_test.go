@@ -74,7 +74,6 @@ var hardcodedBaseline = map[string]int{
 	"internal/ddnsgo":         318,
 	"internal/platform":       204,
 	"internal/provider/tier1": 158,
-	"internal/api":            105,
 	"internal/reach":          90,
 	"internal/store":          73,
 	"internal/acme":           67,
@@ -148,6 +147,12 @@ var i18nComplete = []string{
 	// 以及**发现那些"搬进去之后才显形"的问题** —— 帮助文本的求值时机、
 	// 用了不存在的 key、并行测试与全局语言的冲突。
 	"internal/cli",
+
+	// 接口层。近百条错误说明与操作名，全部搬进 api_zh.go / api_en.go。
+	//
+	// 它比 cli 更容易被忽略：那些文案不会直接打在终端上，而是藏在
+	// HTTP 响应的 detail 字段里 —— 但 GUI 与脚本读的正是它。
+	"internal/api",
 }
 
 func TestUserFacingPackagesHaveI18n(t *testing.T) {

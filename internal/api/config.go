@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 
@@ -23,15 +24,15 @@ func (s *Server) ExportConfig(w http.ResponseWriter, r *http.Request, params gen
 
 	body, err := s.Config.Export(r.Context(), includeSecrets)
 	if err != nil {
-		s.internalError(w, r, "导出配置失败", err)
+		s.internalError(w, r, i18n.T("api.config.export_failed"), err)
 		return
 	}
 
 	// 记审计时**不记"是否含明文"以外的任何内容**：导出动作本身
 	// 值得留痕（它可能把密钥写到别处去了），但导出内容绝不进审计表。
-	detail := "已脱敏"
+	detail := i18n.T("api.config.redacted")
 	if includeSecrets {
-		detail = "包含明文凭据"
+		detail = i18n.T("api.config.plaintext")
 	}
 	s.auditSuccess(r, audit.ActionConfigExport, "config", detail)
 
@@ -57,9 +58,7 @@ func (s *Server) DescribeImport(w http.ResponseWriter, _ *http.Request) {
 		Notes           string `json:"notes"`
 	}{
 		DryRunSupported: true,
-		Notes: "dry_run 默认为 true：先返回将会发生什么，确认后再以 " +
-			"dry_run=false 提交。凭据按 (服务商, 标签) 匹配：已存在则更新，" +
-			"否则新建。",
+		Notes:           i18n.T("api.config.import_long"),
 	})
 }
 
@@ -106,7 +105,7 @@ func (s *Server) ImportDdnsGoConfig(w http.ResponseWriter, r *http.Request, para
 func readImportBody(w http.ResponseWriter, r *http.Request, s *Server) ([]byte, bool) {
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
-			CodeInvalidRequest, "error.invalid_request", "请求体为空")
+			CodeInvalidRequest, "error.invalid_request", i18n.T("api.empty_body"))
 		return nil, false
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxImportBytes+1))
@@ -118,7 +117,7 @@ func readImportBody(w http.ResponseWriter, r *http.Request, s *Server) ([]byte, 
 	if len(body) > maxImportBytes {
 		writeProblem(w, r, s.Log, http.StatusRequestEntityTooLarge,
 			CodeInvalidRequest, "error.invalid_request",
-			"导入内容超过 1 MB 上限")
+			i18n.T("api.config.too_large"))
 		return nil, false
 	}
 	return body, true
@@ -132,7 +131,7 @@ func (s *Server) importError(w http.ResponseWriter, r *http.Request, err error) 
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
 			CodeInvalidRequest, "config.import.invalid", err.Error())
 	default:
-		s.internalError(w, r, "导入配置失败", err)
+		s.internalError(w, r, i18n.T("api.config.import_failed"), err)
 	}
 }
 
@@ -141,13 +140,13 @@ func (s *Server) importError(w http.ResponseWriter, r *http.Request, err error) 
 // 统计数字是有价值的审计内容（"这次导入建了 3 条凭据"），
 // 而凭据内容不是 —— 因此这里只记计数。
 func (s *Server) auditImport(r *http.Request, action string, res configio.Result) {
-	detail := "预览"
+	detail := i18n.T("api.config.preview")
 	if !res.DryRun {
-		detail = "已应用"
+		detail = i18n.T("api.config.applied")
 	}
-	detail += "；凭据 +" +
+	detail += i18n.T("api.config.cred_added") +
 		itoa(res.Summary.CredentialsCreated) + " ~" +
-		itoa(res.Summary.CredentialsUpdated) + " 跳过 " +
+		itoa(res.Summary.CredentialsUpdated) + i18n.T("api.config.skipped") +
 		itoa(res.Summary.CredentialsSkipped)
 	s.auditSuccess(r, action, "config", detail)
 }
