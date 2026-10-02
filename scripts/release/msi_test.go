@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,35 +75,75 @@ func TestMSIIsOle2Container(t *testing.T) {
 	}
 }
 
-// TestMSIContainsRequiredStreams 验证 MSI 数据库的几个核心流在。
+// TestMSIInstallsAdministratively 用 **Windows Installer 自己**验证产物。
 //
-// ⚠️ **当前跳过，原因是一个未查清的问题（如实记录）**
+// # 为什么换成这个办法
 //
-// 按 MSI 规范，CFB 容器里必须有 !_StringPool / !_Tables / !_Columns 等流，
-// 它们是"这张数据库能不能被 Windows 读懂"的最小集合。
+// 上一版试的是"在文件里搜 `!_StringPool` 等流名"。它搜不到，于是我一度
+// 怀疑产物有问题 —— 直到换成 `msiexec /a`：
 //
-// 但实测：wix 5.0.2 产出的 32 KB 文件里**搜不到 `!_` 的 UTF-16LE 序列**
-// （0 次）。我只查到这一步 —— 文件头是合法的 CFB（魔数、扇区大小 4096、
-// 目录扇区号 1 都对），而按目录扇区偏移读出来的名字是 0xFFFF（未分配项），
-// 说明**我的偏移算法或搜索方式有问题**，而不是文件有问题。
+//	msiexec /a probe.msi /qn TARGETDIR=…   → 退出 0，解出 PFiles64\Probe\hello.txt
 //
-// 所以这条测试现在**不能说明任何事**：它既没有证明产物合格，也没有证明
-// 产物不合格。做成跳过而不是删除，是因为"该检查什么"已经写清楚了，
-// 缺的只是把它算对。
+// **产物一直是好的，错的是我的检查方式。** 原因是 MSI 的流名在 CFB 里
+// 用一套**特殊的 MSI 编码**存放（基址 U+4840），按普通 UTF-16 搜自然找不到。
 //
-// 查清之前，MSI 的产物质量只有 TestMSIIsOle2Container 那一条在守。
-func TestMSIContainsRequiredStreams(t *testing.T) {
-	t.Skip("未查清：wix 5 的产物里搜不到 `!_` 的 UTF-16LE 序列。" +
-		"CFB 头合法，但按目录扇区偏移读到的名字是 0xFFFF（未分配项）——" +
-		"更像是我的偏移算法或搜索方式错了。查清之前这条测试不能说明任何事。")
+// 这件事的教训比测试本身值钱：**当"检查失败"与"事实"矛盾时，先怀疑检查。**
+// 我当时在字节层面反推了很久，而正确的动作是**去问那个真正会读它的程序**。
+//
+// `/a` 是**管理安装**：它校验数据库并把文件解到指定目录，**不真正安装**，
+// 因此对一个测试来说是安全的。
+func TestMSIInstallsAdministratively(t *testing.T) {
+	requireWix(t)
 
-	byt := buildTestMSI(t)
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "isc.exe")
+	if err := os.WriteFile(exe, bytes.Repeat([]byte{0x4D, 0x5A}, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msi := filepath.Join(dir, "isc.msi")
+	if err := BuildMSI(MSIOptions{
+		BinaryPath:  exe,
+		Version:     "0.1.0",
+		UpgradeCode: "9A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9",
+		OutPath:     msi,
+	}); err != nil {
+		t.Fatalf("生成 MSI 失败: %v", err)
+	}
 
-	for _, name := range []string{"!_StringPool", "!_StringData", "!_Tables", "!_Columns"} {
-		if !containsUTF16LE(byt, name) {
-			t.Errorf("MSI 里找不到流 %q —— "+
-				"它是 MSI 数据库的必需部分，缺了 Windows 会拒绝安装", name)
+	target := filepath.Join(dir, "extract")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// /qn 静默，/a 管理安装（不注册、不写系统目录）。
+	cmd := exec.Command("msiexec", "/a", msi, "/qn", "TARGETDIR="+target)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("msiexec /a 失败（产物不是 Windows Installer 认得的包）: %v\n%s",
+			err, out)
+	}
+
+	// 解出来的目录结构也要对：装到 Program Files 下的 ISC，
+	// 而不是某个用户目录。
+	var found string
+	err := filepath.WalkDir(target, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
 		}
+		if strings.EqualFold(d.Name(), "isc.exe") {
+			found = p
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found == "" {
+		t.Fatalf("管理安装没有解出 isc.exe —— 包是合法的，但内容不对。\n"+
+			"解出来的东西在 %s 下", target)
+	}
+	if !strings.Contains(strings.ToLower(found), "program files") &&
+		!strings.Contains(strings.ToLower(found), "pfiles") {
+		t.Errorf("isc.exe 被装到了 %q —— 期望在 Program Files 之下（perMachine）", found)
 	}
 }
 
@@ -163,13 +204,4 @@ func TestMSIMissingWixIsNotFatal(t *testing.T) {
 	if !strings.Contains(err.Error(), "wix") {
 		t.Errorf("错误信息里应当点明缺的是 wix，得到: %v", err)
 	}
-}
-
-// containsUTF16LE 在字节流里查找一个以 UTF-16LE 编码的字符串。
-func containsUTF16LE(hay []byte, s string) bool {
-	needle := make([]byte, 0, len(s)*2)
-	for _, r := range s {
-		needle = append(needle, byte(r), 0)
-	}
-	return bytes.Contains(hay, needle)
 }
