@@ -162,6 +162,9 @@ var messagesZh = map[string]string{
 	// --- 通知 ---
 	"notify.cert_hint": "请用 isc cert list 查看详情；DNS-01 校验失败通常与凭据权限或域名归属有关。",
 
+	// --- 通知 ---
+	"notify.invalid_channels": "通知通道配置不合法",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

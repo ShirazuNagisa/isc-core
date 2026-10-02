@@ -124,6 +124,7 @@ type Daemon struct {
 	proxyMgr     *proxy.Manager
 
 	notifier     *notify.Manager
+	notifyConfig *notify.ConfigManager
 	certStore    *acme.Store
 	certMgr      *acme.Manager
 	certProvider *acme.StoreProvider
@@ -285,6 +286,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 日志通道**始终登记**：用户还没配任何外部通道时，通知至少会
 	// 出现在日志与事件流里，而不是无声无息地消失。
 	d.notifier = notify.NewManager(d.log)
+	d.notifyConfig = notify.NewConfigManager(st.NotifyChannels(), d.notifier,
+		func(format string, args ...any) { d.log.Info(fmt.Sprintf(format, args...)) })
 	d.notifier.AddChannel(notify.NewLogChannel(func(msg notify.Message) {
 		if d.bus != nil {
 			d.bus.Publish("notify.sent", map[string]any{
@@ -380,6 +383,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Verify:         d.verifyMgr,
 		Proxy:          d.proxyMgr,
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
+		Notify:         d.notifier,
+		NotifyConfig:   d.notifyConfig,
 		CertProvider:   d.certProvider,
 		CertInvalidate: d.certProvider.Invalidate,
 		Certs:          d.certMgr,
@@ -671,7 +676,14 @@ func (d *Daemon) startBackground(parent context.Context) {
 
 	go d.watchInterfaces(ctx)
 
-	// 通知中心：订阅事件总线并分发。
+	// 通知中心：先加载用户配置的通道，再订阅事件总线。
+	//
+	// 顺序不能反：先订阅的话，启动瞬间的事件会在通道加载完成之前
+	// 到达，而那些通知会被静默丢掉。
+	if err := d.notifyConfig.Load(ctx); err != nil {
+		// 加载失败不该阻断内核：还有日志通道可用。
+		d.log.Warn("加载通知通道配置失败，将只使用日志通道", "err", err)
+	}
 	d.startNotifier(ctx)
 
 	// 证书的定期检查与续期。

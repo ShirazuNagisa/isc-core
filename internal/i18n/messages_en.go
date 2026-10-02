@@ -161,6 +161,9 @@ var messagesEn = map[string]string{
 	// --- notifications ---
 	"notify.cert_hint": "Run 'isc cert list' for details; DNS-01 failures usually mean a credential permission or domain ownership problem.",
 
+	// --- notifications ---
+	"notify.invalid_channels": "The notification channel configuration is invalid",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

@@ -98,6 +98,7 @@ func New() *cobra.Command {
 		newExposeCmd(app),
 		newProxyCmd(app),
 		newCertCmd(app),
+		newNotifyCmd(app),
 		newChangesCmd(app),
 		newRollbackCmd(app),
 		newDoctorCmd(app),

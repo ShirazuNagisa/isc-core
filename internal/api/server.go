@@ -20,6 +20,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
+	"github.com/ShirazuNagisa/isc-core/internal/notify"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
@@ -113,6 +114,12 @@ type Deps struct {
 
 	// Certs 是证书管理器。
 	Certs *acme.Manager
+
+	// Notify 是通知中心。
+	Notify *notify.Manager
+
+	// NotifyConfig 是配置驱动的通道管理。
+	NotifyConfig *notify.ConfigManager
 
 	// CertRequests 返回当前需要证书的域名集合。
 	//

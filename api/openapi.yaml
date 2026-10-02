@@ -53,6 +53,8 @@ tags:
     description: 引导式外部验证
   - name: Certs
     description: TLS 证书的申请与续期
+  - name: Notify
+    description: 通知通道与投递记录
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -1370,6 +1372,92 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 通知
+  # ---------------------------------------------------------------------------
+
+  /v1/notify/channels:
+    get:
+      tags: [Notify]
+      operationId: listNotifyChannels
+      summary: 列出通知通道
+      responses:
+        "200":
+          description: 通道列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyChannelList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    put:
+      tags: [Notify]
+      operationId: replaceNotifyChannels
+      summary: 整体替换通知通道
+      description: |
+        **整体替换**，理由是顺序与冲突（同一个 ID）在整体替换下才有
+        明确的语义。
+
+        保存前会**逐个构造一遍**：模板语法错误之类的"构造期才暴露"的
+        问题因此在这里就被挡住，而不是等到某天真的要发通知时才发现。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotifyChannelList"
+      responses:
+        "200":
+          description: 保存后的通道列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyChannelList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/notify/deliveries:
+    get:
+      tags: [Notify]
+      operationId: listNotifyDeliveries
+      summary: 列出最近的通知投递结果
+      description: |
+        回答那个配置通道时最常被问到的问题：**"我的通知到底发出去了没有"**。
+
+        只写日志的话，用户得去翻日志文件才答得上来。
+      responses:
+        "200":
+          description: 投递记录（最新的在前）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyDeliveryList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/notify/test:
+    post:
+      tags: [Notify]
+      operationId: testNotifyChannels
+      summary: 向全部通道发送一条测试通知
+      description: |
+        **绕过去重与队列**：用户点了按钮之后期待立刻看到结果，
+        而不是等下一个投递循环。
+
+        返回每个通道的结果 —— 某个通道配错了应当立刻看得出来。
+      responses:
+        "200":
+          description: 各通道的投递结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyDeliveryList"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2639,6 +2727,94 @@ components:
         error:
           type: string
           description: 最近一次签发失败的原因。
+
+    # ------------------------------------------------------------------
+    # 通知
+    # ------------------------------------------------------------------
+
+    NotifyChannelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotifyChannel"
+
+    NotifyChannel:
+      type: object
+      required: [id, name, kind]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [webhook, log]
+        enabled:
+          type: boolean
+        url:
+          type: string
+          description: Webhook 的目标地址。只允许 http / https。
+        method:
+          type: string
+          description: HTTP 方法，默认 POST。
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            附加请求头。
+
+            **不要在这里放明文密钥** —— 这个字段会被接口原样返回。
+            需要鉴权时请让接收端校验来源地址。
+        body_template:
+          type: string
+          description: |
+            请求体模板，留空时发送默认的 JSON 结构。
+
+            可用变量：`{{.Event}}` `{{.Title}}` `{{.Body}}`
+            `{{.Severity}}` `{{.At}}`（RFC3339）。
+
+            各家的消息格式差异很大（飞书要嵌套的 `msg_type`，
+            Slack 只要一个 `text`），模板让用户不必等内核适配。
+
+            模板**语法错误会在保存时被拒绝**，而不是等到发送时。
+        min_severity:
+          type: string
+          enum: [info, warning, error]
+          description: |
+            该通道的最低发送级别。
+
+            每个通道可以有自己的阈值 —— "错误发到手机，全部发到日志"
+            是常见需求。
+          default: info
+
+    NotifyDeliveryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotifyDelivery"
+
+    NotifyDelivery:
+      type: object
+      required: [channel, kind, ok, at]
+      properties:
+        channel:
+          type: string
+        kind:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        at:
+          type: string
+          format: date-time
 
     ChangeRecord:
       type: object

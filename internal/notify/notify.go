@@ -400,6 +400,15 @@ func (m *Manager) Deliveries() []Delivery {
 //
 // 用于界面上那个"发送测试通知"按钮 —— 用户点了之后期待**立刻**
 // 看到结果，而不是等下一个投递循环。
+//
+// # 它也绕过了级别过滤
+//
+// 这一点是必须的，而且是真机上发现的：一个配了"仅在 warning 及以上
+// 发送"的通道，在测试时会因为测试消息是 info 而被过滤掉 ——
+// 而过滤器把"被过滤"报成成功，于是用户看到 ✅，实际什么都没发出去。
+//
+// 用户点"测试"时的意图是"**现在真的发一条**"，因此级别过滤在这里
+// 不该生效。想看通道是否配通，就必须真的打一次目标地址。
 func (m *Manager) SendNow(ctx context.Context, msg Message) []Delivery {
 	if msg.At.IsZero() {
 		msg.At = time.Now().UTC()
@@ -412,8 +421,11 @@ func (m *Manager) SendNow(ctx context.Context, msg Message) []Delivery {
 
 	var out []Delivery
 	for _, ch := range m.Channels() {
+		// 拆掉级别过滤，直接打到真正的通道上。
+		target := unwrapFilter(ch)
+
 		sendCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := ch.Send(sendCtx, msg)
+		err := target.Send(sendCtx, msg)
 		cancel()
 
 		d := Delivery{
@@ -427,6 +439,26 @@ func (m *Manager) SendNow(ctx context.Context, msg Message) []Delivery {
 		out = append(out, d)
 	}
 	return out
+}
+
+// unwrapFilter 剥掉通道外面的所有包装，露出真正的通道。
+//
+// 用循环而不是一次断言：通道可能被多层包起来
+// （`dynamicMarker` 标记来源、`levelFilter` 做级别过滤），
+// 而只剥一层会让"测试通知绕过滤"这个保证在某些组合下失效 ——
+// 那种失败是静默的（仍然报成功），正是要避免的。
+func unwrapFilter(ch Channel) Channel {
+	for i := 0; i < 4; i++ {
+		switch v := ch.(type) {
+		case levelFilter:
+			ch = v.inner
+		case dynamicMarker:
+			ch = v.Channel
+		default:
+			return ch
+		}
+	}
+	return ch
 }
 
 // Wait 等待投递循环退出（用于测试与优雅关闭）。

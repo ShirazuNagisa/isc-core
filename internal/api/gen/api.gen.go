@@ -263,6 +263,45 @@ func (e JobStatus) Valid() bool {
 	}
 }
 
+// Defines values for NotifyChannelKind.
+const (
+	Log     NotifyChannelKind = "log"
+	Webhook NotifyChannelKind = "webhook"
+)
+
+// Valid indicates whether the value is a known member of the NotifyChannelKind enum.
+func (e NotifyChannelKind) Valid() bool {
+	switch e {
+	case Log:
+		return true
+	case Webhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NotifyChannelMinSeverity.
+const (
+	NotifyChannelMinSeverityError   NotifyChannelMinSeverity = "error"
+	NotifyChannelMinSeverityInfo    NotifyChannelMinSeverity = "info"
+	NotifyChannelMinSeverityWarning NotifyChannelMinSeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the NotifyChannelMinSeverity enum.
+func (e NotifyChannelMinSeverity) Valid() bool {
+	switch e {
+	case NotifyChannelMinSeverityError:
+		return true
+	case NotifyChannelMinSeverityInfo:
+		return true
+	case NotifyChannelMinSeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProviderTier.
 const (
 	N1 ProviderTier = 1
@@ -943,6 +982,70 @@ type NoopRequest struct {
 	Steps      *int `json:"steps,omitempty"`
 }
 
+// NotifyChannel defines model for NotifyChannel.
+type NotifyChannel struct {
+	// BodyTemplate 请求体模板，留空时发送默认的 JSON 结构。
+	//
+	// 可用变量：`{{.Event}}` `{{.Title}}` `{{.Body}}`
+	// `{{.Severity}}` `{{.At}}`（RFC3339）。
+	//
+	// 各家的消息格式差异很大（飞书要嵌套的 `msg_type`，
+	// Slack 只要一个 `text`），模板让用户不必等内核适配。
+	//
+	// 模板**语法错误会在保存时被拒绝**，而不是等到发送时。
+	BodyTemplate *string `json:"body_template,omitempty"`
+	Enabled      *bool   `json:"enabled,omitempty"`
+
+	// Headers 附加请求头。
+	//
+	// **不要在这里放明文密钥** —— 这个字段会被接口原样返回。
+	// 需要鉴权时请让接收端校验来源地址。
+	Headers *map[string]string `json:"headers,omitempty"`
+	Id      string             `json:"id"`
+	Kind    NotifyChannelKind  `json:"kind"`
+
+	// Method HTTP 方法，默认 POST。
+	Method *string `json:"method,omitempty"`
+
+	// MinSeverity 该通道的最低发送级别。
+	//
+	// 每个通道可以有自己的阈值 —— "错误发到手机，全部发到日志"
+	// 是常见需求。
+	MinSeverity *NotifyChannelMinSeverity `json:"min_severity,omitempty"`
+	Name        string                    `json:"name"`
+
+	// Url Webhook 的目标地址。只允许 http / https。
+	Url *string `json:"url,omitempty"`
+}
+
+// NotifyChannelKind defines model for NotifyChannel.Kind.
+type NotifyChannelKind string
+
+// NotifyChannelMinSeverity 该通道的最低发送级别。
+//
+// 每个通道可以有自己的阈值 —— "错误发到手机，全部发到日志"
+// 是常见需求。
+type NotifyChannelMinSeverity string
+
+// NotifyChannelList defines model for NotifyChannelList.
+type NotifyChannelList struct {
+	Items []NotifyChannel `json:"items"`
+}
+
+// NotifyDelivery defines model for NotifyDelivery.
+type NotifyDelivery struct {
+	At      time.Time `json:"at"`
+	Channel string    `json:"channel"`
+	Error   *string   `json:"error,omitempty"`
+	Kind    string    `json:"kind"`
+	Ok      bool      `json:"ok"`
+}
+
+// NotifyDeliveryList defines model for NotifyDeliveryList.
+type NotifyDeliveryList struct {
+	Items []NotifyDelivery `json:"items"`
+}
+
 // Problem RFC 9457 定义的错误对象。
 type Problem struct {
 	// Code 稳定的机器可读错误码，供客户端分支判断。
@@ -1530,6 +1633,9 @@ type UpdateDdnsTaskJSONRequestBody = DdnsTaskInput
 // RunNoopJobJSONRequestBody defines body for RunNoopJob for application/json ContentType.
 type RunNoopJobJSONRequestBody = NoopRequest
 
+// ReplaceNotifyChannelsJSONRequestBody defines body for ReplaceNotifyChannels for application/json ContentType.
+type ReplaceNotifyChannelsJSONRequestBody = NotifyChannelList
+
 // ReplaceProxyRoutesJSONRequestBody defines body for ReplaceProxyRoutes for application/json ContentType.
 type ReplaceProxyRoutesJSONRequestBody = ProxyRouteList
 
@@ -1658,6 +1764,18 @@ type ServerInterface interface {
 	// GetMeta 元信息与平台能力
 	// (GET /v1/meta)
 	GetMeta(w http.ResponseWriter, r *http.Request)
+	// ListNotifyChannels 列出通知通道
+	// (GET /v1/notify/channels)
+	ListNotifyChannels(w http.ResponseWriter, r *http.Request)
+	// ReplaceNotifyChannels 整体替换通知通道
+	// (PUT /v1/notify/channels)
+	ReplaceNotifyChannels(w http.ResponseWriter, r *http.Request)
+	// ListNotifyDeliveries 列出最近的通知投递结果
+	// (GET /v1/notify/deliveries)
+	ListNotifyDeliveries(w http.ResponseWriter, r *http.Request)
+	// TestNotifyChannels 向全部通道发送一条测试通知
+	// (POST /v1/notify/test)
+	TestNotifyChannels(w http.ResponseWriter, r *http.Request)
 	// ListProviders 列出支持的 DNS 服务商及其能力与凭据字段
 	// (GET /v1/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -2800,6 +2918,62 @@ func (siw *ServerInterfaceWrapper) GetMeta(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// ListNotifyChannels operation middleware
+func (siw *ServerInterfaceWrapper) ListNotifyChannels(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNotifyChannels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceNotifyChannels operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceNotifyChannels(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceNotifyChannels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListNotifyDeliveries operation middleware
+func (siw *ServerInterfaceWrapper) ListNotifyDeliveries(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNotifyDeliveries(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TestNotifyChannels operation middleware
+func (siw *ServerInterfaceWrapper) TestNotifyChannels(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TestNotifyChannels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -3201,6 +3375,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ReplaceProxyRoutes)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/certs", wrapper.ListCerts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/certs/renew", wrapper.RenewCerts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/notify/channels", wrapper.ListNotifyChannels)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/notify/channels", wrapper.ReplaceNotifyChannels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/notify/deliveries", wrapper.ListNotifyDeliveries)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/notify/test", wrapper.TestNotifyChannels)
 
 	return m
 }

@@ -848,3 +848,65 @@ func TestWebhookTemplatePlainText(t *testing.T) {
 		t.Errorf("纯文本模板的 Content-Type = %q", ct)
 	}
 }
+
+// TestSendNowBypassesSeverityFilter 来自一次真机发现。
+//
+// 一个配了"仅在 warning 及以上发送"的通道，在测试时会因为测试消息是
+// info 而被过滤掉 —— 而过滤器把"被过滤"报成成功，于是用户看到 ✅，
+// 实际什么都没发出去。那个 Webhook 指向的端口当时**根本没有服务在监听**。
+//
+// 用户点"测试"时的意图是"现在真的发一条"，因此级别过滤在这里不该生效。
+func TestSendNowBypassesSeverityFilter(t *testing.T) {
+	t.Parallel()
+
+	ch := &fakeChannel{}
+	m := NewManager(nil)
+
+	// 一个只会收到 error 的通道。
+	m.SetDynamicChannels([]Channel{
+		levelFilter{inner: ch, min: SeverityError},
+	})
+
+	// 测试消息是 info —— 正常情况下会被过滤掉。
+	results := m.SendNow(context.Background(), Message{
+		Event: "notify.test", Title: "测试", Severity: SeverityInfo,
+	})
+
+	if len(results) != 1 {
+		t.Fatalf("应当有 1 条投递结果，得到 %d", len(results))
+	}
+	if !results[0].OK {
+		t.Errorf("测试通知应当成功发出，得到失败: %s", results[0].Error)
+	}
+	if ch.count() != 1 {
+		t.Error("测试通知必须真的打到通道上 —— " +
+			"被级别过滤挡掉却报成功，会让用户以为通道配好了")
+	}
+}
+
+// TestNormalNotificationStillHonorsSeverityFilter 验证常规通知仍受过滤。
+//
+// 测试绕过过滤是特例；事件通知必须遵守用户设的阈值。
+func TestNormalNotificationStillHonorsSeverityFilter(t *testing.T) {
+	t.Parallel()
+
+	ch := &fakeChannel{}
+	m := NewManager(nil)
+	m.SetDynamicChannels([]Channel{
+		levelFilter{inner: ch, min: SeverityError},
+	})
+
+	m.Notify(Message{Event: "x", Title: "信息", Severity: SeverityInfo})
+	drain(t, m)
+
+	if ch.count() != 0 {
+		t.Error("info 级别的常规通知应当被 error 阈值挡掉")
+	}
+
+	m.Notify(Message{Event: "x", Title: "错误", Severity: SeverityError})
+	drain(t, m)
+
+	if ch.count() != 1 {
+		t.Error("error 级别的通知应当通过")
+	}
+}
