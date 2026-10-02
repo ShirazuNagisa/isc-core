@@ -295,7 +295,7 @@ M3 验收标准的第 1、2 条因此无法满足。
 README 的快速上手第 3 步是：
 
 ```
-./isc ddns add \
+./isc ddns add \                <!-- 反例：这段写法当时是错的 -->
   --name 家里的IPv6 \
   --credential <凭据ID> \
   ...
@@ -321,7 +321,7 @@ HTTP 端点），而且它暴露了上一轮检查方法的不足：**只查顶�
   看不到它们（`ddns add \` 后面的 `--name` 等正是如此）。
 
 并**验证过这条测试真的能抓到问题**：往 README 里临时加一条
-`isc frobnicate --wibble` 之后它立刻失败。
+`isc frobnicate --wibble`（反例）之后它立刻失败。
 
 同时修掉两处真的文档错误：`isc reach`（不存在，应为 `isc ip` / `isc doctor`）
 出现了两次。

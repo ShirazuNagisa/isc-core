@@ -73,7 +73,16 @@ func TestDocumentedCommandsExist(t *testing.T) {
 			}
 
 			// 明确的"这是反例"标记要跳过。
-			if strings.Contains(line, "不存在") || strings.Contains(line, "❌") {
+			//
+			// PLAN 里有若干**故意**写错命令的段落 —— 它们记录的是曾经
+			// 修过的缺陷（"文档在教用户运行不存在的命令"）。那些例子
+			// 必须留着，否则读的人不知道当初错在哪；而它们不该让这条
+			// 测试失败。
+			//
+			// 标记写在**同一行**（`<!-- 反例：… -->`），因为逐行扫描时
+			// 跨行的标记是看不到的。
+			if strings.Contains(line, "不存在") || strings.Contains(line, "❌") ||
+				strings.Contains(line, "反例") {
 				continue
 			}
 
@@ -153,6 +162,12 @@ func TestDocumentedCommandsExist(t *testing.T) {
 			}
 			name = strings.TrimRight(name, "\\")
 			if name == "--" || name == "" {
+				continue
+			}
+
+			// --help 由 cobra 自动加，而它是在 Execute 时才注册的 ——
+			// 新建的命令树上查不到它。它是永远合法的。
+			if name == "--help" || name == "-h" {
 				continue
 			}
 			if !hasFlag(cmd, name) {
