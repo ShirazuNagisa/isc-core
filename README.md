@@ -1,116 +1,224 @@
-# ISC
+# ISC — 接入编排器
 
-**ISC（接入编排器）** 让一台没有公网 IPv4、只有动态 IPv6 的普通电脑，可以被公网直接访问。
+把一台普通的电脑变成**能从公网访问的服务器**，并顺带管理你的域名解析。
 
-它不是应用商店，也不是面板。它只做一件事：**把"这台机器"接进公网**——跟踪 IPv6 前缀变化、更新动态域名解析、编排防火墙、签发证书、反向代理发布服务。
+ISC 面向的场景是：家里或办公室有一台常开的机器，你想从外面访问它上面的
+服务（文件、媒体库、自建应用），但——
 
-> **状态：M0（地基）开发中。当前不可用。**
+- 宽带没有独立公网 IP（国内家宽的常态，运营商 CGNAT）
+- 有公网 IPv6，但**前缀是动态的**，重拨一次就变
+- 80 / 443 端口被运营商封着
 
----
-
-## 它解决什么问题
-
-国内家宽普遍没有独立公网 IPv4，只有运营商下发的动态 IPv6。想在家里跑个服务从外面访问，会撞上这些墙：
-
-| 问题 | ISC 的应对 |
-|---|---|
-| 重拨后 **IPv6 前缀（/64）变了**，不是一个地址 | 跟踪**前缀**变化，一次性更新该前缀下所有 AAAA 记录 |
-| 家宽**封禁入站 80/443** | 支持非标端口；证书走 DNS-01，不需要开放 80 |
-| 一个端口只能对一个服务 | 内置反向代理，按域名 / SNI 路由，**一个端口发布任意多个服务** |
-| 家用路由器 **IPv6 防火墙默认丢弃入站**，UPnP 对 IPv6 无效 | 生成可执行的放行清单，并检测到底哪一环断了 |
-| 本机防火墙拦入站，改起来要提权 | 以系统服务身份运行，变更走"计划 → 预览 → 应用 → 回滚" |
-| **访问端只有 IPv4**（公司网、部分公共 WiFi） | MVP 暂不支持；可达性做成插件，后续可接入 frp / Cloudflare Tunnel |
-| 服务悄悄挂了、证书悄悄过期了 | 多通道通知中心（Webhook / 邮件 / Telegram / 企业微信 / 钉钉 / 飞书 / Bark），带去重与静默期 |
-
----
-
-## 架构
-
-内核是**无 GUI 的守护进程**，只提供接口。下游 GUI 通过本地 API 连接，不链接内核。
-
-```
-   产品 GUI（后续独立开发）      验证控制台 SPA        isc CLI
-            └──────────────┬────────────┘              │
-                           │  命名管道 / Unix socket / 回环 + Bearer token
-                 ┌─────────▼──────────────────────────────┐
-                 │   isc-core（单一 Go 二进制，无 GUI）    │
-                 │   OpenAPI 3.1 · 事件总线 · 任务引擎     │
-                 │   DNS 引擎 · IP/前缀监控 · 可达性插件   │
-                 │   反向代理 · ACME · 通知中心            │
-                 │   SQLite · 密钥库 · 平台适配层          │
-                 └────────────────────────────────────────┘
-```
-
-- **接口即契约**：`api/openapi.yaml` 是唯一真理，Go 服务端与前端客户端都由它生成。
-- **快同步 + 慢异步**：列表查询同步返回；证书签发这类分钟级操作返回任务 ID 并走事件流推送。
-- **仅本机**：管理接口只监听本机，强制 token，绝不对外开放。
-- **可回滚**：所有系统级变更（防火墙、服务、端口）先出计划，确认后应用，随时可回滚。
-
-详细设计见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，决策理由见 [`docs/DECISIONS.md`](docs/DECISIONS.md)，开发计划见 [`docs/PLAN.md`](docs/PLAN.md)。
-
----
-
-## ⚠️ 许可证红线（下游 GUI 开发者必读）
-
-ISC-Core 以 **GPL-3.0** 发布。
-
-下游 GUI 通过 **HTTP / WebSocket** 与内核通信时，二者是**独立进程**，通常不构成衍生作品，GUI 可以自行选择许可证。
-
-> **但如果你把内核作为 Go 库链接进 GUI，整个 GUI 将继承 GPL-3.0。**
-
-因此本项目的架构强制规定：**内核只能作为独立进程运行，不得被链接。**
-
----
-
-## 构建
-
-```bash
-# 需要 Go 1.25 或更高版本
-go build ./cmd/isc
-
-# 交叉编译（内核为纯 Go，无 cgo，可直接交叉编译）
-GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build ./cmd/isc
-GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build ./cmd/isc
-```
-
-**本项目禁止引入任何需要 cgo 的依赖。**
+ISC 内核负责把这些琐碎的事自动化：跟踪 IPv6 前缀变化、把新地址写进 DNS、
+按需开防火墙、在内置反向代理上提供 HTTPS。
 
 ---
 
 ## 快速上手
 
-> M3 完成后可用。当前为占位说明。
+### 1. 运行内核
 
 ```bash
-isc init          # 交互式向导：选网卡 → 填域名 → 填凭据 → 选端口 → 生成变更计划 → 应用
-isc status        # 查看内核状态
-isc doctor        # 全链路诊断：到底哪一环断了
-isc daemon run    # 前台运行守护进程
-isc --help        # 全部子命令
+./isc daemon run
 ```
 
-所有子命令支持 `--json`，便于脚本与下游 GUI 复用。
+它默认只监听**本机**的本地接口（Windows 命名管道 / Unix 域套接字），
+不会对外暴露任何端口。
+
+想让它在后台常驻、开机自启：
+
+```bash
+sudo ./isc service install      # Linux / macOS
+./isc service install           # Windows（需以管理员身份运行终端）
+```
+
+### 2. 配一个 DNS 凭据
+
+以 Cloudflare 为例：
+
+```bash
+./isc credential add cloudflare --name 我的CF --token <API-TOKEN>
+```
+
+**最小权限**：给这个 Token 只开 `Zone:DNS:Edit` 权限。不要用全局 API Key ——
+内核只需要改 DNS 记录，而一个能改账户全部设置的凭据一旦泄漏，后果
+完全不同。
+
+### 3. 建一条动态解析任务
+
+```bash
+./isc ddns add \
+  --name 家里的IPv6 \
+  --credential <凭据ID> \
+  --domain home.example.com \
+  --type AAAA \
+  --source ipv6
+```
+
+然后立即跑一次看看：
+
+```bash
+./isc ddns run <任务ID>
+```
+
+### 4. 确认真的通了
+
+```bash
+./isc verify
+```
+
+它会引导你做一次**从公网发起的**验证：给一个链接，用手机流量（不要连
+WiFi）打开。
+
+这一点很重要——在**本机**上访问 `home.example.com` 成功**不能**证明它在
+公网上可达：
+
+- 路由器可能在做 NAT 回环（hairpin），本机访问会走内网
+- 解析可能命中了本机 hosts 或本地 DNS 缓存
+- 有些系统对「自己的域名」有特殊处理
+
+只有来自**公网**的请求才证明得了。验证页会检查请求的来源地址，并明确
+告诉你结果是"证明可达"还是"什么也证明不了"。
+
+### 5. 需要 HTTPS 时
+
+```bash
+./isc proxy add home.example.com --to 127.0.0.1:8096 --tls
+```
+
+先把 ACME 需要的设置填上：
+
+```bash
+./isc settings set \
+  --acme-email you@example.com \
+  --acme-dns-credential-id <凭据ID>
+./isc settings set --proxy-enabled --proxy-port 443
+```
+
+证书会在几秒内自动签发并生效，到期前会**自动续期**。用
+`./isc cert list` 看状态。
 
 ---
 
-## 支持的 DNS 服务商
+## 常用命令
 
-| 层级 | 能力 | 服务商 |
-|---|---|---|
-| **Tier-1** | 完整记录 CRUD（区域列表、记录增删改查、全记录类型、TTL、代理开关）+ 动态解析 + DNS-01 证书 | Cloudflare、阿里云 DNS、腾讯云 / DNSPod、华为云 DNS、GoDaddy |
-| **Tier-2** | 仅 A/AAAA 动态解析 | 其余约 30 家（由 ddns-go 移植） |
+| 命令 | 作用 |
+|---|---|
+| `isc daemon run` | 前台运行内核 |
+| `isc doctor` | 体检：环境、权限、网络、依赖 |
+| `isc settings` | 查看与修改设置 |
+| `isc credential` | 管理 DNS 服务商凭据 |
+| `isc ddns` | 管理动态解析任务 |
+| `isc zones` / `isc records` | 浏览与编辑 DNS 记录 |
+| `isc reach` | 可达性检查 |
+| `isc verify` | 引导式外部验证 |
+| `isc proxy` | 反向代理路由 |
+| `isc cert` | 查看与续期 TLS 证书 |
+| `isc notify` | 通知通道与投递记录 |
+| `isc service` | 安装为系统服务 |
 
-能力矩阵见 [`docs/PROVIDER-MATRIX.md`](docs/PROVIDER-MATRIX.md)（M2 产出）。
+所有命令都支持 `--json`，便于脚本调用。
+
+### 验证用 Web 控制台
+
+```bash
+./isc console
+```
+
+它会打印一个本地地址。在浏览器里打开就能看到全部功能——控制台只监听
+回环地址，且会校验 `Host` 头（防止 DNS 重绑定）。
 
 ---
 
-## 致谢
+## 关于权限
 
-DNS 服务商实现大量派生自 [ddns-go](https://github.com/jeessy2/ddns-go)（MIT，Copyright (c) 2020 jeessy）。
-详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+| 操作 | 是否需要管理员 |
+|---|---|
+| 运行内核、`isc` 的绝大多数命令 | 否 |
+| 装成系统服务 | Windows / Linux / macOS 都需要 |
+| 开防火墙规则 | 是 |
+| 绑定 443 等低端口 | Linux 上需要 `CAP_NET_BIND_SERVICE` 或 root |
+
+`isc doctor` 会告诉你在当前机器上哪些功能可用、哪些不可用以及为什么。
+
+---
+
+## 排错
+
+### 外网访问不了
+
+按这个顺序查：
+
+1. **`isc verify` 的结果是什么？**
+   如果它说"无法证明可达"，问题在公网侧，不在 DNS。
+
+2. **IPv6 通不通？**
+   ```bash
+   isc reach
+   ```
+   运营商的 IPv6 可能是「有地址但不通」。这时任务会一直失败，
+   而错误信息通常只有一句超时。
+
+3. **防火墙放行了吗？**
+   Windows 上非管理员**无法**创建防火墙规则。`isc doctor` 会标出来。
+
+4. **DNS 真的更新了吗？**
+   ```bash
+   isc records list --zone <区域ID>
+   ```
+   有些服务商有缓存，改动不会立刻生效。
+
+5. **路由器放行了吗？**
+   IPv6 下通常不需要端口转发，但需要在路由器防火墙里**放行入站**。
+   很多家用路由器默认拦掉全部 IPv6 入站。这一条内核管不了，
+   需要你在路由器上操作。
+
+### 证书签不下来
+
+DNS-01 校验失败的常见原因：
+
+- 该域名的**权威 DNS 不是**你所选的服务商（查一下 NS 记录）
+- 凭据没有该域名的编辑权限
+- 记录还在传播中（稍后重试）
+
+`isc cert renew` 会给出具体原因。
+
+> 首次配置建议先用 Let's Encrypt 的**测试环境**试通：
+> `isc settings set --acme-directory https://acme-staging-v02.api.letsencrypt.org/directory`
+> 生产环境的失败配额是**每小时 5 次**，调配置很容易把它用光，
+> 而用光之后要等一小时。测试环境签的证书浏览器不信任，但流程一样。
+
+### 收不到通知
+
+```bash
+isc notify test        # 立刻发一条，看每个通道的结果
+isc notify deliveries  # 看最近的投递记录
+```
+
+同一个事件在 5 分钟内只会发一条（防止地址抖动刷屏）。静默期过后如果
+期间有被抑制的消息，会补发一条汇总。
+
+---
+
+## 数据放在哪
+
+| 平台 | 默认位置 |
+|---|---|
+| Windows | `%LOCALAPPDATA%\isc` |
+| Linux | `/var/lib/isc`（配置在 `/etc/isc`） |
+| macOS | `~/Library/Application Support/isc` |
+
+用 `ISC_DATA_DIR` 环境变量或 `--data-dir` 参数覆盖。
+
+**凭据是加密存储的**：主密钥放在系统密钥库里（Windows DPAPI / macOS
+钥匙串 / Linux Secret Service），数据库里存的是密文。文件兜底模式也
+支持，但保护级别低得多——`isc doctor` 会告诉你当前用的是哪一种。
 
 ---
 
 ## 许可证
 
-[GPL-3.0](LICENSE)
+GPLv3。第三方组件的许可证见 `THIRD_PARTY_NOTICES.md`。
+
+内核与图形界面是**分离**的：GUI 通过本地接口调用内核，不链接内核代码。
+这是刻意的——它让 GUI 可以采用不同的许可证。
