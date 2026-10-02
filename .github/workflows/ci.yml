@@ -378,3 +378,81 @@ jobs:
           cache: true
 
       - run: go test ./internal/i18n/... -count=1 -v
+
+  # ---------------------------------------------------------------------------
+  # Windows 安装包
+  #
+  # 单独一个 job 而不是塞进 release-build：那个跑在 ubuntu 上，而 .msi
+  # 需要 WiX —— 它虽然是个 .NET 工具、任何平台都能装，但**产物只有
+  # Windows 用户会下载**，在 ubuntu 上产出它没有意义。
+  #
+  # 与 reproducible 一样，这个 job 验证的是**用户真正拿到的东西**。
+  # 一个"能编译但装不上"的仓库，对 Windows 用户来说和没有发布一样。
+  # ---------------------------------------------------------------------------
+  release-msi:
+    name: Windows 安装包
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # **锁定 5.0.2**：v7 起要求接受 Open Source Maintenance Fee 的 EULA，
+      # 那是使用者要做的法律决定，CI 不该替他接受。
+      #
+      # 版本号与 scripts/release/msi_def.go 里的 msiWixVersion 是同一个 ——
+      # 两处都要改，因此那个常量旁边写了注释。
+      - name: 安装 WiX
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          echo "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: 构建全部平台
+        run: go run ./scripts/release -out dist -version 0.0.0-ci -skip-tests
+
+      - name: 核对 msi
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # 两个架构都要有。
+          foreach ($arch in @('amd64', 'arm64')) {
+            $p = "dist/isc_0.0.0-ci_$arch.msi"
+            if (-not (Test-Path $p)) {
+              Write-Error "缺少产物 $p"
+              exit 1
+            }
+            # 一个空的或截断的 msi 比没有更糟：用户会下载它然后装不上。
+            if ((Get-Item $p).Length -lt 100KB) {
+              Write-Error "$p 只有 $((Get-Item $p).Length) 字节，不像是完整的安装包"
+              exit 1
+            }
+          }
+
+          # 让 **Windows Installer 自己**判断产物合不合法。
+          #
+          # /a 是管理安装：校验数据库并把文件解到指定目录，**不真正安装**，
+          # 因此在 CI 里是安全的。
+          #
+          # 这一步不能省：文件存在、大小对，与"它是一份能装的包"是两件事。
+          $target = Join-Path $env:RUNNER_TEMP 'msi-check'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          $proc = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @(
+            '/a', (Resolve-Path 'dist/isc_0.0.0-ci_amd64.msi').Path, '/qn', "TARGETDIR=$target"
+          )
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "msiexec /a 退出 $($proc.ExitCode) —— 产物不是 Windows Installer 认得的包"
+            exit 1
+          }
+
+          $exe = Get-ChildItem $target -Recurse -Filter isc.exe | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "管理安装没有解出 isc.exe —— 包合法但内容不对"
+            exit 1
+          }
+          Write-Host "解出 $($exe.FullName)（$($exe.Length) 字节）"

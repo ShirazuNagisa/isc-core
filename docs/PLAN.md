@@ -2311,6 +2311,57 @@ systemd 侧还加了 `StartLimitBurst=5`：没有它的话，一个必然启动�
 | 系统级安装包 | 🔶 Linux `.deb` + `.rpm` 已做；`.msi` / `.pkg` 未做（需证书） |
 | 代码签名 / 公证 | ❌ **需要购买证书**（Windows 代码签名证书、Apple 开发者账号） |
 
+#### Windows .msi（已实现，需要 WiX）
+
+`go run ./scripts/release` 在 **Windows 上构建 Windows 目标**时额外产出
+`isc_<版本>_<架构>.msi`。
+
+它需要外部工具 **WiX**，而 WiX 有一个法律上的坑：
+
+```
+dotnet tool install --global wix --version 5.0.2
+```
+
+**版本必须锁在 5.x**。v7 起 `wix build` 会直接失败：
+
+```
+error WIX7015: You must accept the Open Source Maintenance Fee (OSMF) EULA
+```
+
+那是**使用者要做的法律决定**（可能涉及付费），不该由构建脚本替他接受。
+装错版本时的报错不告诉人该怎么办，因此那句装法也写进了跳过时的提示里。
+
+没装 WiX **不中止发布**：其余产物与它无关，脚本会跳过并打印装法。
+理由与 rpm 相同 —— 一个打不出来的包不该让另外九个产物也发不出去。
+
+##### 为什么用 WiX 而不是像 deb 那样手写
+
+`.deb` 是手写的（ar 归档 + tar，任何平台都能生成）。MSI 不是：它是
+OLE2/CFB 容器里的一张关系型数据库，含十几个必须相互一致的流，
+还要按 InstallExecuteSequence 编排动作 —— 手写大约 800–1500 行，
+而错了的表现是"装到一半失败"。
+
+##### 包里的三个取舍
+
+- 装到 **Program Files**（`Scope="perMachine"`）：它是系统服务的宿主，
+  装到 HKCU 下会让"以管理员身份安装"变成一件自相矛盾的事；
+- 只放开始菜单快捷方式，**不放开机自启** —— 那由 `isc service install` 做，
+  与 `.deb` 的取舍一致；
+- `UpgradeCode` **必须永远不变**：Windows Installer 靠它判断"这是不是
+  同一个产品的另一个版本"，改了会导致两份并存而卸载只能去掉一份。
+
+##### 验证方式
+
+CI 里的 `release-msi` job（windows-latest）装 WiX、构建、然后让
+**Windows Installer 自己**判断产物合不合法：
+
+```
+msiexec /a <msi> /qn TARGETDIR=…     # 管理安装：校验并解包，不真正安装
+```
+
+文件存在、大小对，与"它是一份能装的包"是两件事 —— 这一步不能省。
+
+（`.pkg` 需要 macOS 机器，本机做不了。）
 #### Linux .deb（已实现）
 
 `go run ./scripts/release` 现在额外产出 `isc_<版本>_<架构>.deb`，装法与其它
