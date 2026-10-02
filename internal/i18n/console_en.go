@@ -321,6 +321,26 @@ var consoleMessagesEn = map[string]string{
 	"web.rec.deleted":          "Record deleted",
 	"web.common.delete_failed": "Delete failed: ",
 
+	"web.ev.connect_failed":     "Could not open the event stream: ",
+	"web.ev.connected":          "Connected (event stream)",
+	"web.ev.status_connected":   "Event stream connected",
+	"web.ev.status_closed":      "Event stream disconnected",
+	"web.ev.status_error":       "Event stream error (the token may have been rejected)",
+	"web.raw.need_path":         "Enter a path",
+	"web.raw.bad_json":          "The request body is not valid JSON: ",
+	"web.raw.sending":           "Sending…",
+	"web.raw.ok":                " (success)",
+	"web.raw.fail":              " (failed)",
+	"web.raw.empty_body":        "(empty response body)",
+	"web.svc.confirm_uninstall": "Uninstall the system service? The data directory is kept.",
+	"web.cred.deleted":          "Credential deleted",
+	"web.cred.confirm_delete":   "Delete the credential \"{name}\"?",
+	"web.task.deleted":          "Task deleted",
+	"web.task.confirm_delete":   "Delete the task \"{name}\"?",
+	"web.cert.renew_failed":     "Renewal failed: ",
+	"web.cert.checked":          "Check complete: {n} certificate(s)",
+	"web.nt.test_sent":          "Test notification sent to {n} channel(s)",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

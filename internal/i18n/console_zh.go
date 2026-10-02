@@ -302,6 +302,26 @@ var consoleMessagesZh = map[string]string{
 	"web.rec.deleted":          "记录已删除",
 	"web.common.delete_failed": "删除失败：",
 
+	"web.ev.connect_failed":     "建立事件流失败：",
+	"web.ev.connected":          "已连接（事件流）",
+	"web.ev.status_connected":   "事件流已连接",
+	"web.ev.status_closed":      "事件流已断开",
+	"web.ev.status_error":       "事件流出错（可能是令牌被拒）",
+	"web.raw.need_path":         "请填写路径",
+	"web.raw.bad_json":          "请求体不是合法 JSON：",
+	"web.raw.sending":           "请求中…",
+	"web.raw.ok":                " （成功）",
+	"web.raw.fail":              " （失败）",
+	"web.raw.empty_body":        "（空响应体）",
+	"web.svc.confirm_uninstall": "确定卸载系统服务？数据目录会保留。",
+	"web.cred.deleted":          "凭据已删除",
+	"web.cred.confirm_delete":   "确定删除凭据「{name}」？",
+	"web.task.deleted":          "任务已删除",
+	"web.task.confirm_delete":   "确定删除任务「{name}」？",
+	"web.cert.renew_failed":     "续期失败：",
+	"web.cert.checked":          "检查完成，共 {n} 张证书",
+	"web.nt.test_sent":          "测试通知已发送到 {n} 个通道",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }

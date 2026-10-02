@@ -121,7 +121,7 @@ async function saveProxyRoute(id) {
   next.push(route);
 
   const r = await api('PUT', '/v1/proxy/routes', { items: next });
-  if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.save_failed') + explain(r), 'err'); return; }
 
   toast(t('web.common.saved', '已保存'), 'ok');
   $('pxForm').hidden = true;
@@ -133,7 +133,7 @@ async function deleteProxyRoute(id) {
 
   const next = (state.proxyRoutes || []).filter((x) => x.id !== id);
   const r = await api('PUT', '/v1/proxy/routes', { items: next });
-  if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.delete_failed') + explain(r), 'err'); return; }
 
   toast(t('web.common.deleted', '已删除'), 'ok');
   loadProxy();
@@ -148,7 +148,7 @@ async function saveProxySettings() {
 
   if (!r.ok) {
     // 校验失败的提示原样显示 —— 那是用户唯一能据此行动的线索。
-    toast('保存失败：' + explain(r), 'err');
+    toast(t('web.common.save_failed') + explain(r), 'err');
     return;
   }
   toast(t('web.settings.saved', '设置已保存'), 'ok');
@@ -224,10 +224,10 @@ function daysUntil(iso) {
 async function renewCerts() {
   toast(t('web.cert.checking', '正在检查并续期，可能需要一两分钟…'), 'ok');
   const r = await api('POST', '/v1/certs/renew');
-  if (!r.ok) { toast('续期失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.cert.renew_failed', '续期失败：') + explain(r), 'err'); return; }
 
   const data = await r.json();
-  toast('检查完成，共 ' + ((data.items || []).length) + ' 张证书', 'ok');
+  toast(tf('web.cert.checked', '检查完成，共 {n} 张证书', {n: (data.items || []).length}), 'ok');
   loadCerts();
 }
 
@@ -312,9 +312,9 @@ function renderNotifyForm(existing) {
     '否则你看到的会是「通知发不出去」，而真正的问题是少了一个括号。' +
     '</p>' +
     '<label class="check"><input type="checkbox" id="ntEnabled"' +
-    (c.enabled === false ? '' : ' checked') + '> 启用</label>' +
+    (c.enabled === false ? '' : ' checked') + '> ' + t('web.common.enabled') + '</label>' +
     '<div class="row"><button id="ntSave" class="primary">' + t('web.common.save', '保存') + '</button>' +
-    '<button id="ntCancel">取消</button></div>';
+    '<button id="ntCancel">' + t('web.common.cancel') + '</button></div>';
 
   $('ntCancel').onclick = () => { form.hidden = true; };
   $('ntSave').onclick = () => saveNotifyChannel(c.id);
@@ -339,7 +339,7 @@ async function saveNotifyChannel(id) {
   next.push(ch);
 
   const r = await api('PUT', '/v1/notify/channels', { items: next });
-  if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.save_failed') + explain(r), 'err'); return; }
 
   toast(t('web.common.saved', '已保存'), 'ok');
   $('ntForm').hidden = true;
@@ -351,7 +351,7 @@ async function deleteNotifyChannel(id) {
 
   const next = (state.notifyChannels || []).filter((x) => x.id !== id);
   const r = await api('PUT', '/v1/notify/channels', { items: next });
-  if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.delete_failed') + explain(r), 'err'); return; }
 
   toast(t('web.common.deleted', '已删除'), 'ok');
   loadNotify();
@@ -381,7 +381,7 @@ function renderDeliveries(items) {
 
 async function testNotify() {
   const r = await api('POST', '/v1/notify/test', {});
-  if (!r.ok) { toast('测试失败：' + explain(r), 'err'); return; }
+  if (!r.ok) { toast(t('web.common.test_failed') + explain(r), 'err'); return; }
 
   const data = await r.json();
   const items = data.items || [];
@@ -389,7 +389,7 @@ async function testNotify() {
   // 逐个通道报结果 —— 某个通道配错了应当立刻看得出来。
   const failed = items.filter((d) => !d.ok);
   if (failed.length === 0) {
-    toast('测试通知已发送到 ' + items.length + ' 个通道', 'ok');
+    toast(tf('web.nt.test_sent', '测试通知已发送到 {n} 个通道', {n: items.length}), 'ok');
   } else {
     toast('有 ' + failed.length + ' 个通道失败：' +
       failed.map((d) => d.channel).join('、'), 'err');

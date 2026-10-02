@@ -782,7 +782,7 @@ function connectEvents() {
   try {
     ws = new WebSocket(url, [proto]);
   } catch (err) {
-    toast('建立事件流失败：' + err.message, 'err');
+    toast(t('web.ev.connect_failed', '建立事件流失败：') + err.message, 'err');
     return;
   }
   state.ws = ws;
@@ -790,8 +790,8 @@ function connectEvents() {
   ws.onopen = () => {
     $('evConnect').disabled = true;
     $('evDisconnect').disabled = false;
-    $('pillConn').textContent = '已连接（事件流）';
-    status('事件流已连接');
+    $('pillConn').textContent = t('web.ev.connected', '已连接（事件流）');
+    status(t('web.ev.status_connected', '事件流已连接'));
   };
 
   ws.onmessage = (ev) => {
@@ -805,12 +805,12 @@ function connectEvents() {
     state.ws = null;
     $('evConnect').disabled = false;
     $('evDisconnect').disabled = true;
-    status('事件流已断开');
+    status(t('web.ev.status_closed', '事件流已断开'));
   };
 
   ws.onerror = () => {
     // 浏览器出于安全考虑不暴露错误细节，只能给出通用提示。
-    status('事件流出错（可能是令牌被拒）', true);
+    status(t('web.ev.status_error', '事件流出错（可能是令牌被拒）'), true);
   };
 
   // 断线后自动重连，并带上 lastEventId 请求补发。
@@ -856,26 +856,26 @@ async function sendRaw() {
   const path = $('rawPath').value.trim();
   const bodyText = $('rawBody').value.trim();
 
-  if (!path) { toast('请填写路径', 'err'); return; }
+  if (!path) { toast(t('web.raw.need_path', '请填写路径'), 'err'); return; }
 
   let body;
   if (bodyText) {
     try { JSON.parse(bodyText); } catch (e) {
-      toast('请求体不是合法 JSON：' + e.message, 'err');
+      toast(t('web.raw.bad_json', '请求体不是合法 JSON：') + e.message, 'err');
       return;
     }
     body = bodyText;
   }
 
-  status('请求中…');
+  status(t('web.raw.sending', '请求中…'));
   const r = await api(method, path, body);
 
   $('rawStatus').textContent = method + ' ' + path + ' → HTTP ' + r.status +
-    (r.ok ? ' （成功）' : ' （失败）');
+    (r.ok ? t('web.raw.ok', ' （成功）') : t('web.raw.fail', ' （失败）'));
   $('rawStatus').style.color = r.ok ? 'var(--ok)' : 'var(--err)';
 
   $('rawResult').textContent = r.body === null
-    ? '（空响应体）'
+    ? t('web.raw.empty_body', '（空响应体）')
     : (typeof r.body === 'string' ? r.body : JSON.stringify(r.body, null, 2));
 
   status(t('web.raw.ready'));
@@ -945,7 +945,7 @@ function initActions() {
   $('svcStop').onclick = () => serviceAction('stop');
   $('svcInstall').onclick = () => serviceAction('install');
   $('svcUninstall').onclick = () => {
-    if (!confirm('确定卸载系统服务？数据目录会保留。')) return;
+    if (!confirm(t('web.svc.confirm_uninstall', '确定卸载系统服务？数据目录会保留。'))) return;
     serviceAction('uninstall');
   };
 
@@ -957,11 +957,11 @@ function initActions() {
     if (btn.dataset.verify) verifyCredential(btn.dataset.verify);
 
     if (btn.dataset.delcred) {
-      if (confirm('确定删除凭据「' + btn.dataset.label + '」？')) {
+      if (confirm(tf('web.cred.confirm_delete', '确定删除凭据「{name}」？', {name: btn.dataset.label}))) {
         api('DELETE', '/v1/credentials/' + encodeURIComponent(btn.dataset.delcred))
           .then((r) => {
             if (!r.ok) { toast(t('web.common.delete_failed', '删除失败：') + explain(r), 'err'); return; }
-            toast('凭据已删除', 'ok');
+            toast(t('web.cred.deleted', '凭据已删除'), 'ok');
             loadCredentials();
           });
       }
@@ -970,11 +970,11 @@ function initActions() {
     if (btn.dataset.runtask) runTask(btn.dataset.runtask);
 
     if (btn.dataset.deltask) {
-      if (confirm('确定删除任务「' + btn.dataset.label + '」？')) {
+      if (confirm(tf('web.task.confirm_delete', '确定删除任务「{name}」？', {name: btn.dataset.label}))) {
         api('DELETE', '/v1/ddns-tasks/' + encodeURIComponent(btn.dataset.deltask))
           .then((r) => {
             if (!r.ok) { toast(t('web.common.delete_failed', '删除失败：') + explain(r), 'err'); return; }
-            toast('任务已删除', 'ok');
+            toast(t('web.task.deleted', '任务已删除'), 'ok');
             loadTasks();
           });
       }
