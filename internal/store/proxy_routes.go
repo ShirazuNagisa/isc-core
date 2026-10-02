@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"time"
 
@@ -27,7 +28,7 @@ func (p *ProxyRoutes) List(ctx context.Context) ([]proxy.Route, error) {
 
 	rows, err := p.s.db.QueryContext(ctx, q)
 	if err != nil {
-		return nil, fmt.Errorf("store: 查询代理路由失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.query_routes"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -43,14 +44,14 @@ func (p *ProxyRoutes) List(ctx context.Context) ([]proxy.Route, error) {
 		)
 		if err := rows.Scan(&r.ID, &r.Label, &domains, &r.Upstream,
 			&tlsOn, &enabled, &createdAt, &updatedAt); err != nil {
-			return nil, fmt.Errorf("store: 扫描代理路由失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("store.err.scan_route"), err)
 		}
 		r.Hosts = splitLines(domains)
 		r.TLS = tlsOn != 0
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: 遍历代理路由失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.iter_routes"), err)
 	}
 	return out, nil
 }
@@ -68,12 +69,12 @@ func (p *ProxyRoutes) List(ctx context.Context) ([]proxy.Route, error) {
 func (p *ProxyRoutes) Replace(ctx context.Context, routes []proxy.Route) error {
 	tx, err := p.s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: 开始事务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.begin_chan_tx"), err)
 	}
 	defer tx.Rollback() //nolint:errcheck // 提交成功后回滚是空操作
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM proxy_routes`); err != nil {
-		return fmt.Errorf("store: 清空代理路由失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.clear_routes"), err)
 	}
 
 	const q = `INSERT INTO proxy_routes (` + proxyRouteColumns + `)
@@ -85,12 +86,12 @@ func (p *ProxyRoutes) Replace(ctx context.Context, routes []proxy.Route) error {
 			r.ID, r.Label, strings.Join(r.Hosts, "\n"), r.Upstream,
 			boolToIntValue(r.TLS), 1, now, now)
 		if err != nil {
-			return fmt.Errorf("store: 写入代理路由失败: %w", err)
+			return fmt.Errorf(i18n.T("store.err.write_route"), err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: 提交代理路由失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.commit_routes"), err)
 	}
 	return nil
 }

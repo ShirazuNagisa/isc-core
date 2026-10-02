@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 
 	"github.com/ShirazuNagisa/isc-core/internal/change"
 )
@@ -27,15 +28,15 @@ const changeColumns = `plan_id, kind, title, risk, status, steps, warnings, note
 func (c *Changes) Save(ctx context.Context, rec change.Record) error {
 	steps, err := json.Marshal(orEmptySteps(rec.Steps))
 	if err != nil {
-		return fmt.Errorf("store: 序列化变更步骤失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.marshal_steps"), err)
 	}
 	warnings, err := json.Marshal(orEmptyStrings(rec.Warnings))
 	if err != nil {
-		return fmt.Errorf("store: 序列化变更警告失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.marshal_warns"), err)
 	}
 	notes, err := json.Marshal(orEmptyStrings(rec.Notes))
 	if err != nil {
-		return fmt.Errorf("store: 序列化变更说明失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.marshal_notes"), err)
 	}
 	// payload 是后端私有的回滚数据，原样存取、不做解释。
 	//
@@ -65,7 +66,7 @@ func (c *Changes) Save(ctx context.Context, rec change.Record) error {
 		string(steps), string(warnings), string(notes), payload,
 		formatTime(rec.CreatedAt), formatTime(rec.UpdatedAt))
 	if err != nil {
-		return fmt.Errorf("store: 写入变更记录失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.write_change"), err)
 	}
 	return nil
 }
@@ -95,7 +96,7 @@ func (c *Changes) List(ctx context.Context, limit int) ([]change.Record, error) 
 
 	rows, err := c.s.db.QueryContext(ctx, q, limit)
 	if err != nil {
-		return nil, fmt.Errorf("store: 查询变更记录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.query_change"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -109,7 +110,7 @@ func (c *Changes) ListInterrupted(ctx context.Context) ([]change.Record, error) 
 
 	rows, err := c.s.db.QueryContext(ctx, q, string(change.StatusApplying))
 	if err != nil {
-		return nil, fmt.Errorf("store: 查询中断的变更失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.query_interrupt"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -130,7 +131,7 @@ func collectChanges(rows *sql.Rows) ([]change.Record, error) {
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: 遍历变更记录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.iter_changes"), err)
 	}
 	return out, nil
 }
@@ -168,7 +169,7 @@ func scanChange(sc rowScanner) (change.Record, error) {
 		if err := json.Unmarshal([]byte(stepsRaw), &rec.Steps); err != nil {
 			rec.Steps = []change.StepRecord{{
 				ID:    "unparsed",
-				Title: "（步骤详情无法解析，但变更本身仍可撤销）",
+				Title: i18n.T("store.steps_unparsable"),
 				State: change.StepApplied,
 			}}
 		}

@@ -34,7 +34,7 @@
 | `internal/ddnsgo` | 318 | 移植代码。它的错误文本会转给用户 |
 | `internal/provider/tier1` | ✅ **2** | 已完成；剩 2 处是 API 数据值（DNSPod 的 `record_line`） |
 | `internal/reach` | ✅ **0** | 已完成；它就是 `isc doctor` 的正文 |
-| `internal/store` | 73 | 数据库错误 |
+| `internal/store` | ✅ **0** | 已完成；仓储层数据库错误 |
 | `internal/acme` | ✅ **0** | 已完成；DNS-01 失败那条把四种成因逐条列出 |
 | `scripts/release` | 64 | 构建工具输出，**不是产品**，优先级最低 |
 | `internal/proxy` | 55 | 反代启动与路由错误 |

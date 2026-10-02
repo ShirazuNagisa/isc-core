@@ -84,7 +84,6 @@ var hardcodedBaseline = map[string]int{
 	// 迁移时它们被误换成了 i18n.T(...)，是**编译器**拦下的（const 不能是
 	// 函数调用）—— 这是第四次遇到"把数据当成文案"。
 	"internal/provider/tier1": 2,
-	"internal/store":          70,
 	"scripts/release":         64,
 	"internal/proxy":          41,
 	"internal/verify":         43,
@@ -183,6 +182,11 @@ var i18nComplete = []string{
 	// 通知中心。配置校验要指出是哪个通道、哪个字段；投递时的合并说明
 	// 必须**如实说明合并了多少次** —— 否则用户会以为事件只发生了一次。
 	"internal/notify",
+
+	// 持久化层的数据库错误。它们高度格式化（store: <做了什么>失败: %w），
+	// 但出现在"配置出错、磁盘满、库被别的进程锁住"这些时刻，
+	// 而"哪一步失败了"正是排查的起点。
+	"internal/store",
 
 	// 守护进程。它的中文几乎全是 slog 日志（已由计数器按调用排除），
 	// 剩下的是启动失败这类返回给调用方的错误，以及**推送出去的通知正文**。

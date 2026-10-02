@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ func (c *Credentials) List(ctx context.Context, cursor string, limit int) ([]cre
 
 	rows, err := c.s.db.QueryContext(ctx, q, before, before, limit)
 	if err != nil {
-		return nil, "", fmt.Errorf("store: 查询凭据列表失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("store.err.list_creds"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -69,13 +70,13 @@ func (c *Credentials) List(ctx context.Context, cursor string, limit int) ([]cre
 	for rows.Next() {
 		rec, rowID, err := scanCredential(rows)
 		if err != nil {
-			return nil, "", fmt.Errorf("store: 扫描凭据失败: %w", err)
+			return nil, "", fmt.Errorf(i18n.T("store.err.scan_cred"), err)
 		}
 		out = append(out, rec)
 		lastRowID = rowID
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", fmt.Errorf("store: 遍历凭据失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("store.err.iter_creds"), err)
 	}
 
 	next := ""
@@ -96,7 +97,7 @@ func (c *Credentials) Get(ctx context.Context, id string) (credential.Record, bo
 		if isNoRows(err) {
 			return credential.Record{}, false, nil
 		}
-		return credential.Record{}, false, fmt.Errorf("store: 查询凭据失败: %w", err)
+		return credential.Record{}, false, fmt.Errorf(i18n.T("store.err.get_cred"), err)
 	}
 	return rec, true, nil
 }
@@ -112,7 +113,7 @@ func (c *Credentials) FindByProviderLabel(ctx context.Context, providerName, lab
 		if isNoRows(err) {
 			return credential.Record{}, false, nil
 		}
-		return credential.Record{}, false, fmt.Errorf("store: 按标签查询凭据失败: %w", err)
+		return credential.Record{}, false, fmt.Errorf(i18n.T("store.err.cred_by_label"), err)
 	}
 	return rec, true, nil
 }
@@ -132,7 +133,7 @@ func (c *Credentials) Insert(ctx context.Context, rec credential.Record) error {
 		if isUniqueViolation(err) {
 			return credential.ErrDuplicateLabel
 		}
-		return fmt.Errorf("store: 插入凭据失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.insert_cred"), err)
 	}
 	return nil
 }
@@ -153,7 +154,7 @@ func (c *Credentials) Update(ctx context.Context, rec credential.Record) error {
 		if isUniqueViolation(err) {
 			return credential.ErrDuplicateLabel
 		}
-		return fmt.Errorf("store: 更新凭据失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.update_cred"), err)
 	}
 	return nil
 }
@@ -162,11 +163,11 @@ func (c *Credentials) Update(ctx context.Context, rec credential.Record) error {
 func (c *Credentials) Delete(ctx context.Context, id string) error {
 	res, err := c.s.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("store: 删除凭据失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.delete_cred"), err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("store: 读取删除结果失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.delete_result"), err)
 	}
 	if n == 0 {
 		return credential.ErrNotFound

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 )
@@ -21,7 +22,7 @@ import (
 func (s *Store) LoadSettings(ctx context.Context) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings`)
 	if err != nil {
-		return nil, fmt.Errorf("store: 读取设置失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.read_settings"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -29,12 +30,12 @@ func (s *Store) LoadSettings(ctx context.Context) (map[string]string, error) {
 	for rows.Next() {
 		var k, v string
 		if err := rows.Scan(&k, &v); err != nil {
-			return nil, fmt.Errorf("store: 扫描设置失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("store.err.scan_setting"), err)
 		}
 		out[k] = v
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: 遍历设置失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.iter_settings"), err)
 	}
 	return out, nil
 }
@@ -51,7 +52,7 @@ func (s *Store) SaveSettings(ctx context.Context, kv map[string]string) error {
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: 开启设置事务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.begin_set_tx"), err)
 	}
 	defer func() { _ = tx.Rollback() }() //nolint:errcheck // 已提交时是空操作
 
@@ -61,11 +62,11 @@ func (s *Store) SaveSettings(ctx context.Context, kv map[string]string) error {
 	ts := now()
 	for k, v := range kv {
 		if _, err := tx.ExecContext(ctx, q, k, v, ts); err != nil {
-			return fmt.Errorf("store: 写入设置 %q 失败: %w", k, err)
+			return fmt.Errorf(i18n.T("store.err.write_setting"), k, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: 提交设置失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.commit_settings"), err)
 	}
 	return nil
 }
@@ -86,7 +87,7 @@ func (s *Store) AppendAudit(ctx context.Context, r audit.Record) error {
 		r.TS, r.Action, nullIfEmpty(r.Target), r.Result,
 		nullIfEmpty(r.Detail), nullIfEmpty(r.RequestID), nullIfEmpty(r.Remote))
 	if err != nil {
-		return fmt.Errorf("store: 写入审计失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.audit_write"), err)
 	}
 	return nil
 }
@@ -128,7 +129,7 @@ func (s *Store) ListAudit(ctx context.Context, f audit.Filter) ([]audit.Record, 
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, "", fmt.Errorf("store: 查询审计失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("store.err.audit_query"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -137,12 +138,12 @@ func (s *Store) ListAudit(ctx context.Context, f audit.Filter) ([]audit.Record, 
 		var r audit.Record
 		if err := rows.Scan(&r.ID, &r.TS, &r.Action, &r.Target, &r.Result,
 			&r.Detail, &r.RequestID, &r.Remote); err != nil {
-			return nil, "", fmt.Errorf("store: 扫描审计记录失败: %w", err)
+			return nil, "", fmt.Errorf(i18n.T("store.err.audit_scan"), err)
 		}
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", fmt.Errorf("store: 遍历审计失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("store.err.audit_iter"), err)
 	}
 
 	next := ""
@@ -175,4 +176,4 @@ func joinAnd(parts []string) string {
 }
 
 // ErrClosed 表示在已关闭的数据库上执行操作。
-var ErrClosed = errors.New("store: 数据库已关闭")
+var ErrClosed = errors.New(i18n.T("store.err.closed"))

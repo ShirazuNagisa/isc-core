@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/notify"
@@ -37,7 +38,7 @@ func (n *NotifyChannels) List(ctx context.Context) ([]ChannelConfig, error) {
 
 	rows, err := n.s.db.QueryContext(ctx, q)
 	if err != nil {
-		return nil, fmt.Errorf("store: 查询通知通道失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.query_channels"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -51,7 +52,7 @@ func (n *NotifyChannels) List(ctx context.Context) ([]ChannelConfig, error) {
 		)
 		if err := rows.Scan(&cfg.ID, &cfg.Name, &cfg.Kind, &enabled,
 			&cfg.URL, &cfg.Method, &headers, &cfg.BodyTemplate, &severity); err != nil {
-			return nil, fmt.Errorf("store: 扫描通知通道失败: %w", err)
+			return nil, fmt.Errorf(i18n.T("store.err.scan_channel"), err)
 		}
 		cfg.Enabled = enabled != 0
 		cfg.MinSeverity = notify.Severity(severity)
@@ -64,7 +65,7 @@ func (n *NotifyChannels) List(ctx context.Context) ([]ChannelConfig, error) {
 		out = append(out, cfg)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: 遍历通知通道失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.iter_channels"), err)
 	}
 	return out, nil
 }
@@ -76,12 +77,12 @@ func (n *NotifyChannels) List(ctx context.Context) ([]ChannelConfig, error) {
 func (n *NotifyChannels) Replace(ctx context.Context, configs []ChannelConfig) error {
 	tx, err := n.s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: 开始事务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.begin_chan_tx"), err)
 	}
 	defer tx.Rollback() //nolint:errcheck // 提交成功后回滚是空操作
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM notify_channels`); err != nil {
-		return fmt.Errorf("store: 清空通知通道失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.clear_channels"), err)
 	}
 
 	const q = `INSERT INTO notify_channels (` + notifyChannelColumns + `,
@@ -93,7 +94,7 @@ func (n *NotifyChannels) Replace(ctx context.Context, configs []ChannelConfig) e
 		if len(cfg.Headers) > 0 {
 			byt, err := json.Marshal(cfg.Headers)
 			if err != nil {
-				return fmt.Errorf("store: 序列化请求头失败: %w", err)
+				return fmt.Errorf(i18n.T("store.err.marshal_headers"), err)
 			}
 			headers = string(byt)
 		}
@@ -111,12 +112,12 @@ func (n *NotifyChannels) Replace(ctx context.Context, configs []ChannelConfig) e
 			cfg.ID, cfg.Name, cfg.Kind, boolToIntValue(cfg.Enabled),
 			cfg.URL, method, headers, cfg.BodyTemplate, severity,
 			now, now); err != nil {
-			return fmt.Errorf("store: 写入通知通道失败: %w", err)
+			return fmt.Errorf(i18n.T("store.err.write_channel"), err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: 提交通知通道失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.commit_channels"), err)
 	}
 	return nil
 }

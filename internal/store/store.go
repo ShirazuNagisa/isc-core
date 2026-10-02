@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"time"
 
 	// 纯 Go 的 SQLite 驱动，注册为 "sqlite"。
@@ -46,7 +47,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("store: 打开数据库失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.open"), err)
 	}
 
 	// 单连接。
@@ -61,7 +62,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("store: 连接数据库失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.ping"), err)
 	}
 
 	s := &Store{db: db}

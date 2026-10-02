@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 
 	"github.com/ShirazuNagisa/isc-core/internal/ddns"
 )
@@ -41,7 +42,7 @@ func (t *Tasks) List(ctx context.Context, enabledOnly bool) ([]ddns.Task, error)
 
 	rows, err := t.s.db.QueryContext(ctx, q)
 	if err != nil {
-		return nil, fmt.Errorf("store: 查询任务列表失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.list_tasks"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -54,7 +55,7 @@ func (t *Tasks) List(ctx context.Context, enabledOnly bool) ([]ddns.Task, error)
 		out = append(out, task)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: 遍历任务失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.iter_tasks"), err)
 	}
 	return out, nil
 }
@@ -68,7 +69,7 @@ func (t *Tasks) Get(ctx context.Context, id string) (ddns.Task, bool, error) {
 		if isNoRows(err) {
 			return ddns.Task{}, false, nil
 		}
-		return ddns.Task{}, false, fmt.Errorf("store: 查询任务失败: %w", err)
+		return ddns.Task{}, false, fmt.Errorf(i18n.T("store.err.get_task"), err)
 	}
 	return task, true, nil
 }
@@ -86,7 +87,7 @@ func (t *Tasks) Insert(ctx context.Context, task ddns.Task) error {
 
 	_, err := t.s.db.ExecContext(ctx, q, taskArgs(task)...)
 	if err != nil {
-		return fmt.Errorf("store: 插入任务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.insert_task"), err)
 	}
 	return nil
 }
@@ -120,7 +121,7 @@ func (t *Tasks) Update(ctx context.Context, task ddns.Task) error {
 
 	res, err := t.s.db.ExecContext(ctx, q, args...)
 	if err != nil {
-		return fmt.Errorf("store: 更新任务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.update_task"), err)
 	}
 	n, err := res.RowsAffected()
 	if err == nil && n == 0 {
@@ -133,11 +134,11 @@ func (t *Tasks) Update(ctx context.Context, task ddns.Task) error {
 func (t *Tasks) Delete(ctx context.Context, id string) error {
 	res, err := t.s.db.ExecContext(ctx, `DELETE FROM ddns_tasks WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("store: 删除任务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.delete_task"), err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("store: 读取删除结果失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.delete_result"), err)
 	}
 	if n == 0 {
 		return ddns.ErrNotFound
@@ -154,7 +155,7 @@ func (t *Tasks) CountByCredential(ctx context.Context, credentialID string) (int
 	err := t.s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM ddns_tasks WHERE credential_id = ?`, credentialID).Scan(&n)
 	if err != nil {
-		return 0, fmt.Errorf("store: 统计凭据引用失败: %w", err)
+		return 0, fmt.Errorf(i18n.T("store.err.count_cred_refs"), err)
 	}
 	return n, nil
 }

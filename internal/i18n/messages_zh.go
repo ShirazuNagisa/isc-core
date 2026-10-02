@@ -946,8 +946,6 @@ var messagesZh = map[string]string{
 	"platform.unsupported_platform": "当前平台不在支持列表内（Windows / Linux / macOS）",
 
 	// --- 存储 ---
-	"store.open_failed":    "打开数据库失败：%s",
-	"store.migrate_failed": "数据库迁移失败：%s",
 	"store.migration_changed": "store: 迁移 %04d_%s 的内容已被修改（记录 %s…，实际 %s…）。\n" +
 		"已应用过的迁移**不能再改** —— 那会让已升级的数据库与新装的数据库" +
 		"出现同样的版本号、不同的表结构。\n" +
@@ -961,7 +959,6 @@ var messagesZh = map[string]string{
 	"store.migrate_read_applied": "store: 读取已应用迁移失败: %w",
 	"store.migrate_scan_version": "store: 扫描迁移版本失败: %w",
 	"store.migrate_iter_version": "store: 遍历迁移版本失败: %w",
-	"store.closed":               "数据库已关闭",
 	// --- 凭据管理（CLI） ---
 	"cli.credential.short":      "管理 DNS 服务商凭据",
 	"cli.credential.list_short": "列出已保存的凭据",

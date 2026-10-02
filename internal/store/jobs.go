@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strconv"
 	"strings"
 
@@ -65,7 +66,7 @@ func (j *Jobs) Save(ctx context.Context, r job.Job) error {
 		r.ID, r.Kind, string(r.Status), r.Progress, message, resultJSON, errorJSON,
 		formatTime(r.CreatedAt), formatTimePtr(r.StartedAt), formatTimePtr(r.FinishedAt))
 	if err != nil {
-		return fmt.Errorf("store: 保存任务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.save_job"), err)
 	}
 	return nil
 }
@@ -83,7 +84,7 @@ func (j *Jobs) Get(ctx context.Context, id string) (job.Job, bool, error) {
 		if isNoRows(err) {
 			return job.Job{}, false, nil
 		}
-		return job.Job{}, false, fmt.Errorf("store: 查询任务失败: %w", err)
+		return job.Job{}, false, fmt.Errorf(i18n.T("store.err.get_job"), err)
 	}
 	return rec, true, nil
 }
@@ -138,7 +139,7 @@ func (j *Jobs) List(ctx context.Context, f job.Filter) ([]job.Job, string, error
 
 	rows, err := j.s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, "", fmt.Errorf("store: 查询任务列表失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("store.err.list_jobs"), err)
 	}
 	defer rows.Close() //nolint:errcheck // 只读游标
 
@@ -147,13 +148,13 @@ func (j *Jobs) List(ctx context.Context, f job.Filter) ([]job.Job, string, error
 	for rows.Next() {
 		rec, seq, err := scanJob(rows)
 		if err != nil {
-			return nil, "", fmt.Errorf("store: 扫描任务失败: %w", err)
+			return nil, "", fmt.Errorf(i18n.T("store.err.scan_job"), err)
 		}
 		out = append(out, rec)
 		lastSeq = seq
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", fmt.Errorf("store: 遍历任务失败: %w", err)
+		return nil, "", fmt.Errorf(i18n.T("store.err.iter_jobs"), err)
 	}
 
 	next := ""
@@ -188,7 +189,7 @@ func (j *Jobs) Prune(ctx context.Context, keep int) (int64, error) {
 	        )`
 	res, err := j.s.db.ExecContext(ctx, q, keep)
 	if err != nil {
-		return 0, fmt.Errorf("store: 清理历史任务失败: %w", err)
+		return 0, fmt.Errorf(i18n.T("store.err.prune_jobs"), err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

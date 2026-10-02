@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     checksum   TEXT    NOT NULL DEFAULT ''
 )`
 	if _, err := s.db.ExecContext(ctx, ddl); err != nil {
-		return fmt.Errorf("store: 创建迁移记录表失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.mk_mig_table"), err)
 	}
 	// 表可能是更早的版本建的（没有 checksum 列）。
 	//
@@ -229,22 +229,22 @@ func (s *Store) backfillChecksum(ctx context.Context, version int, sum string) e
 func (s *Store) applyMigration(ctx context.Context, m migration, sum string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: 开启迁移事务失败: %w", err)
+		return fmt.Errorf(i18n.T("store.err.begin_mig_tx"), err)
 	}
 	defer func() { _ = tx.Rollback() }() // 已提交时此调用是空操作
 
 	if _, err := tx.ExecContext(ctx, m.body); err != nil {
-		return fmt.Errorf("store: 应用迁移 %04d_%s 失败: %w", m.version, m.name, err)
+		return fmt.Errorf(i18n.T("store.err.apply_mig"), m.version, m.name, err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations (version, name, applied_at, checksum)
 		 VALUES (?, ?, ?, ?)`,
 		m.version, m.name, now(), sum,
 	); err != nil {
-		return fmt.Errorf("store: 记录迁移 %04d_%s 失败: %w", m.version, m.name, err)
+		return fmt.Errorf(i18n.T("store.err.record_mig"), m.version, m.name, err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: 提交迁移 %04d_%s 失败: %w", m.version, m.name, err)
+		return fmt.Errorf(i18n.T("store.err.commit_mig"), m.version, m.name, err)
 	}
 	return nil
 }
@@ -253,7 +253,7 @@ func (s *Store) applyMigration(ctx context.Context, m migration, sum string) err
 func loadMigrations() ([]migration, error) {
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
-		return nil, fmt.Errorf("store: 读取迁移目录失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("store.err.read_mig_dir"), err)
 	}
 
 	out := make([]migration, 0, len(entries))
@@ -272,13 +272,13 @@ func loadMigrations() ([]migration, error) {
 		// 随机跳过其中一个。
 		if prev, dup := seen[version]; dup {
 			return nil, fmt.Errorf(
-				"store: 迁移版本号 %d 重复（%s 与 %s）", version, prev, e.Name())
+				i18n.T("store.err.dup_mig"), version, prev, e.Name())
 		}
 		seen[version] = e.Name()
 
 		body, err := migrationsFS.ReadFile(path.Join("migrations", e.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("store: 读取迁移 %s 失败: %w", e.Name(), err)
+			return nil, fmt.Errorf(i18n.T("store.err.read_mig"), e.Name(), err)
 		}
 		out = append(out, migration{version: version, name: name, body: string(body)})
 	}
@@ -293,15 +293,15 @@ func parseMigrationName(filename string) (version int, name string, err error) {
 	numStr, rest, ok := strings.Cut(base, "_")
 	if !ok {
 		return 0, "", fmt.Errorf(
-			"store: 迁移文件名 %q 不符合 NNNN_描述.sql 格式", filename)
+			i18n.T("store.err.mig_bad_name"), filename)
 	}
 	version, err = strconv.Atoi(numStr)
 	if err != nil || version <= 0 {
 		return 0, "", fmt.Errorf(
-			"store: 迁移文件名 %q 的版本号不是正整数", filename)
+			i18n.T("store.err.mig_bad_ver"), filename)
 	}
 	if rest == "" {
-		return 0, "", fmt.Errorf("store: 迁移文件名 %q 缺少描述部分", filename)
+		return 0, "", fmt.Errorf(i18n.T("store.err.mig_no_desc"), filename)
 	}
 	return version, rest, nil
 }
