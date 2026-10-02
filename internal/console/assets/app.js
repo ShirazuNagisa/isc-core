@@ -391,10 +391,10 @@ async function verifyCredential(id) {
 
   const b = r.body || {};
   if (b.ok) {
-    toast('连接正常' + (b.message ? '：' + b.message : ''), 'ok');
-    status('就绪');
+    toast(t('web.cred.ok', '连接正常') + (b.message ? '：' + b.message : ''), 'ok');
+    status(t('web.raw.ready'));
   } else {
-    toast('测试未通过：' + (b.message || '未知原因'), 'err');
+    toast(t('web.cred.not_passed') + '：' + (b.message || t('web.common.unknown')), 'err');
     status(t('web.cred.not_passed', '测试未通过'), true);
   }
 }
@@ -411,16 +411,16 @@ async function loadTasks() {
   }
   const items = (r.body && r.body.items) || [];
   if (!items.length) {
-    $('taskList').innerHTML = '<div class="empty">还没有配置动态解析任务。</div>';
+    $('taskList').innerHTML = '<div class="empty">' + t('web.task.empty', '还没有配置动态解析任务。') + '</div>';
     return;
   }
 
   const rows = items.map((t) => {
     const st = t.last_status || '';
-    let badge = '<span class="badge muted">从未执行</span>';
-    if (st === 'success') badge = '<span class="badge ok">已更新</span>';
-    else if (st === 'failed') badge = '<span class="badge err">失败</span>';
-    else if (st === 'unchanged') badge = '<span class="badge">无需改动</span>';
+    let badge = '<span class="badge muted">' + t('web.task.never', '从未执行') + '</span>';
+    if (st === 'success') badge = '<span class="badge ok">' + t('web.task.updated', '已更新') + '</span>';
+    else if (st === 'failed') badge = '<span class="badge err">' + t('web.task.failed', '失败') + '</span>';
+    else if (st === 'unchanged') badge = '<span class="badge">' + t('web.task.unchanged', '无需改动') + '</span>';
 
     const src = [];
     if (t.ipv4 && t.ipv4.enable) {
@@ -433,8 +433,8 @@ async function loadTasks() {
     }
 
     return '<tr>' +
-      '<td>' + (t.enabled ? '<span class="badge ok">启用</span>' :
-                            '<span class="badge muted">停用</span>') + '<br>' +
+      '<td>' + (t.enabled ? '<span class="badge ok">' + t('web.common.enabled') + '</span>' :
+                            '<span class="badge muted">' + t('web.common.disabled') + '</span>') + '<br>' +
         esc(t.label) + '</td>' +
       '<td class="mono">' + src.join('<br>') + '</td>' +
       '<td>' + badge + '<br><small>' + esc(t.last_message || '') + '</small></td>' +
@@ -449,8 +449,8 @@ async function loadTasks() {
   }).join('');
 
   $('taskList').innerHTML =
-    '<table class="data"><thead><tr><th>任务</th><th>来源与域名</th>' +
-    '<th>状态</th><th>上次地址</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    '<table class="data"><thead><tr><th>' + t('web.task.th_task', '任务') + '</th><th>' + t('web.task.th_sources', '来源与域名') + '</th>' +
+    '<th>' + t('web.th.status') + '</th><th>' + t('web.task.th_last_addr', '上次地址') + '</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
 function renderTaskForm() {
@@ -461,27 +461,27 @@ function renderTaskForm() {
     '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>').join('');
 
   if (!creds) {
-    el.innerHTML = '<h3>新建任务</h3><div class="empty">' +
-      '需要先创建一条凭据。</div>';
+    el.innerHTML = '<h3>' + t('web.task.new') + '</h3><div class="empty">' +
+      t('web.task.need_cred', '需要先创建一条凭据。') + '</div>';
     return;
   }
 
   el.innerHTML =
-    '<h3>新建动态解析任务</h3>' +
+    '<h3>' + t('web.task.new_full', '新建动态解析任务') + '</h3>' +
     '<div class="form-grid">' +
       '<label class="field"><span>' + t('web.th.name') + '</span>' +
         '<input id="tfLabel" placeholder="例如：家里的 IPv6"></label>' +
-      '<label class="field"><span>凭据</span>' +
+      '<label class="field"><span>' + t('web.rec.l_cred') + '</span>' +
         '<select id="tfCred">' + creds + '</select></label>' +
     '</div>' +
 
     '<h3 style="margin-top:18px">IPv6（AAAA）</h3>' +
     '<div class="form-grid">' +
-      '<label class="field"><span>启用</span>' +
+      '<label class="field"><span>' + t('web.common.enabled') + '</span>' +
         '<input type="checkbox" id="tf6Enable" checked></label>' +
-      '<label class="field"><span>获取方式</span>' +
-        '<select id="tf6Type"><option value="netInterface">网卡</option>' +
-        '<option value="url">外部接口</option>' +
+      '<label class="field"><span>' + t('web.task.l_getter', '获取方式') + '</span>' +
+        '<select id="tf6Type"><option value="netInterface">' + t('web.task.getter_iface', '网卡') + '</option>' +
+        '<option value="url">' + t('web.task.getter_url', '外部接口') + '</option>' +
         '<option value="cmd">命令</option></select></label>' +
       '<label class="field full"><span>取值</span>' +
         '<input id="tf6Value" placeholder="网卡名（如 WLAN / eth0）"></label>' +
@@ -494,9 +494,9 @@ function renderTaskForm() {
 
     '<h3 style="margin-top:18px">IPv4（A）</h3>' +
     '<div class="form-grid">' +
-      '<label class="field"><span>启用</span>' +
+      '<label class="field"><span>' + t('web.common.enabled') + '</span>' +
         '<input type="checkbox" id="tf4Enable"></label>' +
-      '<label class="field"><span>获取方式</span>' +
+      '<label class="field"><span>' + t('web.task.l_getter', '获取方式') + '</span>' +
         '<select id="tf4Type"><option value="url">外部接口</option>' +
         '<option value="netInterface">网卡</option>' +
         '<option value="cmd">命令</option></select></label>' +
@@ -878,7 +878,7 @@ async function sendRaw() {
     ? '（空响应体）'
     : (typeof r.body === 'string' ? r.body : JSON.stringify(r.body, null, 2));
 
-  status('就绪');
+  status(t('web.raw.ready'));
 }
 
 // ---------------------------------------------------------------------------

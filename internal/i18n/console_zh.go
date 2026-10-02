@@ -253,6 +253,22 @@ var consoleMessagesZh = map[string]string{
 	"web.cred.test":          "测试连接",
 	"web.cred.name_ph":       "例如：我的 Cloudflare",
 
+	"web.task.empty":        "还没有配置动态解析任务。",
+	"web.task.never":        "从未执行",
+	"web.task.updated":      "已更新",
+	"web.task.failed":       "失败",
+	"web.task.unchanged":    "无需改动",
+	"web.task.th_task":      "任务",
+	"web.task.th_sources":   "来源与域名",
+	"web.task.th_last_addr": "上次地址",
+	"web.task.need_cred":    "需要先创建一条凭据。",
+	"web.task.new_full":     "新建动态解析任务",
+	"web.task.label_ph":     "例如：家里的 IPv6",
+	"web.task.l_getter":     "获取方式",
+	"web.task.getter_iface": "网卡",
+	"web.task.getter_url":   "外部接口",
+	"web.cred.ok":           "连接正常",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }

@@ -272,6 +272,22 @@ var consoleMessagesEn = map[string]string{
 	"web.cred.test":          "Test connection",
 	"web.cred.name_ph":       "e.g. My Cloudflare",
 
+	"web.task.empty":        "No dynamic DNS tasks configured yet.",
+	"web.task.never":        "Never run",
+	"web.task.updated":      "Updated",
+	"web.task.failed":       "Failed",
+	"web.task.unchanged":    "No change needed",
+	"web.task.th_task":      "Task",
+	"web.task.th_sources":   "Sources and domains",
+	"web.task.th_last_addr": "Last address",
+	"web.task.need_cred":    "Create a credential first.",
+	"web.task.new_full":     "New dynamic DNS task",
+	"web.task.label_ph":     "e.g. Home IPv6",
+	"web.task.l_getter":     "Retrieval method",
+	"web.task.getter_iface": "Interface",
+	"web.task.getter_url":   "External endpoint",
+	"web.cred.ok":           "Connection OK",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }
