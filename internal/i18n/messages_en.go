@@ -164,6 +164,10 @@ var messagesEn = map[string]string{
 	// --- notifications ---
 	"notify.invalid_channels": "The notification channel configuration is invalid",
 
+	// --- system service ---
+	"service.install_failed": "Failed to install the system service",
+	"service.action_failed":  "The system service operation failed",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

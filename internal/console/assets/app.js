@@ -890,6 +890,10 @@ function initTabs() {
     if (tab === 'credentials') loadCredentials();
     if (tab === 'ip') loadIP();
     if (tab === 'overview') loadOverview();
+    if (tab === 'proxy') loadProxy();
+    if (tab === 'certs') loadCerts();
+    if (tab === 'notify') loadNotify();
+    if (tab === 'service') loadService();
   });
 }
 
@@ -907,6 +911,31 @@ function initActions() {
   $('evDisconnect').onclick = disconnectEvents;
   $('evClear').onclick = () => { state.events = []; $('evLog').innerHTML = ''; };
   $('rawSend').onclick = sendRaw;
+
+  // 反向代理
+  $('pxRefresh').onclick = loadProxy;
+  $('pxStatus').onclick = loadProxyStatus;
+  $('pxNew').onclick = () => renderProxyForm(null);
+  $('pxSave').onclick = saveProxySettings;
+
+  // 证书
+  $('certRefresh').onclick = loadCerts;
+  $('certRenew').onclick = renewCerts;
+
+  // 通知
+  $('ntRefresh').onclick = loadNotify;
+  $('ntNew').onclick = () => renderNotifyForm(null);
+  $('ntTest').onclick = testNotify;
+
+  // 系统服务
+  $('svcRefresh').onclick = loadService;
+  $('svcStart').onclick = () => serviceAction('start');
+  $('svcStop').onclick = () => serviceAction('stop');
+  $('svcInstall').onclick = () => serviceAction('install');
+  $('svcUninstall').onclick = () => {
+    if (!confirm('确定卸载系统服务？数据目录会保留。')) return;
+    serviceAction('uninstall');
+  };
 
   // 委托绑定：表格里的按钮是动态渲染出来的，逐个绑定会漏掉重渲染后的元素。
   document.addEventListener('click', (e) => {
@@ -947,6 +976,19 @@ function initActions() {
     if (btn.dataset.delrec) {
       deleteRecord(btn.dataset.delrec, btn.dataset.name, btn.dataset.type);
     }
+
+    // 新面板的按钮同样是动态渲染的，必须走委托绑定。
+    if (btn.dataset.editpx) {
+      const r = (state.proxyRoutes || []).find((x) => x.id === btn.dataset.editpx);
+      if (r) renderProxyForm(r);
+    }
+    if (btn.dataset.delpx) deleteProxyRoute(btn.dataset.delpx);
+
+    if (btn.dataset.editnt) {
+      const c = (state.notifyChannels || []).find((x) => x.id === btn.dataset.editnt);
+      if (c) renderNotifyForm(c);
+    }
+    if (btn.dataset.delnt) deleteNotifyChannel(btn.dataset.delnt);
   });
 }
 

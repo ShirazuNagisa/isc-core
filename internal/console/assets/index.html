@@ -36,7 +36,11 @@
   <button data-tab="credentials">凭据</button>
   <button data-tab="tasks">动态解析</button>
   <button data-tab="records">DNS 记录</button>
-  <button data-tab="events">事件流</button>
+  <button data-tab="proxy">反向代理</button>
+        <button data-tab="certs">证书</button>
+        <button data-tab="notify">通知</button>
+        <button data-tab="service">系统服务</button>
+        <button data-tab="events">事件流</button>
   <button data-tab="raw">原始接口</button>
 </nav>
 
@@ -129,6 +133,132 @@
   <div id="recList"></div>
 </section>
 
+<!-- ==================== 反向代理 ==================== -->
+<section id="tab-proxy" class="tab-panel">
+  <h2>反向代理</h2>
+  <p class="hint">
+    按域名把外部请求转发到本机的服务上。<strong>没有默认上游</strong> ——
+    未配置的域名会返回 404，而不是回落到某个本地服务。
+    <br>
+    上游只允许本机与内网地址：允许公网地址会让这个功能变成一个
+    <strong>开放代理</strong>，任何人都能借你的机器转发流量。
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <label class="check">
+        <input type="checkbox" id="pxEnabled">
+        启用反向代理
+      </label>
+      <label>端口 <input type="number" id="pxPort" min="1" max="65535" style="width:6rem"></label>
+      <label class="check">
+        <input type="checkbox" id="pxTls">
+        使用 HTTPS
+      </label>
+      <button id="pxSave" class="primary">保存</button>
+      <button id="pxStatus">刷新状态</button>
+    </div>
+    <div id="pxState" class="hint"></div>
+  </div>
+
+  <h3>转发规则</h3>
+  <p class="hint">
+    规则是<strong>整体保存</strong>的：同一个域名不能同时指向两个上游，
+    而增量修改会让「检查冲突」变成一件跨多次调用才能完成的事。
+  </p>
+  <div class="row">
+    <button id="pxRefresh">刷新</button>
+    <button id="pxNew" class="primary">新增规则</button>
+  </div>
+  <div id="pxForm" class="form-card" hidden></div>
+  <div id="pxList"></div>
+</section>
+
+<!-- ==================== 证书 ==================== -->
+<section id="tab-certs" class="tab-panel">
+  <h2>TLS 证书</h2>
+  <p class="hint">
+    证书由内核自动申请与续期：到期前 <strong>1/3 寿命</strong>时进入续期窗口
+    （对 90 天的证书即提前 30 天）。一般情况下不需要手动干预。
+    <br>
+    「需要续期」后面会给出<strong>理由</strong> —— 一类是快过期了，另一类是
+    「现有证书不覆盖某个新加的域名」，而后者与剩余有效期无关。
+  </p>
+  <div class="row">
+    <button id="certRefresh">刷新</button>
+    <button id="certRenew" class="primary">立即检查并续期</button>
+  </div>
+  <div id="certList"></div>
+</section>
+
+<!-- ==================== 通知 ==================== -->
+<section id="tab-notify" class="tab-panel">
+  <h2>通知通道</h2>
+  <p class="hint">
+    同一个事件在静默期内只发一条，防止地址抖动刷屏；静默期过后若期间有
+    被抑制的消息，会补发一条汇总。
+    <br>
+    <strong>日志通道始终可用</strong> —— 即使没有配置任何外部通道，
+    通知也会出现在事件流与内核日志里。
+  </p>
+  <div class="row">
+    <button id="ntRefresh">刷新</button>
+    <button id="ntNew" class="primary">新增通道</button>
+    <button id="ntTest">发送测试通知</button>
+  </div>
+  <div id="ntForm" class="form-card" hidden></div>
+  <div id="ntList"></div>
+
+  <h3>最近的投递结果</h3>
+  <p class="hint">
+    配置通道时最常被问到的问题是「我的通知到底发出去了没有」——
+    这里是答案。
+  </p>
+  <div id="ntDeliveries"></div>
+</section>
+
+<!-- ==================== 系统服务 ==================== -->
+<section id="tab-service" class="tab-panel">
+  <h2>系统服务</h2>
+  <p class="hint">
+    把内核注册为系统服务之后会开机自启、崩溃自动重启，不必一直开着终端。
+    <br>
+    <strong>安装与卸载需要管理员权限</strong>；在 Windows 上，
+    连<strong>查询</strong>服务状态也需要 —— 因此下面同时报出「内核是否可达」，
+    那个问题不需要任何权限就能回答。
+  </p>
+
+  <div class="card">
+    <div id="svcState" class="hint">加载中…</div>
+    <div class="row">
+      <button id="svcRefresh">刷新</button>
+      <button id="svcStart">启动服务</button>
+      <button id="svcStop">停止服务</button>
+    </div>
+  </div>
+
+  <h3>安装服务</h3>
+  <div class="card">
+    <div class="row">
+      <label class="check">
+        <input type="checkbox" id="svcAuto" checked>
+        开机自启
+      </label>
+      <label class="check">
+        <input type="checkbox" id="svcRestart" checked>
+        崩溃后自动重启
+      </label>
+    </div>
+    <div class="row">
+      <button id="svcInstall" class="primary">安装为系统服务</button>
+      <button id="svcUninstall" class="danger">卸载服务</button>
+    </div>
+    <p class="hint">
+      卸载<strong>不会</strong>删除数据目录 —— 里面有你的凭据与配置。
+    </p>
+  </div>
+</section>
+
 <!-- ==================== 事件流 ==================== -->
 <section id="tab-events" class="tab-panel">
   <h2>事件流</h2>
@@ -181,6 +311,7 @@
   <span id="statusText">就绪</span>
 </footer>
 
-<script src="app.js"></script>
+<script src="panels.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

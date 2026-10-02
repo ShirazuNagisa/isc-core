@@ -365,6 +365,27 @@ func (e ReachCheckStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceStatusInfoStatus.
+const (
+	ServiceStatusInfoStatusRunning ServiceStatusInfoStatus = "running"
+	ServiceStatusInfoStatusStopped ServiceStatusInfoStatus = "stopped"
+	ServiceStatusInfoStatusUnknown ServiceStatusInfoStatus = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ServiceStatusInfoStatus enum.
+func (e ServiceStatusInfoStatus) Valid() bool {
+	switch e {
+	case ServiceStatusInfoStatusRunning:
+		return true
+	case ServiceStatusInfoStatusStopped:
+		return true
+	case ServiceStatusInfoStatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SettingsLang.
 const (
 	SettingsLangEn   SettingsLang = "en"
@@ -478,25 +499,25 @@ func (e VerifyHitKind) Valid() bool {
 
 // Defines values for VerifySessionStatus.
 const (
-	HairpinOnly VerifySessionStatus = "hairpin_only"
-	Reachable   VerifySessionStatus = "reachable"
-	Stopped     VerifySessionStatus = "stopped"
-	Unreachable VerifySessionStatus = "unreachable"
-	Waiting     VerifySessionStatus = "waiting"
+	VerifySessionStatusHairpinOnly VerifySessionStatus = "hairpin_only"
+	VerifySessionStatusReachable   VerifySessionStatus = "reachable"
+	VerifySessionStatusStopped     VerifySessionStatus = "stopped"
+	VerifySessionStatusUnreachable VerifySessionStatus = "unreachable"
+	VerifySessionStatusWaiting     VerifySessionStatus = "waiting"
 )
 
 // Valid indicates whether the value is a known member of the VerifySessionStatus enum.
 func (e VerifySessionStatus) Valid() bool {
 	switch e {
-	case HairpinOnly:
+	case VerifySessionStatusHairpinOnly:
 		return true
-	case Reachable:
+	case VerifySessionStatusReachable:
 		return true
-	case Stopped:
+	case VerifySessionStatusStopped:
 		return true
-	case Unreachable:
+	case VerifySessionStatusUnreachable:
 		return true
-	case Waiting:
+	case VerifySessionStatusWaiting:
 		return true
 	default:
 		return false
@@ -1334,6 +1355,37 @@ type RecordList struct {
 	Items []Record `json:"items"`
 }
 
+// ServiceActionResult defines model for ServiceActionResult.
+type ServiceActionResult struct {
+	Message *string `json:"message,omitempty"`
+	Ok      bool    `json:"ok"`
+}
+
+// ServiceInstallRequest defines model for ServiceInstallRequest.
+type ServiceInstallRequest struct {
+	// AutoStart 开机自启（Windows 上使用延迟自启，等网络就绪后再启动）。
+	AutoStart *bool `json:"auto_start,omitempty"`
+
+	// RestartOnFailure 崩溃后自动重启（递增延迟，避免持续崩溃时无限重启）。
+	RestartOnFailure *bool `json:"restart_on_failure,omitempty"`
+}
+
+// ServiceStatusInfo defines model for ServiceStatusInfo.
+type ServiceStatusInfo struct {
+	// Backend 平台后端名，例如 windows-scm / systemd / launchd。
+	Backend string `json:"backend"`
+
+	// DaemonReachable 内核现在是否真的能连通。这一项**不需要任何权限**。
+	DaemonReachable bool `json:"daemon_reachable"`
+
+	// Error 查询服务状态失败的原因（通常是权限不足）。
+	Error  *string                  `json:"error,omitempty"`
+	Status *ServiceStatusInfoStatus `json:"status,omitempty"`
+}
+
+// ServiceStatusInfoStatus defines model for ServiceStatusInfo.Status.
+type ServiceStatusInfoStatus string
+
 // Settings defines model for Settings.
 type Settings struct {
 	// AcmeDirectory ACME 目录地址。留空用生产环境。
@@ -1533,6 +1585,9 @@ type VerifySessionId = string
 // ZoneId defines model for ZoneId.
 type ZoneId = string
 
+// ServiceOK defines model for ServiceOK.
+type ServiceOK = ServiceActionResult
+
 // ListAuditParams defines parameters for ListAudit.
 type ListAuditParams struct {
 	// Cursor 分页游标，取自上一次响应的 next_cursor。
@@ -1641,6 +1696,9 @@ type ReplaceProxyRoutesJSONRequestBody = ProxyRouteList
 
 // PlanReachExposeJSONRequestBody defines body for PlanReachExpose for application/json ContentType.
 type PlanReachExposeJSONRequestBody = ExposeRequest
+
+// InstallServiceJSONRequestBody defines body for InstallService for application/json ContentType.
+type InstallServiceJSONRequestBody = ServiceInstallRequest
 
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = SettingsPatch
@@ -1797,6 +1855,21 @@ type ServerInterface interface {
 	// ProbeReachProvider 探测某种可达方式当前是否可用
 	// (GET /v1/reach/providers/{name}/probe)
 	ProbeReachProvider(w http.ResponseWriter, r *http.Request, name ReachProviderName)
+	// InstallService 安装系统服务（需要管理员权限）
+	// (POST /v1/service/install)
+	InstallService(w http.ResponseWriter, r *http.Request)
+	// StartService 启动系统服务（需要管理员权限）
+	// (POST /v1/service/start)
+	StartService(w http.ResponseWriter, r *http.Request)
+	// GetServiceStatus 查询系统服务状态
+	// (GET /v1/service/status)
+	GetServiceStatus(w http.ResponseWriter, r *http.Request)
+	// StopService 停止系统服务（需要管理员权限）
+	// (POST /v1/service/stop)
+	StopService(w http.ResponseWriter, r *http.Request)
+	// UninstallService 停止并删除系统服务（需要管理员权限）
+	// (POST /v1/service/uninstall)
+	UninstallService(w http.ResponseWriter, r *http.Request)
 	// GetSettings 读取运行时设置
 	// (GET /v1/settings)
 	GetSettings(w http.ResponseWriter, r *http.Request)
@@ -3096,6 +3169,76 @@ func (siw *ServerInterfaceWrapper) ProbeReachProvider(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// InstallService operation middleware
+func (siw *ServerInterfaceWrapper) InstallService(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InstallService(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartService operation middleware
+func (siw *ServerInterfaceWrapper) StartService(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartService(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetServiceStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetServiceStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetServiceStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopService operation middleware
+func (siw *ServerInterfaceWrapper) StopService(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopService(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UninstallService operation middleware
+func (siw *ServerInterfaceWrapper) UninstallService(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UninstallService(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -3379,6 +3522,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/notify/channels", wrapper.ReplaceNotifyChannels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/notify/deliveries", wrapper.ListNotifyDeliveries)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/notify/test", wrapper.TestNotifyChannels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/service/status", wrapper.GetServiceStatus)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/install", wrapper.InstallService)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/uninstall", wrapper.UninstallService)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/start", wrapper.StartService)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/stop", wrapper.StopService)
 
 	return m
 }

@@ -165,6 +165,10 @@ var messagesZh = map[string]string{
 	// --- 通知 ---
 	"notify.invalid_channels": "通知通道配置不合法",
 
+	// --- 系统服务 ---
+	"service.install_failed": "安装系统服务失败",
+	"service.action_failed":  "系统服务操作失败",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

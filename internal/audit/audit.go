@@ -50,6 +50,12 @@ const (
 	ActionCertRenew      = "cert.renew"
 	ActionNotifyChannels = "notify.channels"
 
+	// 系统服务。
+	ActionServiceInstall   = "service.install"
+	ActionServiceUninstall = "service.uninstall"
+	ActionServiceStart     = "service.start"
+	ActionServiceStop      = "service.stop"
+
 	ActionRecordCreate = "dns_record.create"
 	ActionRecordUpdate = "dns_record.update"
 	ActionRecordDelete = "dns_record.delete"

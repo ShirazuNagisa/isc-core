@@ -131,7 +131,7 @@ func pollVerify(ctx context.Context, app *App, client *Client, id string, wait t
 
 		// 终态就停：继续等没有意义。
 		switch sess.Status {
-		case gen.Reachable, gen.HairpinOnly, gen.Stopped:
+		case gen.VerifySessionStatusReachable, gen.VerifySessionStatusHairpinOnly, gen.VerifySessionStatusStopped:
 			renderVerifyResult(app, sess)
 			return nil
 		}
@@ -149,18 +149,18 @@ func renderVerifyResult(app *App, sess gen.VerifySession) {
 	_, _ = fmt.Fprintln(w, "\n"+strings.Repeat("-", 60))
 
 	switch sess.Status {
-	case gen.Reachable:
+	case gen.VerifySessionStatusReachable:
 		_, _ = fmt.Fprintln(w, "✅ 外部访问成功 —— 链路是通的。")
 		_, _ = fmt.Fprintln(w,
 			"   现在可以放行你真正要用的服务端口了。")
 
-	case gen.HairpinOnly:
+	case gen.VerifySessionStatusHairpinOnly:
 		_, _ = fmt.Fprintln(w, "⚠️  这次访问**不能作为凭据**。")
 		_, _ = fmt.Fprintln(w, "   "+sess.Message)
 		_, _ = fmt.Fprintln(w,
 			"\n   请确认手机已关闭 Wi-Fi、走的是移动数据。")
 
-	case gen.Unreachable:
+	case gen.VerifySessionStatusUnreachable:
 		_, _ = fmt.Fprintln(w, "❌ 在有效期内没有收到任何外部访问。")
 		_, _ = fmt.Fprintln(w, "   "+sess.Message)
 		_, _ = fmt.Fprintln(w,

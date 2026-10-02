@@ -55,6 +55,8 @@ tags:
     description: TLS 证书的申请与续期
   - name: Notify
     description: 通知通道与投递记录
+  - name: Service
+    description: 把内核注册为系统服务（开机自启、崩溃重启）
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -1458,6 +1460,98 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 系统服务
+  # ---------------------------------------------------------------------------
+
+  /v1/service/status:
+    get:
+      tags: [Service]
+      operationId: getServiceStatus
+      summary: 查询系统服务状态
+      description: |
+        它同时报出两件事：
+
+        	daemon_reachable   内核现在是否真的能连通（**不需要权限**）
+        	status             操作系统里的服务状态（**需要管理员权限**）
+
+        分开报是有原因的：Windows 上**查询**服务状态同样需要管理员
+        （打开 SCM 要完全访问权），而用户真正想知道的往往是前者。
+        因此服务查询失败时 `error` 有值、`status` 缺省，而接口本身
+        仍然返回 200。
+      responses:
+        "200":
+          description: 服务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceStatusInfo"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/service/install:
+    post:
+      tags: [Service]
+      operationId: installService
+      summary: 安装系统服务（需要管理员权限）
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceInstallRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ServiceOK"
+        "403":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/service/uninstall:
+    post:
+      tags: [Service]
+      operationId: uninstallService
+      summary: 停止并删除系统服务（需要管理员权限）
+      description: |
+        **幂等**：服务本来就不存在时返回成功。报错会让"先卸再装"这类
+        部署脚本失败，而那是最常见的写法。
+
+        数据目录**不会**被删除。
+      responses:
+        "200":
+          $ref: "#/components/responses/ServiceOK"
+        "403":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/service/start:
+    post:
+      tags: [Service]
+      operationId: startService
+      summary: 启动系统服务（需要管理员权限）
+      responses:
+        "200":
+          $ref: "#/components/responses/ServiceOK"
+        "403":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/service/stop:
+    post:
+      tags: [Service]
+      operationId: stopService
+      summary: 停止系统服务（需要管理员权限）
+      responses:
+        "200":
+          $ref: "#/components/responses/ServiceOK"
+        "403":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1551,6 +1645,12 @@ components:
         default: 50
 
   responses:
+    ServiceOK:
+      description: 操作成功
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ServiceActionResult"
     Problem:
       description: 错误响应（RFC 9457 problem+json）
       content:
@@ -2815,6 +2915,48 @@ components:
         at:
           type: string
           format: date-time
+
+    # ------------------------------------------------------------------
+    # 系统服务
+    # ------------------------------------------------------------------
+
+    ServiceStatusInfo:
+      type: object
+      required: [daemon_reachable, backend]
+      properties:
+        daemon_reachable:
+          type: boolean
+          description: 内核现在是否真的能连通。这一项**不需要任何权限**。
+        status:
+          type: string
+          enum: [unknown, stopped, running]
+        backend:
+          type: string
+          description: 平台后端名，例如 windows-scm / systemd / launchd。
+        error:
+          type: string
+          description: 查询服务状态失败的原因（通常是权限不足）。
+
+    ServiceInstallRequest:
+      type: object
+      properties:
+        auto_start:
+          type: boolean
+          description: 开机自启（Windows 上使用延迟自启，等网络就绪后再启动）。
+          default: true
+        restart_on_failure:
+          type: boolean
+          description: 崩溃后自动重启（递增延迟，避免持续崩溃时无限重启）。
+          default: true
+
+    ServiceActionResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
 
     ChangeRecord:
       type: object
