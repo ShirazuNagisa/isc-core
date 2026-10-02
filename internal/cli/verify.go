@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // newVerifyCmd 提供引导式外部验证的命令行入口。
@@ -30,25 +31,9 @@ func newVerifyCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "verify",
-		Short: "外部验证：用手机确认能不能从公网访问",
-		Long: `开始一次外部验证，确认服务能不能从公网访问。
-
-流程：
-  1. 内核在本机临时监听一个端口（默认随机分配）；
-  2. 命令给出一个带随机路径的地址；
-  3. 用手机**关闭 Wi-Fi、走 4G/5G** 打开那个地址；
-  4. 内核根据**来源地址**判断这次访问算不算数。
-
-判断分三档，其中第二档是最容易被误解的：
-
-  公网地址    → 链路确实通
-  本机地址    → 什么也证明不了（IPv6 没有 NAT，本机访问自己的
-                公网地址是直连的，不经过运营商）
-  一直没访问  → 结合本机检测全绿，结论指向上游封禁
-
-注意：验证会占用一个真实端口。在此之前你可能需要先在防火墙里
-放行它 —— 那一步同样可以走 isc 的变更流程。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.verify.short"),
+		Long:  i18n.T("cli.verify.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -81,28 +66,28 @@ func newVerifyCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVar(&port, "port", 0, "监听的端口（0 = 由内核分配空闲端口）")
+	cmd.Flags().IntVar(&port, "port", 0, i18n.T("cli.verify.flag_port"))
 	cmd.Flags().DurationVar(&wait, "wait", 3*time.Minute,
-		"等待外部访问的时长（0 = 不等待，只打印地址）")
+		i18n.T("cli.verify.flag_wait"))
 	return cmd
 }
 
 func renderVerifyStart(app *App, sess gen.VerifySession) {
 	w := app.out
-	_, _ = fmt.Fprintln(w, "外部验证已开始")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.verify.started"))
 	_, _ = fmt.Fprintln(w, strings.Repeat("=", 60))
 
 	if sess.Url == nil || *sess.Url == "" {
 		_, _ = fmt.Fprintln(w,
-			"⚠ 没有找到可用的公网地址，无法生成验证链接。\n"+
-				"  请先运行 isc doctor 确认本机的 IPv6 状态。")
+			i18n.T("cli.verify.no_address")+
+				i18n.T("cli.verify.no_address_hint"))
 		return
 	}
 
-	_, _ = fmt.Fprintln(w, "\n请用手机（关闭 Wi-Fi，走 4G/5G）打开：")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.verify.open_hint"))
 	_, _ = fmt.Fprintf(w, "\n    %s\n\n", *sess.Url)
-	_, _ = fmt.Fprintf(w, "监听端口：%d\n", sess.Port)
-	_, _ = fmt.Fprintln(w, "\n在内核里先放行这个端口：")
+	_, _ = fmt.Fprintf(w, i18n.T("cli.verify.listen_port"), sess.Port)
+	_, _ = fmt.Fprintln(w, i18n.T("cli.verify.allow_first"))
 	_, _ = fmt.Fprintf(w, "    isc expose --port %d\n", sess.Port)
 }
 
@@ -137,7 +122,7 @@ func pollVerify(ctx context.Context, app *App, client *Client, id string, wait t
 		}
 
 		if time.Now().After(deadline) {
-			_, _ = fmt.Fprintln(app.out, "\n等待超时。")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.verify.timeout"))
 			renderVerifyResult(app, sess)
 			return nil
 		}
@@ -150,32 +135,32 @@ func renderVerifyResult(app *App, sess gen.VerifySession) {
 
 	switch sess.Status {
 	case gen.VerifySessionStatusReachable:
-		_, _ = fmt.Fprintln(w, "✅ 外部访问成功 —— 链路是通的。")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.verify.reachable"))
 		_, _ = fmt.Fprintln(w,
-			"   现在可以放行你真正要用的服务端口了。")
+			i18n.T("cli.verify.next_step"))
 
 	case gen.VerifySessionStatusHairpinOnly:
-		_, _ = fmt.Fprintln(w, "⚠️  这次访问**不能作为凭据**。")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.verify.hairpin"))
 		_, _ = fmt.Fprintln(w, "   "+sess.Message)
 		_, _ = fmt.Fprintln(w,
-			"\n   请确认手机已关闭 Wi-Fi、走的是移动数据。")
+			i18n.T("cli.verify.hairpin_hint"))
 
 	case gen.VerifySessionStatusUnreachable:
-		_, _ = fmt.Fprintln(w, "❌ 在有效期内没有收到任何外部访问。")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.verify.unreachable"))
 		_, _ = fmt.Fprintln(w, "   "+sess.Message)
 		_, _ = fmt.Fprintln(w,
-			"\n   若 isc doctor 的本机检测全部通过，那么问题不在本机：")
+			i18n.T("cli.verify.unreachable_hint"))
 		_, _ = fmt.Fprintln(w,
-			"     · 路由器防火墙没有放行该端口（检查路由器的 IPv6 防火墙设置）")
+			i18n.T("cli.verify.cause_router"))
 		_, _ = fmt.Fprintln(w,
-			"     · 运营商封禁了入站连接（部分省份确实如此）")
+			i18n.T("cli.verify.cause_isp"))
 
 	default:
 		_, _ = fmt.Fprintln(w, sess.Message)
 	}
 
 	if len(sess.Hits) > 0 {
-		_, _ = fmt.Fprintln(app.out, "\n收到的访问：")
+		_, _ = fmt.Fprintln(app.out, i18n.T("cli.verify.hits"))
 		for _, h := range sess.Hits {
 			_, _ = fmt.Fprintf(app.out, "    %-46s %s\n", h.RemoteAddr, h.Kind)
 		}

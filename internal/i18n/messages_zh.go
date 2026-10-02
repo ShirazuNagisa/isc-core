@@ -458,6 +458,133 @@ var messagesZh = map[string]string{
 	"cli.service.not_found":    "可执行文件不存在或无法访问：%s：%w",
 	"cli.service.is_dir":       "可执行文件路径指向一个目录：%s",
 
+	"cli.daemon.short": "管理内核守护进程",
+	"cli.daemon.long": "管理内核守护进程。\n\n" +
+		"内核是一个无 GUI 的常驻进程，CLI、验证控制台与下游 GUI 都通过\n" +
+		"本地接口与它通信。它必须常驻才能保证动态解析的定时任务可靠执行。",
+	"cli.daemon.run_short": "在前台运行内核",
+	"cli.daemon.run_long": "在前台运行内核，直到收到中断信号。\n\n" +
+		"生产环境应当使用 isc service install 安装为系统服务，\n" +
+		"这样内核能在无人登录时运行、开机自启，并以足够的权限\n" +
+		"修改防火墙与绑定低端口。",
+	"cli.daemon.flag_listen":   "回环监听地址（默认 127.0.0.1:0，即自动分配端口）",
+	"cli.daemon.flag_no_tcp":   "关闭回环监听（注意：浏览器控制台将无法连接）",
+	"cli.daemon.flag_origins":  "允许的 WebSocket Origin 模式（仅用于本地开发调试控制台）",
+	"cli.daemon.stub_prefix":   "将在 %s 实现（见 docs/PLAN.md）",
+	"cli.daemon.install_short": "安装为系统服务（需要管理员权限）",
+	"cli.daemon.install_long": "把内核安装为系统服务。\n\n" +
+		"为什么必须是系统服务（见 docs/DECISIONS.md D20）：\n" +
+		"服务能在无人登录时运行、开机自启，并以足够权限修改防火墙、\n" +
+		"绑定低端口 —— 用户级进程在 Windows 上每次改防火墙都要弹 UAC。",
+	"cli.daemon.backend_install":   "服务安装",
+	"cli.daemon.uninstall_short":   "卸载系统服务（需要管理员权限）",
+	"cli.daemon.backend_uninstall": "服务卸载",
+
+	"cli.verify.short": "外部验证：用手机确认能不能从公网访问",
+	"cli.verify.long": "开始一次外部验证，确认服务能不能从公网访问。\n\n流程：\n" +
+		"  1. 内核在本机临时监听一个端口（默认随机分配）；\n" +
+		"  2. 命令给出一个带随机路径的地址；\n" +
+		"  3. 用手机**关闭 Wi-Fi、走 4G/5G** 打开那个地址；\n" +
+		"  4. 内核根据**来源地址**判断这次访问算不算数。\n\n" +
+		"判断分三档，其中第二档是最容易被误解的：\n\n" +
+		"  公网地址    → 链路确实通\n" +
+		"  本机地址    → **不能作为凭据**（可能是 NAT 回环，也可能你忘了关 Wi-Fi）\n" +
+		"  没有访问    → 上游挡住了，而这一项本机无法自测",
+	"cli.verify.flag_port":       "监听的端口（0 = 由内核分配空闲端口）",
+	"cli.verify.flag_wait":       "等待外部访问的时长（0 = 不等待，只打印地址）",
+	"cli.verify.no_address_hint": "  请先运行 isc doctor 确认本机的 IPv6 状态。",
+	"cli.verify.started":         "外部验证已开始",
+	"cli.verify.no_address": "⚠ 没有找到可用的公网地址，无法生成验证链接。\n" +
+		"  请先运行 isc doctor 确认本机的 IPv6 状态。",
+	"cli.verify.open_hint":        "\n请用手机（关闭 Wi-Fi，走 4G/5G）打开：",
+	"cli.verify.listen_port":      "监听端口：%d\n",
+	"cli.verify.allow_first":      "\n在内核里先放行这个端口：",
+	"cli.verify.timeout":          "\n等待超时。",
+	"cli.verify.reachable":        "✅ 外部访问成功 —— 链路是通的。",
+	"cli.verify.next_step":        "   现在可以放行你真正要用的服务端口了。",
+	"cli.verify.hairpin":          "⚠️  这次访问**不能作为凭据**。",
+	"cli.verify.hairpin_hint":     "\n   请确认手机已关闭 Wi-Fi、走的是移动数据。",
+	"cli.verify.unreachable":      "❌ 在有效期内没有收到任何外部访问。",
+	"cli.verify.unreachable_hint": "\n   若 isc doctor 的本机检测全部通过，那么问题不在本机：",
+	"cli.verify.cause_router":     "     · 路由器防火墙没有放行该端口（检查路由器的 IPv6 防火墙设置）",
+	"cli.verify.cause_isp":        "     · 运营商封禁了入站连接（部分省份确实如此）",
+	"cli.verify.hits":             "\n收到的访问：",
+
+	"cli.doctor.short": "自检：到底哪一环断了",
+	"cli.doctor.long": "逐层检查「服务能否从公网访问」这条链路。\n\n" +
+		"检查按从下到上的顺序进行：\n\n" +
+		"  1. 本机是否有全局 IPv6 地址\n" +
+		"  2. 是否有 IPv6 委派前缀\n" +
+		"  3. 本机防火墙后端是否可用\n" +
+		"  4. 上游可达性（本机无法自测，必须用手机流量验证）\n\n" +
+		"失败项会附带「该怎么办」。按顺序逐项处理即可 —— 一次修一个，\n" +
+		"比同时动五个设置更容易定位问题。\n\n" +
+		"注意：命令**不会**产生任何系统变更，只读取现状。",
+	"cli.doctor.none":          "没有可用的可达方式。",
+	"cli.doctor.unknown":       "没有找到名为 %q 的可达方式",
+	"cli.doctor.read_failed":   "（提示：读取未完成的系统变更失败：%v）`n",
+	"cli.doctor.flag_provider": "只检查指定的可达方式",
+	"cli.doctor.title":         "ISC 自检",
+	"cli.doctor.pending":       "\n⚠ 发现 %d 条上次未走完的系统变更：\n",
+	"cli.doctor.pending_state": "      状态：%s\n",
+	"cli.doctor.pending_hint": "    这些变更可能只生效了一部分。请确认它们是否符合预期，\n" +
+		"    必要时用 'isc changes' 查看详情后手动撤销。\n",
+	"cli.doctor.needs_server":     "\n  （需要一台外部服务器）\n",
+	"cli.doctor.local_section":    "\n  本机检测\n",
+	"cli.doctor.upstream_section": "\n  外部验证（本机无法自测）\n",
+	"cli.doctor.conclusion_blocked": "结论：本机配置没有问题，但**上游挡住了**。\n" +
+		"      这不是你能在本机修复的 —— 请换用其它可达方式，\n" +
+		"      或联系运营商确认是否封禁了入站连接。\n",
+	"cli.doctor.conclusion_ok": "结论：本机已具备条件。但**本机自测通过不等于外网能连上** ——\n" +
+		"      请务必用手机 4G/5G 打开验证地址确认。\n",
+	"cli.doctor.conclusion":            "结论：%s\n",
+	"cli.doctor.conclusion_next":       "      先处理这一项：%s\n",
+	"cli.doctor.state_running":         "执行中（内核可能异常退出）",
+	"cli.doctor.state_applied":         "已生效",
+	"cli.doctor.state_failed":          "失败（已自动回滚）",
+	"cli.doctor.state_rolledback":      "已撤销",
+	"cli.doctor.state_rollback_failed": "回滚失败（系统处于中间状态）",
+
+	"cli.proxy.short": "管理反向代理",
+	"cli.proxy.long": "管理反向代理的转发规则。\n\n规则把域名映射到本机服务，例如：\n\n" +
+		"    home.example.com   →  127.0.0.1:8096\n" +
+		"    *.lab.example.com  →  127.0.0.1:3000\n\n" +
+		"上游**必须是本机或内网地址**。反代监听在公网上，若允许任意上游，\n" +
+		"任何人都能拿它当跳板 —— 而所有流量都记在你头上。\n\n" +
+		"注意通配规则：*.example.com 也会匹配 example.com 本身。",
+	"cli.proxy.status_short": "查看反向代理状态",
+	"cli.proxy.running":      "运行中：监听端口 %d，%d 条规则\n",
+	"cli.proxy.stopped":      "未运行。",
+	"cli.proxy.stopped_hint": "在设置中开启「反向代理」并指定监听端口即可启动。",
+	"cli.proxy.last_error":   "\n最近一次失败：%s\n",
+	"cli.proxy.routes_short": "列出全部转发规则",
+	"cli.proxy.add_use":      "add <域名> [域名...] --to <上游>",
+	"cli.proxy.add_short":    "添加一条转发规则",
+	"cli.proxy.add_long": "把一组域名指向一个本机服务。\n\n" +
+		"上游要写全 host:port，例如 127.0.0.1:8096。\n" +
+		"不写端口会被拒绝 —— 猜端口会转发到意想不到的服务上，\n" +
+		"而那种问题很难被发现。",
+	"cli.proxy.updated":         "已更新：%s → %s\n",
+	"cli.proxy.added":           "已添加：%s → %s\n",
+	"cli.proxy.flag_to":         "上游地址，例如 127.0.0.1:8096（必填）",
+	"cli.proxy.flag_label":      "规则的可读名称",
+	"cli.proxy.flag_tls":        "该域名使用 HTTPS",
+	"cli.proxy.rm_use":          "rm <域名或规则ID>",
+	"cli.proxy.rm_short":        "删除一条转发规则",
+	"cli.proxy.rm_notfound":     "没有找到匹配 %q 的转发规则",
+	"cli.proxy.removed":         "已删除 %d 条规则。\n",
+	"cli.proxy.list_empty":      "还没有配置任何转发规则。",
+	"cli.proxy.list_empty_hint": "用 'isc proxy add home.example.com --to 127.0.0.1:8096' 添加一条。",
+	"cli.proxy.list_title":      "转发规则（%d）\n",
+
+	"cli.doctor.pending_hint_a":       "    这些变更可能只生效了一部分。请确认它们是否符合预期，\n",
+	"cli.doctor.pending_hint_b":       "    必要时用 'isc changes' 查看详情后手动撤销。\n",
+	"cli.doctor.conclusion_blocked_a": "结论：本机配置没有问题，但**上游挡住了**。\n",
+	"cli.doctor.conclusion_blocked_b": "      这不是你能在本机修复的 —— 请换用其它可达方式，\n",
+	"cli.doctor.conclusion_blocked_c": "      或联系运营商确认是否封禁了入站连接。\n",
+	"cli.doctor.conclusion_ok_a":      "结论：本机已具备条件。但**本机自测通过不等于外网能连上** ——\n",
+	"cli.doctor.conclusion_ok_b":      "      请务必用手机 4G/5G 打开验证地址确认。\n",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

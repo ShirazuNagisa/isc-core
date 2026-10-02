@@ -475,6 +475,138 @@ var messagesEn = map[string]string{
 	"cli.service.not_found":    "the executable does not exist or cannot be read: %s: %w",
 	"cli.service.is_dir":       "the executable path points at a directory: %s",
 
+	"cli.daemon.short": "Manage the kernel daemon",
+	"cli.daemon.long": "Manage the kernel daemon.\n\n" +
+		"The kernel is a GUI-less resident process; the CLI, the verification\n" +
+		"console and any downstream GUI all talk to it over the local API. It has\n" +
+		"to stay resident for the dynamic DNS timers to run reliably.",
+	"cli.daemon.run_short": "Run the kernel in the foreground",
+	"cli.daemon.run_long": "Run the kernel in the foreground until interrupted.\n\n" +
+		"In production, install it as a system service with isc service install so\n" +
+		"the kernel can run with nobody logged in, start on boot, and hold enough\n" +
+		"privilege to change the firewall and bind low ports.",
+	"cli.daemon.flag_listen":   "loopback listen address (default 127.0.0.1:0, i.e. pick a port)",
+	"cli.daemon.flag_no_tcp":   "disable the loopback listener (note: the browser console will not be reachable)",
+	"cli.daemon.flag_origins":  "allowed WebSocket Origin patterns (for local console debugging only)",
+	"cli.daemon.stub_prefix":   "will be implemented in %s (see docs/PLAN.md)",
+	"cli.daemon.install_short": "Install as a system service (needs administrator rights)",
+	"cli.daemon.install_long": "Install the kernel as a system service.\n\n" +
+		"Why a system service (see docs/DECISIONS.md D20): it can run with nobody\n" +
+		"logged in, start on boot, and hold enough privilege to change the firewall\n" +
+		"and bind low ports — a user-level process would raise a UAC prompt on\n" +
+		"Windows every time it touched the firewall.",
+	"cli.daemon.backend_install":   "Service install",
+	"cli.daemon.uninstall_short":   "Uninstall the system service (needs administrator rights)",
+	"cli.daemon.backend_uninstall": "Service uninstall",
+
+	"cli.verify.short": "External check: confirm public reachability from a phone",
+	"cli.verify.long": "Start an external verification of whether the service is reachable\n" +
+		"from the public internet.\n\nFlow:\n" +
+		"  1. the kernel listens on a temporary local port (random by default);\n" +
+		"  2. the command prints an address with a random path;\n" +
+		"  3. open that address on a phone with **Wi-Fi off, on 4G/5G**;\n" +
+		"  4. the kernel judges the attempt by its **source address**.\n\n" +
+		"There are three outcomes, and the second is the most misunderstood:\n\n" +
+		"  public address  → the path really is open\n" +
+		"  local address   → **proves nothing** (NAT hairpin, or Wi-Fi was left on)\n" +
+		"  no request      → something upstream blocked it, which cannot be\n" +
+		"                    tested from this machine",
+	"cli.verify.flag_port":       "port to listen on (0 = let the kernel pick a free one)",
+	"cli.verify.flag_wait":       "how long to wait for an external request (0 = just print the address)",
+	"cli.verify.no_address_hint": "  Run isc doctor first to check this machine's IPv6 state.",
+	"cli.verify.started":         "External verification started",
+	"cli.verify.no_address": "⚠ No usable public address found, so no verification link could be built.\n" +
+		"  Run isc doctor first to check this machine's IPv6 state.",
+	"cli.verify.open_hint":        "\nOpen this on a phone (Wi-Fi off, on 4G/5G):",
+	"cli.verify.listen_port":      "Listening port: %d\n",
+	"cli.verify.allow_first":      "\nAllow this port in the kernel first:",
+	"cli.verify.timeout":          "\nTimed out waiting.",
+	"cli.verify.reachable":        "✅ External access succeeded — the path is open.",
+	"cli.verify.next_step":        "   You can now open the port your real service uses.",
+	"cli.verify.hairpin":          "⚠️  This access **does not count as proof**.",
+	"cli.verify.hairpin_hint":     "\n   Make sure the phone's Wi-Fi is off and it is on mobile data.",
+	"cli.verify.unreachable":      "❌ No external access arrived within the window.",
+	"cli.verify.unreachable_hint": "\n   If every local check in isc doctor passes, the problem is not here:",
+	"cli.verify.cause_router":     "     · the router firewall did not let the port through (check its IPv6 firewall)",
+	"cli.verify.cause_isp":        "     · the ISP blocks inbound connections (true in some provinces)",
+	"cli.verify.hits":             "\nRequests received:",
+
+	"cli.doctor.short": "Self-check: which link in the chain is broken",
+	"cli.doctor.long": "Check the whole \"can the service be reached from the internet\" chain,\n" +
+		"layer by layer, bottom-up:\n\n" +
+		"  1. does this machine have a global IPv6 address\n" +
+		"  2. is there a delegated IPv6 prefix\n" +
+		"  3. is the local firewall backend usable\n" +
+		"  4. upstream reachability (not testable locally — use a phone on mobile data)\n\n" +
+		"Failing items come with \"what to do\". Work through them in order — one\n" +
+		"fix at a time beats changing five settings at once.\n\n" +
+		"Note: this command **makes no system change**; it only reads.",
+	"cli.doctor.none":          "No reachability provider is available.",
+	"cli.doctor.unknown":       "no reachability provider named %q",
+	"cli.doctor.read_failed":   "(note: could not read unfinished system changes: %v)\n",
+	"cli.doctor.flag_provider": "check only this reachability provider",
+	"cli.doctor.title":         "ISC self-check",
+	"cli.doctor.pending":       "\n⚠ %d unfinished system change(s) found from a previous run:\n",
+	"cli.doctor.pending_state": "      state: %s\n",
+	"cli.doctor.pending_hint": "    These changes may have been applied only in part. Confirm they match\n" +
+		"    what you intended, and if not, inspect them with 'isc changes' and undo.\n",
+	"cli.doctor.needs_server":     "\n  (needs an external server)\n",
+	"cli.doctor.local_section":    "\n  Local checks\n",
+	"cli.doctor.upstream_section": "\n  External verification (not testable locally)\n",
+	"cli.doctor.conclusion_blocked": "Conclusion: the local configuration is fine, but **something upstream blocks it**.\n" +
+		"      This is not something you can fix on this machine — use another\n" +
+		"      route, or ask your ISP whether inbound connections are blocked.\n",
+	"cli.doctor.conclusion_ok": "Conclusion: this machine is ready. But **passing a local check does not\n" +
+		"      prove the internet can reach it** — confirm with a phone on 4G/5G.\n",
+	"cli.doctor.conclusion":            "Conclusion: %s\n",
+	"cli.doctor.conclusion_next":       "      Deal with this one first: %s\n",
+	"cli.doctor.state_running":         "in progress (the kernel may have exited abnormally)",
+	"cli.doctor.state_applied":         "applied",
+	"cli.doctor.state_failed":          "failed (rolled back automatically)",
+	"cli.doctor.state_rolledback":      "undone",
+	"cli.doctor.state_rollback_failed": "rollback failed (the system is in an intermediate state)",
+
+	"cli.proxy.short": "Manage the reverse proxy",
+	"cli.proxy.long": "Manage reverse proxy routes. A route maps a domain to a local service:\n\n" +
+		"    home.example.com   →  127.0.0.1:8096\n" +
+		"    *.lab.example.com  →  127.0.0.1:3000\n\n" +
+		"Upstreams **must be loopback or private addresses**. The proxy listens on\n" +
+		"the public internet, so allowing any upstream would let anyone use it as a\n" +
+		"stepping stone — with all the traffic billed to you.\n\n" +
+		"Note wildcard routes: *.example.com also matches example.com itself.",
+	"cli.proxy.status_short": "Show reverse proxy status",
+	"cli.proxy.running":      "Running: listening on port %d, %d route(s)\n",
+	"cli.proxy.stopped":      "Not running.",
+	"cli.proxy.stopped_hint": "Turn on \"reverse proxy\" in settings and give it a listen port to start it.",
+	"cli.proxy.last_error":   "\nLast failure: %s\n",
+	"cli.proxy.routes_short": "List every route",
+	"cli.proxy.add_use":      "add <domain> [domain...] --to <upstream>",
+	"cli.proxy.add_short":    "Add a route",
+	"cli.proxy.add_long": "Point a set of domains at one local service.\n\n" +
+		"The upstream needs a full host:port, e.g. 127.0.0.1:8096. A missing port\n" +
+		"is rejected — guessing one forwards to an unintended service, and that\n" +
+		"kind of problem is very hard to notice.",
+	"cli.proxy.updated":         "Updated: %s → %s\n",
+	"cli.proxy.added":           "Added: %s → %s\n",
+	"cli.proxy.flag_to":         "upstream address, e.g. 127.0.0.1:8096 (required)",
+	"cli.proxy.flag_label":      "human-readable route name",
+	"cli.proxy.flag_tls":        "serve this domain over HTTPS",
+	"cli.proxy.rm_use":          "rm <domain-or-route-id>",
+	"cli.proxy.rm_short":        "Delete a route",
+	"cli.proxy.rm_notfound":     "no route matches %q",
+	"cli.proxy.removed":         "Deleted %d route(s).\n",
+	"cli.proxy.list_empty":      "No route configured yet.",
+	"cli.proxy.list_empty_hint": "Add one with 'isc proxy add home.example.com --to 127.0.0.1:8096'.",
+	"cli.proxy.list_title":      "Routes (%d)\n",
+
+	"cli.doctor.pending_hint_a":       "    These changes may have been applied only in part. Confirm they match\n",
+	"cli.doctor.pending_hint_b":       "    what you intended, and if not, inspect them with 'isc changes' and undo.\n",
+	"cli.doctor.conclusion_blocked_a": "Conclusion: the local configuration is fine, but **something upstream blocks it**.\n",
+	"cli.doctor.conclusion_blocked_b": "      This is not something you can fix on this machine — use another\n",
+	"cli.doctor.conclusion_blocked_c": "      route, or ask your ISP whether inbound connections are blocked.\n",
+	"cli.doctor.conclusion_ok_a":      "Conclusion: this machine is ready. But **passing a local check does not\n",
+	"cli.doctor.conclusion_ok_b":      "      prove the internet can reach it** — confirm with a phone on 4G/5G.\n",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
