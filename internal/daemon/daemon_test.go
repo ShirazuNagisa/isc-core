@@ -297,14 +297,18 @@ func TestMetaReportsCapabilities(t *testing.T) {
 	if meta.Capabilities.SecretStore.Backend == "" {
 		t.Error("密钥存储必须报告具体后端（如 windows-dpapi / file）")
 	}
-	// 尚未实现的平台后端必须明确报告"不可用 + 原因"，
-	// 否则用户会对着一排灰按钮猜原因。
-	if meta.Capabilities.ServiceManager.Available {
-		t.Error("M1 阶段服务管理后端尚未实现，不应报告为可用")
+	// 服务管理后端现在三个平台都已实现。
+	//
+	// 于是断言从"M1 阶段尚未实现"改成"必须报告具体后端与说明" ——
+	// 后者才是真正要保证的事：下游 GUI 要靠 Backend 决定显示什么，
+	// 靠 Note 告诉用户需要什么权限。
+	if meta.Capabilities.ServiceManager.Backend == "" {
+		t.Error("服务管理后端必须报告具体实现（如 windows-scm / systemd / launchd）")
 	}
 	if meta.Capabilities.ServiceManager.Note == nil ||
 		*meta.Capabilities.ServiceManager.Note == "" {
-		t.Error("不可用的后端必须给出原因，否则用户无法判断影响")
+		t.Error("服务管理后端必须给出说明 —— " +
+			"用户需要知道安装服务要不要管理员权限")
 	}
 }
 
