@@ -273,6 +273,10 @@ var consoleAssets = []string{
 	"internal/console/assets/index.html",
 	"internal/console/assets/app.js",
 	"internal/console/assets/panels.js",
+
+	// 本地化的**机制**本身。它含中文的地方只有一处 —— 消息表加载失败时
+	// 写给开发者看的那条 warn —— 而其它中文都在索引里（键名与注释）。
+	"internal/console/assets/i18n.js",
 }
 
 // TestConsoleAssetsAreCounted 记录控制台前端的硬编码文案数。
@@ -295,13 +299,20 @@ func TestConsoleAssetsAreCounted(t *testing.T) {
 			t.Errorf("读不到 %s: %v", rel, err)
 			continue
 		}
+		// 先剥掉注释：见 console_comments.go。
+		//
+		// 注释本来就该留着（而且越多越好），把它们算进来会让这个数字
+		// **永远降不到 0** —— 一个降不到 0 的达标线不是达标线。
+		body := stripConsoleComments(rel, string(byt))
+
 		n := 0
-		for _, line := range strings.Split(string(byt), "\n") {
+		for _, line := range strings.Split(body, "\n") {
 			if containsHan(line) {
 				n++
 				chars += len([]rune(line))
 			}
 		}
+		t.Logf("  %s: %d 行含中文", rel, n)
 		if n > consoleHardcodedLines[rel] {
 			broken[rel] = n
 		}
@@ -323,9 +334,15 @@ func TestConsoleAssetsAreCounted(t *testing.T) {
 //
 // 与 Go 侧的基线同理：它是一张进度表，只降不升。
 var consoleHardcodedLines = map[string]int{
-	"internal/console/assets/index.html": 129,
-	"internal/console/assets/app.js":     191,
-	"internal/console/assets/panels.js":  94,
+	// 数字是**剥掉注释之后**的（见 console_comments.go）。
+	// 剥离之前分别是 129 / 195 / 94 / 26 —— 也就是说有 90 行是注释，
+	// 而注释本来就该留着。不剥的话这个数字**永远降不到 0**。
+	"internal/console/assets/index.html": 114,
+	"internal/console/assets/app.js":     163,
+	"internal/console/assets/panels.js":  76,
+	// i18n.js 只剩一行：消息表加载失败时写给开发者看的那条 warn。
+	// 它是**开发者**信息，不是用户文案，因此留着。
+	"internal/console/assets/i18n.js": 1,
 }
 
 // exemptPackages 是**不要求迁移**的包，每条都写明理由。

@@ -221,7 +221,7 @@ func TestReferencedIDsExist(t *testing.T) {
 	// $ 是本控制台的 getElementById 简写（见 app.js）。
 	getterRe := regexp.MustCompile(`\$\('([A-Za-z][A-Za-z0-9_-]*)'\)`)
 
-	for _, file := range []string{"app.js", "panels.js"} {
+	for _, file := range []string{"app.js", "panels.js", "i18n.js"} {
 		js := readAsset(t, file)
 
 		// 有些 ID 是**动态渲染出来的**（表单在渲染时才拼进 DOM），

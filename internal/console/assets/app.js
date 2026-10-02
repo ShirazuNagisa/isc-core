@@ -124,6 +124,12 @@ function explain(r) {
 // ---------------------------------------------------------------------------
 
 async function boot() {
+  // 等消息表就绪。
+  //
+  // 不等的话，动态渲染出来的内容（表格、状态行）会先以中文出现，
+  // 而静态部分稍后被替换 —— 页面上会同时存在两种语言。
+  // 取不到表时那个 Promise 也会 resolve（见 i18n.js），因此这里不会卡住。
+  if (window.iscI18n) { await window.iscI18n.ready; }
   try {
     const res = await fetch('/v1/console/bootstrap');
     if (!res.ok) {
