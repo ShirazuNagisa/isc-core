@@ -3,6 +3,7 @@ package ddns
 import (
 	"context"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"net/netip"
 	"regexp"
@@ -126,12 +127,12 @@ func (e *Engine) RunTask(ctx context.Context, t Task) (TaskRun, error) {
 
 	cred, err := e.creds.Resolve(ctx, t.CredentialID)
 	if err != nil {
-		return run, fmt.Errorf("ddns: 取凭据失败: %w", err)
+		return run, fmt.Errorf(i18n.T("ddns.err.cred_failed"), err)
 	}
 
 	updater, ok := e.providers.DynamicUpdater(cred.Provider)
 	if !ok {
-		return run, fmt.Errorf("ddns: 服务商 %s 尚不支持动态解析", cred.Provider)
+		return run, fmt.Errorf(i18n.T("ddns.err.no_dynamic"), cred.Provider)
 	}
 
 	var (
@@ -153,7 +154,7 @@ func (e *Engine) RunTask(ctx context.Context, t Task) (TaskRun, error) {
 		if addr == "" {
 			// 取不到地址不等于任务失败：可能是网卡暂时没有全局 IPv6，
 			// 或者外部接口超时。如实记下来，下一轮会重试。
-			lastErr = fmt.Sprintf("未能获取 %s 地址", recordType)
+			lastErr = fmt.Sprintf(i18n.T("ddns.err.no_addr"), recordType)
 			failed++
 			continue
 		}
@@ -202,16 +203,16 @@ func (e *Engine) RunTask(ctx context.Context, t Task) (TaskRun, error) {
 	case attempted == 0 && failed == 0:
 		run.Skipped = true
 		run.Status = StatusUnchanged
-		run.Message = "地址未变化，本次未与服务商比对"
+		run.Message = i18n.T("ddns.msg.unchanged")
 	case failed > 0:
 		run.Status = StatusFailed
 		run.Message = lastErr
 	case succeeded > 0:
 		run.Status = StatusSuccess
-		run.Message = fmt.Sprintf("已更新 %d 条记录", succeeded)
+		run.Message = fmt.Sprintf(i18n.T("ddns.msg.updated"), succeeded)
 	default:
 		run.Status = StatusUnchanged
-		run.Message = "记录已是目标值，无需改动"
+		run.Message = i18n.T("ddns.msg.no_change")
 	}
 	return run, nil
 }
@@ -264,10 +265,10 @@ func firstFailureMessage(res dns.DynamicResult) string {
 			if d.Message != "" {
 				return d.Message
 			}
-			return fmt.Sprintf("域名 %s 更新失败", d.Domain)
+			return fmt.Sprintf(i18n.T("ddns.err.domain_failed"), d.Domain)
 		}
 	}
-	return "更新失败"
+	return i18n.T("ddns.err.update_failed")
 }
 
 // cacheCheck 判断是否需要去服务商那边比对。

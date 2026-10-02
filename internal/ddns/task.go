@@ -24,6 +24,7 @@ package ddns
 import (
 	"context"
 	"errors"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"time"
 )
@@ -115,21 +116,21 @@ const (
 // 校验错误。
 var (
 	// ErrLabelEmpty 表示任务名称为空。
-	ErrLabelEmpty = errors.New("ddns: 任务名称不能为空")
+	ErrLabelEmpty = errors.New(i18n.T("ddns.err.no_name"))
 	// ErrCredentialEmpty 表示未指定凭据。
-	ErrCredentialEmpty = errors.New("ddns: 必须指定凭据")
+	ErrCredentialEmpty = errors.New(i18n.T("ddns.err.no_cred"))
 	// ErrNoSource 表示没有启用任何地址来源。
-	ErrNoSource = errors.New("ddns: 至少要启用 IPv4 或 IPv6 之一")
+	ErrNoSource = errors.New(i18n.T("ddns.err.no_family"))
 	// ErrNoDomains 表示启用的来源没有填写域名。
-	ErrNoDomains = errors.New("ddns: 启用的地址来源必须至少填写一个域名")
+	ErrNoDomains = errors.New(i18n.T("ddns.err.no_domain"))
 	// ErrBadGetType 表示获取方式不受支持。
-	ErrBadGetType = errors.New("ddns: 不支持的获取方式")
+	ErrBadGetType = errors.New(i18n.T("ddns.err.bad_getter"))
 	// ErrSourceValueEmpty 表示获取方式对应的取值未填。
-	ErrSourceValueEmpty = errors.New("ddns: 获取方式的取值不能为空")
+	ErrSourceValueEmpty = errors.New(i18n.T("ddns.err.empty_getter"))
 	// ErrInvalidDomain 表示域名格式不合法。
-	ErrInvalidDomain = errors.New("ddns: 域名格式不合法")
+	ErrInvalidDomain = errors.New(i18n.T("ddns.err.bad_domain"))
 	// ErrNotFound 表示任务不存在。
-	ErrNotFound = errors.New("ddns: 任务不存在")
+	ErrNotFound = errors.New(i18n.T("ddns.err.task_not_found"))
 )
 
 // Validate 检查任务配置是否可用。

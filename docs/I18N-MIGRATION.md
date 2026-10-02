@@ -82,7 +82,7 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 | `internal/change` | 40 | **22** |
 | `internal/proxy` | 55 | 41 |
 | `internal/acme` | 67 | 60 |
-| `internal/ddns` | 17 | 动态解析的错误 |
+| `internal/ddns` | ✅ **0** | 已完成 |
 | `internal/notify` | ✅ **0** |
 | `internal/job` | 9 | 6 |
 | `internal/credential` | 17 | 16 |

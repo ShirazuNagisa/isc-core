@@ -87,7 +87,6 @@ var hardcodedBaseline = map[string]int{
 	"scripts/release":         64,
 	"internal/proxy":          41,
 	"internal/verify":         43,
-	"internal/ddns":           17,
 }
 
 // TestNoNewHardcodedStrings 统计各包的硬编码中文串，与基线对照。
@@ -195,6 +194,10 @@ var i18nComplete = []string{
 	"internal/runtimeinfo",
 	"internal/configio",
 	"internal/provider",
+
+	// 动态解析（把本机地址同步到 DNS 记录）。它的文案会同时进审计记录与
+	// 通知 —— 是用户判断"它到底干活了没有"的依据。
+	"internal/ddns",
 
 	// 守护进程。它的中文几乎全是 slog 日志（已由计数器按调用排除），
 	// 剩下的是启动失败这类返回给调用方的错误，以及**推送出去的通知正文**。

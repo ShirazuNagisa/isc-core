@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"time"
 )
@@ -161,7 +162,7 @@ func (s *Service) EnabledTasks(ctx context.Context) ([]Task, error) {
 func newTaskID() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("ddns: 生成任务 ID 失败: %w", err)
+		return "", fmt.Errorf(i18n.T("ddns.err.gen_id"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
