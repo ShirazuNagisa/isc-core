@@ -771,6 +771,32 @@ paths:
   # DNS 区域与记录（Tier-1 服务商）
   # ---------------------------------------------------------------------------
 
+  /v1/credentials/{id}/verify:
+    post:
+      tags: [Credentials]
+      operationId: verifyCredential
+      summary: 校验凭据是否可用（"测试连接"）
+      description: |
+        **不是所有服务商都支持。** 阿里云 / 腾讯云 / 华为云 / GoDaddy 没有
+        只读的校验端点，而用"列一次域名"来冒充会要求额外的权限 —— 那会把
+        只有 DNS 编辑权限的最小权限账号误判为无效。
+
+        不支持时返回 `ok: false`，而 `message` 会说明是**不支持**而不是
+        **连不上** —— 否则用户会去查一个根本不存在的连接问题。
+
+        这个端点始终返回 200：校验失败是一种**结果**，而不是请求错误。
+        用 4xx/5xx 表达它会让客户端难以区分"凭据不可用"与"请求本身有问题"。
+      parameters:
+        - $ref: "#/components/parameters/CredentialId"
+      responses:
+        "200":
+          description: 校验结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialVerifyResult"
+        default:
+          $ref: "#/components/responses/Problem"
   /v1/credentials/{id}/zones:
     parameters:
       - $ref: "#/components/parameters/CredentialId"
@@ -2439,6 +2465,17 @@ components:
           items:
             $ref: "#/components/schemas/Zone"
 
+    CredentialVerifyResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+          description: |
+            结果说明。校验失败时这里是**已经翻译过**的原因 ——
+            服务商返回的原始错误文本不会告诉用户该去改什么。
     Zone:
       type: object
       required: [id, name]

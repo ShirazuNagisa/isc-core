@@ -37,7 +37,7 @@ sudo ./isc service install      # Linux / macOS
 以 Cloudflare 为例：
 
 ```bash
-./isc credential add cloudflare --name 我的CF --token <API-TOKEN>
+./isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>
 ```
 
 **最小权限**：给这个 Token 只开 `Zone:DNS:Edit` 权限。不要用全局 API Key ——
@@ -92,7 +92,7 @@ WiFi）打开。
 ./isc settings set \
   --acme-email you@example.com \
   --acme-dns-credential-id <凭据ID>
-./isc settings set --proxy-enabled --proxy-port 443
+./isc settings set --proxy-enabled --proxy-port 443 --proxy-tls
 ```
 
 证书会在几秒内自动签发并生效，到期前会**自动续期**。用
@@ -164,7 +164,7 @@ WiFi）打开。
 
 4. **DNS 真的更新了吗？**
    ```bash
-   isc records list --zone <区域ID>
+   isc records list <凭据ID> <区域ID>
    ```
    有些服务商有缓存，改动不会立刻生效。
 

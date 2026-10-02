@@ -39,11 +39,26 @@ type IPv6Native struct {
 	// firewallState 是防火墙后端的就绪状态（含"未实现"的情形）。
 	firewallState platform.ImplState
 
+	// externalVerdict 提供最近一次外部验证的结论。
+	//
+	// 允许为 nil：那就退回"本机无法自测"的报告。做成回调而不是
+	// 直接依赖 verify 包 —— 依赖方向应当是"上层把它们接起来"。
+	externalVerdict func() (blocked bool, known bool, detail string)
+
 	// lowPort 用于判断本机能否绑定特权端口。
 	//
 	// 允许为 nil：那就跳过这一项检测。做成可选而不是构造参数，
 	// 是因为它与防火墙无关 —— 未来接别的可达方式时不必都带上它。
 	lowPort platform.LowPortBinder
+}
+
+// SetExternalVerdict 设置外部验证结论的来源。
+//
+// 它把 isc verify 的结果接进可达性判断：验过之后，"上游挡住了"
+// 就不再是一个需要用户自己去弄清楚的猜测，而是一个**有证据的结论**。
+func (p *IPv6Native) SetExternalVerdict(
+	fn func() (blocked bool, known bool, detail string)) {
+	p.externalVerdict = fn
 }
 
 // SetLowPortBinder 设置低端口权限检测器。
@@ -101,15 +116,7 @@ func (p *IPv6Native) Probe(ctx context.Context) (Readiness, error) {
 	// 从本机访问自己的公网地址通常会走回环（NAT 发夹），
 	// 因此无论运营商是否放行都会"成功"。一个在本机自测通过的端口
 	// 完全可能被上游封着 —— 而让用户以为"已经通了"比不检查更糟。
-	checks = append(checks, Check{
-		Name:   "上游可达性",
-		Scope:  ScopeUpstream,
-		Status: CheckUnknown,
-		Detail: "本机无法自测：从本机访问自己的公网地址通常走回环，" +
-			"因此无论上游是否放行都会显示成功",
-		Hint: "用手机 4G/5G 打开验证地址进行确认。" +
-			"这一步不能省 —— 它是区分「本机没配好」与「运营商封了」的唯一手段",
-	})
+	checks = append(checks, p.upstreamCheck())
 
 	// Viable 只看本机检测：上游不通不代表本机配置有问题。
 	viable := true
@@ -431,6 +438,56 @@ func (p *IPv6Native) Kind() string { return KindFirewallExpose }
 // ---------------------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------------------
+
+// upstreamCheck 产出上游可达性那一项。
+//
+// # 它为什么需要外部输入
+//
+// 从本机访问自己的公网地址通常会走回环（见 SourceSelf 的说明），
+// 因此**本机无论怎么测都得不出结论** —— 上面那条"无法自测"是对的。
+//
+// 但用户做过一次 isc verify 之后，系统就**有**结论了：
+// 没有收到任何公网访问，那就是上游挡住了。把它接进来，doctor 才能
+// 真正回答"是本机没配好，还是运营商封了"这个验收标准点名的问题。
+//
+// 没有外部结论时仍然如实报告"无法自测"—— 那是诚实的，而编一个
+// 猜测比不报告更糟。
+func (p *IPv6Native) upstreamCheck() Check {
+	if p.externalVerdict != nil {
+		blocked, known, detail := p.externalVerdict()
+		if known {
+			if blocked {
+				// 这是「运营商封了」那个结论 —— 而它**不影响 Viable**：
+				// 本机配置没有问题，只是上游不放行。
+				return Check{
+					Name:   "上游可达性",
+					Scope:  ScopeUpstream,
+					Status: CheckBlocked,
+					Detail: detail,
+					Hint: "这不是你能在本机修复的。可以尝试：" +
+						"换一个端口（运营商常常只封特定端口）、" +
+						"换用其它可达方式、或联系运营商确认",
+				}
+			}
+			return Check{
+				Name:   "上游可达性",
+				Scope:  ScopeUpstream,
+				Status: CheckPass,
+				Detail: detail,
+			}
+		}
+	}
+
+	return Check{
+		Name:   "上游可达性",
+		Scope:  ScopeUpstream,
+		Status: CheckUnknown,
+		Detail: "本机无法自测：从本机访问自己的公网地址通常走回环，" +
+			"因此无论上游是否放行都会显示成功",
+		Hint: "用手机 4G/5G 打开验证地址进行确认。" +
+			"这一步不能省 —— 它是区分「本机没配好」与「运营商封了」的唯一手段",
+	}
+}
 
 // joinCheckText 把"观察到的事实"与"该怎么办"拼成一段可读的话。
 //

@@ -737,6 +737,14 @@ type CredentialList struct {
 	NextCursor *string      `json:"next_cursor,omitempty"`
 }
 
+// CredentialVerifyResult defines model for CredentialVerifyResult.
+type CredentialVerifyResult struct {
+	// Message 结果说明。校验失败时这里是**已经翻译过**的原因 ——
+	// 服务商返回的原始错误文本不会告诉用户该去改什么。
+	Message *string `json:"message,omitempty"`
+	Ok      bool    `json:"ok"`
+}
+
 // DdnsSource defines model for DdnsSource.
 type DdnsSource struct {
 	// Domains 要更新的域名。支持两种写法：
@@ -1762,6 +1770,9 @@ type ServerInterface interface {
 	// UpdateCredential 修改凭据
 	// (PATCH /v1/credentials/{id})
 	UpdateCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
+	// VerifyCredential 校验凭据是否可用（"测试连接"）
+	// (POST /v1/credentials/{id}/verify)
+	VerifyCredential(w http.ResponseWriter, r *http.Request, id CredentialId)
 	// ListZones 列出该凭据可管理的 DNS 区域
 	// (GET /v1/credentials/{id}/zones)
 	ListZones(w http.ResponseWriter, r *http.Request, id CredentialId)
@@ -2380,6 +2391,32 @@ func (siw *ServerInterfaceWrapper) UpdateCredential(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCredential(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// VerifyCredential operation middleware
+func (siw *ServerInterfaceWrapper) VerifyCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id CredentialId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.VerifyCredential(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3494,6 +3531,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.GetDdnsTask)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/ddns-tasks/{id}", wrapper.UpdateDdnsTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/ddns-tasks/{id}/run", wrapper.RunDdnsTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/credentials/{id}/verify", wrapper.VerifyCredential)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}/zones", wrapper.ListZones)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records", wrapper.ListRecords)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/credentials/{id}/zones/{zoneId}/records", wrapper.CreateRecord)

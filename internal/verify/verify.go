@@ -210,6 +210,11 @@ type Manager struct {
 	logf func(format string, args ...any)
 
 	ttl time.Duration
+
+	// verdictSink 是结论的落点（见 verdict.go）。
+	verdictSink func(Verdict)
+	// lastVerdict 是最近一次外部验证的结论。
+	lastVerdict *Verdict
 }
 
 // NewManager 构造管理器。
@@ -415,10 +420,12 @@ func (m *Manager) recordHit(id string, r *http.Request) SourceKind {
 	if kind.ProvesReachability() {
 		if sess.Status != StatusReachable {
 			sess.Status = StatusReachable
+			defer m.publishVerdict(sess)
 			sess.Message = "外部访问成功 —— 链路是通的。"
 		}
 	} else if sess.Status == StatusWaiting {
 		sess.Status = StatusHairpinOnly
+		defer m.publishVerdict(sess)
 		sess.Message = hairpinMessage(kind)
 	}
 	return kind
@@ -456,6 +463,7 @@ func (m *Manager) expire(id string) {
 		return
 	}
 	sess.Status = StatusUnreachable
+	defer m.publishVerdict(sess)
 	sess.Message = "在有效期内没有收到任何外部访问。若本机检测全部通过，" +
 		"这一条指向**上游封禁**（运营商或路由器防火墙）—— " +
 		"本机已经没得改了。"
@@ -522,6 +530,7 @@ func (m *Manager) sweepLocked() {
 	for _, sess := range m.sessions {
 		if sess.Status == StatusWaiting && now.After(sess.ExpiresAt) {
 			sess.Status = StatusUnreachable
+			defer m.publishVerdict(sess)
 			sess.Message = "在有效期内没有收到任何外部访问。"
 		}
 		if sess.Status == StatusWaiting {

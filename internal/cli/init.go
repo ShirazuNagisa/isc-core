@@ -277,9 +277,9 @@ func nextSteps(env environment, port int, domain string, running bool) []step {
 	if domain != "" {
 		steps = append(steps, step{
 			Desc:    "添加 DNS 服务商凭据",
-			Command: "isc credential add cloudflare --name 我的CF --token <API-TOKEN>",
-			Note: "Token 只开 Zone:DNS:Edit 权限即可 —— " +
-				"内核只需要改 DNS 记录。",
+			Command: "isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>",
+			Note: "Token 只开 Zone:DNS:Edit 权限即可 —— 内核只需要改 DNS 记录。" +
+				"用 isc credential fields cloudflare 可以看到需要哪些字段。",
 		})
 
 		// 3. 建动态解析任务。
@@ -298,7 +298,7 @@ func nextSteps(env environment, port int, domain string, running bool) []step {
 	} else {
 		steps = append(steps, step{
 			Desc:    "添加 DNS 服务商凭据",
-			Command: "isc credential add cloudflare --name 我的CF --token <API-TOKEN>",
+			Command: "isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>",
 			Note:    "（把 cloudflare 换成你实际用的服务商）",
 		})
 		steps = append(steps, step{

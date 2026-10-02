@@ -276,6 +276,21 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 低端口权限检测器：让"生成计划"能在用户动手之前就告诉他
 	// 443 这类端口在本机绑不绑得上。
 	ipv6Native.SetLowPortBinder(d.bundle.LowPortBinder)
+	// 把外部验证的结论接进可达性判断。
+	//
+	// 这一步闭合了 M3 验收里那条"必须能区分「本机没通」与「运营商封了」"：
+	// 在此之前 CheckBlocked 定义了却没有任何地方会设置它，
+	// 于是 doctor 里那个"上游挡住了"的结论分支永远不会被走到。
+	ipv6Native.SetExternalVerdict(func() (bool, bool, string) {
+		if d.verifyMgr == nil {
+			return false, false, ""
+		}
+		v, ok := d.verifyMgr.LastVerdict()
+		if !ok {
+			return false, false, ""
+		}
+		return v.Blocked, true, v.Detail
+	})
 	d.reach.Register(ipv6Native)
 
 	// 反向代理与证书。
@@ -318,6 +333,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 地址会让用户拿着一个已经失效的 URL 反复尝试。
 	d.verifyMgr = verify.NewManager(d.currentTargetIP, func(format string, args ...any) {
 		d.log.Info(fmt.Sprintf(format, args...))
+	})
+	// 验证结束后把结论存下来，供可达性检查读取。
+	//
+	// 会话本身是短命的（十分钟就过期），而结论应当比会话活得久 ——
+	// 用户验过一次之后再跑 doctor，应当还能看到那个结论，
+	// 而不是回到"未知"。
+	d.verifyMgr.SetVerdictSink(func(v verify.Verdict) {
+		d.verifyMgr.SetLastVerdict(v)
+		d.log.Info("外部验证得出结论",
+			"blocked", v.Blocked, "reachable", v.Reachable, "port", v.Port)
 	})
 
 	// 7. 清理上一次的残留运行时文件。
