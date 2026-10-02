@@ -338,7 +338,14 @@ func (m *Manager) Ensure(ctx context.Context, req CertRequest) (CertStatus, bool
 	defer m.release(name)
 
 	// 先看现有证书够不够用。
+	//
+	// hadCert 记录"这次之前是否已经有一张证书"，用来区分
+	// **首次签发**与**续期** —— 两者发出的事件不同。
+	var hadCert bool
+
 	if cur, err := m.store.Load(name); err == nil {
+		hadCert = true
+
 		need, reason := RenewDecision(cur, req.Domains, m.now())
 		if !need {
 			return statusOf(name, cur, false, "", ""), false, nil
@@ -347,6 +354,11 @@ func (m *Manager) Ensure(ctx context.Context, req CertRequest) (CertStatus, bool
 	} else if !errors.Is(err, os.ErrNotExist) {
 		// 读取失败的原因不是"不存在"时仍然继续尝试签发 ——
 		// 那比直接失败更可能让用户恢复到可用状态。
+		//
+		// **但也算"已有证书"**：文件在那里，只是读不出来。
+		// 把它当成首次签发会让用户收到一条"证书已签发"，
+		// 而他期待的是"续期失败"的告警。
+		hadCert = true
 		m.log.Warn("读取现有证书失败，将尝试重新签发", "name", name, "err", err)
 	}
 
@@ -372,7 +384,20 @@ func (m *Manager) Ensure(ctx context.Context, req CertRequest) (CertStatus, bool
 	}
 
 	m.clearErr(name)
-	m.publish(event.TypeCertIssued, name, req.Domains, nil)
+
+	// 首次签发与续期发**不同的事件**。
+	//
+	// 早先只发 TypeCertIssued，而 TypeCertRenewed 定义了却从未被发出来 ——
+	// 于是"证书到期前自动续期并推送 cert.renewed"这条验收标准实际上
+	// 满足不了：用户配了只收续期通知的规则，什么都不会收到。
+	//
+	// 这个缺口是对照验收标准逐条核实时发现的，而不是从代码里看出来的 ——
+	// 常量存在、名字也对，只有"从来没有地方发出它"这一点能说明问题。
+	evt := event.TypeCertIssued
+	if hadCert {
+		evt = event.TypeCertRenewed
+	}
+	m.publish(evt, name, req.Domains, nil)
 
 	return statusOf(name, res.Cert, true, "", ""), true, nil
 }
