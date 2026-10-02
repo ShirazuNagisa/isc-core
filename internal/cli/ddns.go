@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 本文件提供 IP 状态与动态解析任务的命令行入口。
@@ -20,12 +21,9 @@ import (
 func newIPCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ip",
-		Short: "查看当前网卡地址与 IPv6 前缀",
-		Long: `查看当前可用于解析的地址。
-
-IPv6 前缀是本产品的核心概念：ISP 重拨后变化的是整个 /64 前缀，
-该前缀下的所有 AAAA 记录都要重写，而不是只改一个地址。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.ip.short"),
+		Long:  i18n.T("cli.ip.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -45,7 +43,7 @@ IPv6 前缀是本产品的核心概念：ISP 重拨后变化的是整个 /64 前
 			}
 
 			if len(status.Interfaces) == 0 {
-				_, _ = fmt.Fprintln(app.out, "没有找到可用于解析的网卡。")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.ip.no_interface"))
 				return nil
 			}
 			for _, iface := range status.Interfaces {
@@ -66,11 +64,8 @@ IPv6 前缀是本产品的核心概念：ISP 重拨后变化的是整个 /64 前
 func newDdnsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ddns",
-		Short: "管理动态解析任务",
-		Long: `管理动态解析任务。
-
-一条任务 = 一组凭据 + 一组域名 + 一组地址来源。调度器会在地址变化时
-立刻执行，并按固定周期兜底重试。`,
+		Short: i18n.T("cli.ddns.short"),
+		Long:  i18n.T("cli.ddns.long"),
 	}
 
 	cmd.AddCommand(
@@ -85,7 +80,7 @@ func newDdnsCmd(app *App) *cobra.Command {
 func newDdnsListCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "列出全部动态解析任务",
+		Short: i18n.T("cli.ddns.list_short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
@@ -105,15 +100,17 @@ func newDdnsListCmd(app *App) *cobra.Command {
 				return writeJSONOut(app.out, list)
 			}
 			if len(list.Items) == 0 {
-				_, _ = fmt.Fprintln(app.out, "还没有配置任何动态解析任务。")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.ddns.list_empty"))
 				return nil
 			}
 			for _, t := range list.Items {
 				_, _ = fmt.Fprintf(app.out, "%s  %s\n", mark(t.Enabled), t.Label)
 				_, _ = fmt.Fprintf(app.out, "    id        %s\n", t.Id)
-				_, _ = fmt.Fprintf(app.out, "    状态      %s\n", describeStatus(t))
+				_, _ = fmt.Fprintf(app.out, i18n.T("cli.ddns.field_status"),
+					describeStatus(t))
 				if t.LastMessage != nil && *t.LastMessage != "" {
-					_, _ = fmt.Fprintf(app.out, "    说明      %s\n", *t.LastMessage)
+					_, _ = fmt.Fprintf(app.out, i18n.T("cli.ddns.field_message"),
+						*t.LastMessage)
 				}
 				if t.Ipv4.Enable {
 					_, _ = fmt.Fprintf(app.out, "    IPv4      %s → %s\n",
@@ -131,8 +128,8 @@ func newDdnsListCmd(app *App) *cobra.Command {
 
 func newDdnsRunCmd(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:   "run <任务ID>",
-		Short: "立即执行一次任务（忽略防抖）",
+		Use:   i18n.T("cli.ddns.run_use"),
+		Short: i18n.T("cli.ddns.run_short"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := signalContext(cmd.Context())
@@ -152,8 +149,7 @@ func newDdnsRunCmd(app *App) *cobra.Command {
 					"task_id": args[0], "result": "accepted",
 				})
 			}
-			_, _ = fmt.Fprintf(app.out,
-				"已受理（任务 %s）。执行结果请用 'isc ddns list' 查看。\n", args[0])
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.ddns.accepted"), args[0])
 			return nil
 		},
 	}
@@ -165,17 +161,17 @@ func newDdnsRunCmd(app *App) *cobra.Command {
 
 func mark(enabled bool) string {
 	if enabled {
-		return "[启用]"
+		return i18n.T("cli.ddns.state_on")
 	}
-	return "[停用]"
+	return i18n.T("cli.ddns.state_off")
 }
 
 func describeStatus(t gen.DdnsTask) string {
 	if t.LastStatus == nil || *t.LastStatus == gen.DdnsStatusEmpty {
-		return "从未执行"
+		return i18n.T("cli.ddns.never_run")
 	}
 	if t.LastRunAt != nil {
-		return fmt.Sprintf("%s（%s）", string(*t.LastStatus),
+		return fmt.Sprintf(i18n.T("cli.error.with_detail_short"), string(*t.LastStatus),
 			t.LastRunAt.Local().Format("2006-01-02 15:04:05"))
 	}
 	return string(*t.LastStatus)

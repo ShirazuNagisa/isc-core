@@ -276,6 +276,56 @@ var messagesEn = map[string]string{
 		"  running isc status in a terminal talks to a running kernel;\n" +
 		"  running isc daemon run turns the current process into the kernel itself.",
 
+	"cli.error.with_detail": "%s (HTTP %d): %s",
+	"cli.error.title_only":  "%s (HTTP %d)",
+
+	"cli.ip.short": "Show current interface addresses and the IPv6 prefix",
+	"cli.ip.long": "Show the addresses currently usable for DNS.\n\n" +
+		"The IPv6 prefix is the core concept here: when the ISP re-dials, the whole\n" +
+		"/64 prefix changes, so every AAAA record under it must be rewritten —\n" +
+		"not just one address.",
+	"cli.ip.no_interface": "No interface usable for DNS was found.",
+
+	"cli.ddns.short": "Manage dynamic DNS tasks",
+	"cli.ddns.long": "Manage dynamic DNS tasks.\n\n" +
+		"A task = one credential + a set of domains + a set of address sources.\n" +
+		"The scheduler runs it as soon as an address changes, and retries on a\n" +
+		"fixed period as a fallback.",
+	"cli.ddns.list_short":    "List every dynamic DNS task",
+	"cli.ddns.list_empty":    "No dynamic DNS task configured yet.",
+	"cli.ddns.field_status":  "    Status    %s\n",
+	"cli.ddns.field_message": "    Detail    %s\n",
+	"cli.ddns.run_use":       "run <task-id>",
+	"cli.ddns.run_short":     "Run a task once now (ignoring debounce)",
+	"cli.ddns.accepted":      "Accepted (task %s). Check the result with 'isc ddns list'.\n",
+	"cli.ddns.state_on":      "[enabled]",
+	"cli.ddns.state_off":     "[disabled]",
+	"cli.ddns.never_run":     "never run",
+
+	"cli.cert.short": "View and manage TLS certificates",
+	"cli.cert.long": "View TLS certificate status, or trigger a renewal by hand.\n\n" +
+		"The kernel issues and renews certificates automatically: the renewal\n" +
+		"window opens at 1/3 of the remaining lifetime (30 days early for a\n" +
+		"90-day certificate). Manual intervention is normally unnecessary.\n\n" +
+		"ACME must be configured first: isc settings set --acme-email … --acme-dns-credential-id …",
+	"cli.cert.list_short":  "List certificates and renewal status",
+	"cli.cert.renew_short": "Check and issue (or renew) certificates for every HTTPS route now",
+	"cli.cert.renew_long": "Trigger one certificate check and issuance now.\n\n" +
+		"It is **idempotent**: an already-valid certificate is not re-issued —\n" +
+		"that would needlessly burn ACME's failure quota (5 per hour in production).",
+	"cli.cert.renew_triggered": "A certificate check has been triggered.",
+	"cli.cert.list_empty":      "No certificates yet.",
+	"cli.cert.list_empty_hint": "Once a route has HTTPS enabled (isc proxy add ... --tls), the kernel requests a certificate automatically.",
+	"cli.cert.list_title":      "Certificates (%d)\n",
+	"cli.cert.covers":          "      Covers:      %s\n",
+	"cli.cert.valid_until":     "      Valid until: %s (%d days left)\n",
+	"cli.cert.staging_warn":    "      ⚠ This certificate comes from the ACME **staging** environment; browsers will not trust it.",
+	"cli.cert.staging_hint":    "        To get a real one, clear acme_directory and renew again.",
+	"cli.cert.needs_renewal":   "      Needs renewal: %s\n",
+	"cli.cert.last_failure":    "      Last failure:  %s\n",
+
+	"cli.error.with_detail_short": "%s (%s)",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

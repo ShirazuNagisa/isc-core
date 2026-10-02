@@ -268,6 +268,53 @@ var messagesZh = map[string]string{
 		"  在终端里执行 isc status 是与运行中的内核通信；\n" +
 		"  执行 isc daemon run 则是把当前进程变成内核本身。",
 
+	"cli.error.with_detail": "%s（HTTP %d）：%s",
+	"cli.error.title_only":  "%s（HTTP %d）",
+
+	"cli.ip.short": "查看当前网卡地址与 IPv6 前缀",
+	"cli.ip.long": "查看当前可用于解析的地址。\n\n" +
+		"IPv6 前缀是本产品的核心概念：ISP 重拨后变化的是整个 /64 前缀，\n" +
+		"该前缀下的所有 AAAA 记录都要重写，而不是只改一个地址。",
+	"cli.ip.no_interface": "没有找到可用于解析的网卡。",
+
+	"cli.ddns.short": "管理动态解析任务",
+	"cli.ddns.long": "管理动态解析任务。\n\n" +
+		"一条任务 = 一组凭据 + 一组域名 + 一组地址来源。调度器会在地址变化时\n" +
+		"立刻执行，并按固定周期兜底重试。",
+	"cli.ddns.list_short":    "列出全部动态解析任务",
+	"cli.ddns.list_empty":    "还没有配置任何动态解析任务。",
+	"cli.ddns.field_status":  "    状态      %s\n",
+	"cli.ddns.field_message": "    说明      %s\n",
+	"cli.ddns.run_use":       "run <任务ID>",
+	"cli.ddns.run_short":     "立即执行一次任务（忽略防抖）",
+	"cli.ddns.accepted":      "已受理（任务 %s）。执行结果请用 'isc ddns list' 查看。\n",
+	"cli.ddns.state_on":      "[启用]",
+	"cli.ddns.state_off":     "[停用]",
+	"cli.ddns.never_run":     "从未执行",
+
+	"cli.cert.short": "查看与管理 TLS 证书",
+	"cli.cert.long": "查看 TLS 证书的状态，或手动触发一次续期。\n\n" +
+		"证书由内核自动申请与续期：到期前 1/3 寿命时进入续期窗口\n" +
+		"（对 90 天的证书即提前 30 天）。因此正常情况下不需要手动干预。\n\n" +
+		"需要先配置 ACME：isc settings set --acme-email … --acme-dns-credential-id …",
+	"cli.cert.list_short":  "列出证书与续期状态",
+	"cli.cert.renew_short": "立即检查并为全部 HTTPS 路由申请（或续期）证书",
+	"cli.cert.renew_long": "立即触发一次证书检查与签发。\n\n" +
+		"它是**幂等**的：已经有效的证书不会被重新签发 —— 那会白白消耗\n" +
+		"ACME 的失败配额（生产环境每小时 5 次）。",
+	"cli.cert.renew_triggered": "已触发一次证书检查。",
+	"cli.cert.list_empty":      "还没有任何证书。",
+	"cli.cert.list_empty_hint": "为一条路由启用 HTTPS（isc proxy add ... --tls）之后，内核会自动申请证书。",
+	"cli.cert.list_title":      "证书（%d）\n",
+	"cli.cert.covers":          "      覆盖: %s\n",
+	"cli.cert.valid_until":     "      有效期至: %s（还剩 %d 天）\n",
+	"cli.cert.staging_warn":    "      ⚠ 这张证书来自 ACME **测试环境**，浏览器不会信任它。",
+	"cli.cert.staging_hint":    "        要拿到正式证书，请把 acme_directory 清空后重新续期。",
+	"cli.cert.needs_renewal":   "      需要续期: %s\n",
+	"cli.cert.last_failure":    "      上次失败: %s\n",
+
+	"cli.error.with_detail_short": "%s（%s）",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

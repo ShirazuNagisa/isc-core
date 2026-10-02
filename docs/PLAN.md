@@ -341,6 +341,43 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### 迁移的第三步：ddns / cert / ip / client 四个文件
+
+新增完全转换的文件：`ddns.go`、`cert.go`、`client.go`（错误格式化），
+以及 `ip` 命令（在 ddns.go 里）。
+
+**internal/cli 的基线：317 → 287。** 加上前两轮，累计从 443 降到 287
+（约 35%）。
+
+##### 顺带修掉英文输出里的全角括号
+
+上一轮记下的那个细节：英文错误里混着全角括号。
+
+```
+改前  Credential not found（HTTP 404）
+改后  Credential not found (HTTP 404)
+```
+
+它属于**格式而非文案**，因此目录里放的是带 `%s` 的格式串 ——
+标题本身仍然来自服务端、仍然跟着 `Accept-Language` 走。
+
+同类的一处是 ddns 列表里的 `%s（%s）`（状态加时间），也一并处理了。
+中文侧保持全角，英文侧用半角加冒号 —— 这是两种语言各自的排版惯例，
+而不是"翻译"。
+
+##### 进度
+
+| 文件 | 状态 |
+|---|---|
+| `credential.go` | ✅ 完全转换 |
+| `records.go`（zones/records/settings） | ✅ 完全转换 |
+| `root.go`（含语言机制） | ✅ 完全转换 |
+| `ddns.go`（含 ip） | ✅ 完全转换 |
+| `cert.go` | ✅ 完全转换 |
+| `client.go`（错误格式化） | ✅ 完全转换 |
+| 其余 10 个文件 | 287 处待迁移 |
+
+最大的三个剩余目标：`init.go`（54）、`expose.go`（45）、`service.go`（39）。
 ##### 迁移的第二步：records.go 完全转换，并修掉帮助文本的本地化
 
 `internal/cli/records.go`（73 处 —— CLI 里最大的单文件）已完全转换，

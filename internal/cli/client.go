@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
 )
@@ -266,11 +267,17 @@ func newAPIError(status int, p gen.Problem) *apiError {
 }
 
 // Error 实现 error。
+//
+// 括号走 i18n：这是会被拼进英文输出的**格式**片段，而全角括号
+// （`（HTTP 404）`）在英文里很刺眼 —— 真机上确认过英文错误里混着它。
+//
+// 它算"格式"而非"文案"，因此不翻译标题，只由目录提供括号与分隔符。
 func (e *apiError) Error() string {
 	if e.detail != "" {
-		return fmt.Sprintf("%s（HTTP %d）：%s", e.title, e.status, e.detail)
+		return fmt.Sprintf(i18n.T("cli.error.with_detail"),
+			e.title, e.status, e.detail)
 	}
-	return fmt.Sprintf("%s（HTTP %d）", e.title, e.status)
+	return fmt.Sprintf(i18n.T("cli.error.title_only"), e.title, e.status)
 }
 
 // Code 返回机器可读的错误码。

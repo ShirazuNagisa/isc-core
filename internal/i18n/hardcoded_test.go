@@ -51,6 +51,9 @@ var convertedFiles = []string{
 	"internal/cli/credential.go",
 	"internal/cli/records.go",
 	"internal/cli/root.go",
+	"internal/cli/ddns.go",
+	"internal/cli/cert.go",
+	"internal/cli/client.go",
 }
 
 // hardcodedBaseline 是各包当前硬编码中文串的数量。
@@ -58,7 +61,7 @@ var convertedFiles = []string{
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	"internal/cli":            317,
+	"internal/cli":            287,
 	"internal/ddnsgo":         318,
 	"internal/platform":       204,
 	"internal/provider/tier1": 158,
