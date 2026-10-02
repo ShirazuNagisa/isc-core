@@ -607,6 +607,146 @@ var messagesEn = map[string]string{
 	"cli.doctor.conclusion_ok_a":      "Conclusion: this machine is ready. But **passing a local check does not\n",
 	"cli.doctor.conclusion_ok_b":      "      prove the internet can reach it** — confirm with a phone on 4G/5G.\n",
 
+	"cli.expose.short": "Open a port in the firewall (plan first, preview, undo)",
+	"cli.expose.long": "Build a \"open a port\" change plan, then apply it once confirmed.\n\n" +
+		"The command prints what it is about to do before waiting for your\n" +
+		"confirmation. Opening a port changes system state, so you will see:\n\n" +
+		"  · the ISC rules that already exist (they are left alone)\n" +
+		"  · the rules about to be added\n" +
+		"  · the risk level and anything worth knowing\n\n" +
+		"Afterwards, 'isc changes' shows the history and 'isc rollback <plan-id>'\n" +
+		"undoes it.\n\n" +
+		"Note:\n" +
+		"  · administrator rights are required (on Windows a non-admin simply\n" +
+		"    cannot create firewall rules);\n" +
+		"  · this opens the port on **this machine** — the router is separate.",
+	"cli.expose.no_change":         "\nNothing to do — the rule already exists.",
+	"cli.expose.confirm":           "Apply this change?",
+	"cli.expose.cancelled":         "Cancelled.",
+	"cli.expose.flag_port":         "port to open (required)",
+	"cli.expose.flag_protocol":     "protocol: tcp or udp",
+	"cli.expose.flag_label":        "service name, shown in the system firewall UI",
+	"cli.expose.flag_provider":     "reachability provider",
+	"cli.expose.flag_yes":          "apply without confirmation",
+	"cli.expose.plan_title":        "Change plan",
+	"cli.expose.plan_risk":         "Risk: %s\n",
+	"cli.expose.plan_id":           "Plan ID: %s\n",
+	"cli.expose.plan_diff":         "\nChanges about to happen:",
+	"cli.expose.plan_irreversible": "  ⚠ this step cannot be undone\n",
+	"cli.expose.plan_notes":        "\nNote:",
+	"cli.expose.plan_details":      "\nDetails:",
+	"cli.expose.applied":           "✅ Change applied.",
+	"cli.expose.applied_undo":      "   Undo: isc rollback %s\n",
+	"cli.expose.failed":            "❌ The change failed and was rolled back to the previous state.",
+	"cli.expose.rollback_failed":   "‼️  The change failed **and the automatic rollback did not finish**.",
+	"cli.expose.rollback_hint_a":   "   The system may be in an intermediate state; check with 'isc doctor',\n",
+	"cli.expose.rollback_hint_b":   "   and if needed remove the isc- prefixed rules from the system firewall by hand.",
+	"cli.expose.state":             "State: %s\n",
+	"cli.expose.failed_step":       "   Failed step: %s\n",
+	"cli.expose.failed_reason":     "     Reason: %s\n",
+
+	"cli.changes.short":        "Show system change history and pending plans",
+	"cli.changes.flag_limit":   "how many history entries",
+	"cli.changes.pending":      "Pending plans (%d)\n",
+	"cli.changes.pending_line": "      risk %s, expires %s\n",
+	"cli.changes.pending_hint": "\n  These plans have not taken effect. Apply with: isc expose --port ... or through the API.",
+	"cli.changes.empty":        "No system change recorded yet.",
+	"cli.changes.title":        "Change history",
+	"cli.changes.plan_id_line": "      Plan ID %s",
+	"cli.changes.undo":         "   Undo: isc rollback %s",
+
+	"cli.rollback.use":   "rollback <plan-id>",
+	"cli.rollback.short": "Undo an applied system change",
+	"cli.rollback.long": "Undo a change that was applied earlier.\n\n" +
+		"It survives a kernel restart — everything needed to undo is persisted\n" +
+		"alongside the change. 'isc changes' shows the plan IDs.\n\n" +
+		"It is idempotent: undoing something already undone succeeds.",
+	"cli.rollback.done":     "✅ Undone: %s\n",
+	"cli.rollback.state":    "State: %s\n",
+	"cli.rollback.no_stdin": "\n(cannot read input, cancelled; add --yes for automation)",
+	"cli.rollback.yes":      "yes",
+	"cli.risk.high":         "high — may cut off your own access to this machine",
+	"cli.risk.medium":       "medium — opens one port",
+	"cli.risk.low":          "low",
+
+	"cli.init.short": "First-run guide: probe the environment and print the next commands",
+	"cli.init.long": "First-run guide.\n\n" +
+		"It checks whether this machine can serve traffic (public IPv6, delegated\n" +
+		"prefix, firewall rights, low-port binding) and then prints a next-steps\n" +
+		"list with **real values filled in**.\n\n" +
+		"It changes no system state — it only tells you what to do. The real\n" +
+		"changes happen in the commands that follow, and all of them can be\n" +
+		"undone (see isc changes / isc rollback).",
+	"cli.init.flag_port":   "port you intend to expose (checked for bindability and for a listener)",
+	"cli.init.flag_domain": "domain you intend to use (used to build copy-pasteable commands)",
+	"cli.init.title":       "ISC first-run guide",
+	"cli.init.env_section": "[Environment]",
+	"cli.init.ipv6_ok":     "  ✅ Public IPv6: %s\n",
+	"cli.init.iface":       "     Interface: %s\n",
+	"cli.init.ipv6_missing": "  ❌ No public IPv6 address found\n" +
+		"     This is the product's core prerequisite. Check first:\n" +
+		"       · IPv6 is on in the router, **with prefix delegation (DHCPv6-PD)**\n" +
+		"       · the ONT is in bridge mode (router mode often yields no delegated prefix)\n" +
+		"       · IPv6 is not disabled in the OS\n" +
+		"     isc ip shows the details for every interface.",
+	"cli.init.prefix":      "  ℹ️  Delegated prefix: %s\n",
+	"cli.init.prefix_hint": "     This prefix changes when the ISP re-dials; ISC follows it and updates DNS.",
+	"cli.init.ipv4_public": "  ℹ️  Public IPv4 detected (this product focuses on IPv6, but A records work too)",
+	"cli.init.ipv4_cgnat":  "  ℹ️  No public IPv4 — the norm on home broadband here, and no obstacle",
+	"cli.init.fw_ok":       "  ✅ Firewall backend available (opening ports needs administrator rights)",
+	"cli.init.fw_bad": "  ⚠️  Firewall backend unavailable: %s\n" +
+		"     You can still use it, but ports must be opened in the system firewall by hand.",
+	"cli.init.lowport_ok": "  ✅ Low ports (443 etc.) can be bound — %s\n",
+	"cli.init.lowport_bad": "  ⚠️  Low ports (443 etc.) cannot be bound: %s\n" +
+		"     Using 443 needs root / setcap, or pick a port ≥1024.",
+	"cli.init.kernel_section":  "[Kernel]",
+	"cli.init.kernel_running":  "  ✅ Running",
+	"cli.init.kernel_stopped":  "  ⏹  Not running",
+	"cli.init.start_now":       "     Start it now: isc daemon run",
+	"cli.init.install_service": "     Install as a system service (recommended, needs admin): isc service install && isc service start",
+	"cli.init.steps_section":   "[Next steps]",
+	"cli.init.footer_console":  "     Open the console (a graphical UI) with isc console.",
+
+	"cli.init.step_run_desc":  "Start the kernel",
+	"cli.init.step_run_note":  "(runs in the foreground, Ctrl-C stops it. For long-term use, isc service install)",
+	"cli.init.step_cred_desc": "Add a DNS provider credential",
+	"cli.init.step_cred_cmd":  "isc credential add cloudflare --label my-cf --field token=<API-TOKEN>",
+	"cli.init.step_cred_note": "The token only needs Zone:DNS:Edit — the kernel only changes DNS records. " +
+		"isc credential fields cloudflare lists the fields it needs.",
+	"cli.init.step_ddns_desc": "Create a dynamic DNS task",
+	"cli.init.step_ddns_cmd": "isc ddns add --label my-domain --credential <id> " +
+		"--domain %s --type %s --source %s",
+	"cli.init.step_ddns_note":   "Take the credential ID from the previous step's output (or isc credential list).",
+	"cli.init.step_cred_note2":  "(replace cloudflare with the provider you actually use)",
+	"cli.init.step_ddns_note2":  "Re-run isc init with --domain to get a version with your domain filled in.",
+	"cli.init.step_expose_desc": "Open the port in the firewall (a plan is generated for you to confirm)",
+	"cli.init.step_expose_cmd":  "isc expose --port %d --label my-service",
+	"cli.init.step_expose_note": "This needs administrator rights; undo it afterwards with isc rollback.",
+	"cli.init.step_verify_desc": "Confirm public reachability from a phone",
+	"cli.init.step_verify_note": "**Do not skip this.** Reaching your own domain from this computer\n" +
+		"proves nothing — the router may be doing NAT hairpin;\n" +
+		"only a request from the public internet counts.",
+
+	"cli.init.ipv6_missing_a": "  ❌ No public IPv6 address found",
+	"cli.init.ipv6_missing_b": "     This is the product's core prerequisite. Check first:",
+	"cli.init.ipv6_missing_c": "       · IPv6 is on in the router, **with prefix delegation (DHCPv6-PD)**",
+	"cli.init.ipv6_missing_d": "       · the ONT is in bridge mode (router mode often yields no delegated prefix)",
+	"cli.init.ipv6_missing_e": "       · IPv6 is not disabled in the OS",
+	"cli.init.fw_bad_a":       "  ⚠️  Firewall backend unavailable: %s",
+	"cli.init.fw_bad_b":       "     You can still use it, but ports must be opened in the system firewall by hand.",
+	"cli.init.lowport_bad_a":  "  ⚠️  Low ports (443 etc.) cannot be bound: %s",
+	"cli.init.lowport_bad_b":  "     Using 443 needs root / setcap, or pick a port ≥1024.",
+	"cli.init.footer_undo":    "Note: every system change can be undone. Use isc changes for the history and isc rollback <ID> to undo.",
+
+	"cli.init.step_verify_note_a": "**Do not skip this.** Reaching your own domain from this computer\n",
+	"cli.init.step_verify_note_b": "proves nothing — the router may be doing NAT hairpin;\n",
+	"cli.init.step_verify_note_c": "only a request from the public internet counts.",
+	"cli.init.step_ddns_cmd2":     "isc ddns add --label my-domain --credential <id> --domain home.example.com --type AAAA --source ipv6",
+
+	"cli.init.ipv6_missing_f":   "     isc ip shows the details for every interface.",
+	"cli.init.step_cred_note_a": "The token only needs Zone:DNS:Edit — the kernel only changes DNS records.",
+	"cli.init.step_cred_note_b": "isc credential fields cloudflare lists the fields it needs.",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

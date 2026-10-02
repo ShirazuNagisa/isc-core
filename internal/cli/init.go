@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 )
 
@@ -35,15 +36,9 @@ func newInitCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "首次使用引导：探测环境并给出下一步命令",
-		Long: `首次使用引导。
-
-它会检查这台机器能不能对外提供服务（公网 IPv6、委派前缀、防火墙权限、
-低端口绑定能力），然后打印一份**填好了具体值**的下一步清单。
-
-它不修改任何系统状态 —— 只会告诉你该做什么。真正的变更都在后续的
-命令里，而那些变更都可以撤销（见 isc changes / isc rollback）。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.init.short"),
+		Long:  i18n.T("cli.init.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -70,9 +65,9 @@ func newInitCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().IntVar(&port, "port", 0,
-		"打算对外开放的端口（用于检查能否绑定与是否有服务在监听）")
+		i18n.T("cli.init.flag_port"))
 	cmd.Flags().StringVar(&domain, "domain", "",
-		"打算使用的域名（用于生成可直接复制的命令）")
+		i18n.T("cli.init.flag_domain"))
 
 	return cmd
 }
@@ -159,38 +154,38 @@ func probeEnvironment(ctx context.Context, bundle *platform.Bundle) environment 
 func renderInit(app *App, env environment, running bool, port int, domain string) {
 	w := app.out
 
-	_, _ = fmt.Fprintln(w, "ISC 首次使用引导")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.init.title"))
 	_, _ = fmt.Fprintln(w, strings.Repeat("=", 62))
 	_, _ = fmt.Fprintln(w)
 
 	// --- 环境 ---
-	_, _ = fmt.Fprintln(w, "【环境】")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.init.env_section"))
 
 	if len(env.IPv6) > 0 {
-		_, _ = fmt.Fprintf(w, "  ✅ 公网 IPv6：%s\n", strings.Join(env.IPv6, ", "))
+		_, _ = fmt.Fprintf(w, i18n.T("cli.init.ipv6_ok"), strings.Join(env.IPv6, ", "))
 		if len(env.Interfaces) > 0 {
-			_, _ = fmt.Fprintf(w, "     网卡：%s\n", strings.Join(env.Interfaces, ", "))
+			_, _ = fmt.Fprintf(w, i18n.T("cli.init.iface"), strings.Join(env.Interfaces, ", "))
 		}
 	} else {
-		_, _ = fmt.Fprintln(w, "  ❌ 没有找到公网 IPv6 地址")
-		_, _ = fmt.Fprintln(w, "     这是本产品最核心的前提。请先确认：")
-		_, _ = fmt.Fprintln(w, "       · 路由器里开启了 IPv6，并且**开启了前缀委派（DHCPv6-PD）**")
-		_, _ = fmt.Fprintln(w, "       · 光猫是桥接模式（路由模式下常常拿不到委派前缀）")
-		_, _ = fmt.Fprintln(w, "       · 系统里 IPv6 没有被禁用")
-		_, _ = fmt.Fprintln(w, "     用 isc ip 可以看到每块网卡的详细情况。")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv6_missing_a"))
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv6_missing_b"))
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv6_missing_c"))
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv6_missing_d"))
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv6_missing_e"))
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv6_missing_f"))
 	}
 
 	if env.Prefix != "" {
-		_, _ = fmt.Fprintf(w, "  ℹ️  委派前缀：%s\n", env.Prefix)
+		_, _ = fmt.Fprintf(w, i18n.T("cli.init.prefix"), env.Prefix)
 		_, _ = fmt.Fprintln(w,
-			"     运营商重拨后这个前缀会变，ISC 会自动跟进并更新 DNS。")
+			i18n.T("cli.init.prefix_hint"))
 	}
 
 	if env.HasPublicIPv4 {
-		_, _ = fmt.Fprintln(w, "  ℹ️  检测到公网 IPv4（本产品的重点在 IPv6，但 A 记录同样可用）")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.ipv4_public"))
 	} else {
 		_, _ = fmt.Fprintln(w,
-			"  ℹ️  没有公网 IPv4 —— 这在国内家宽上是常态，不影响使用")
+			i18n.T("cli.init.ipv4_cgnat"))
 	}
 
 	if env.FirewallReady {
@@ -199,34 +194,34 @@ func renderInit(app *App, env environment, running bool, port int, domain string
 		// 不说清楚的话，用户会以为接下来那步一定成功，而在
 		// Windows 上放行端口需要管理员权限 —— 那个失败会来得
 		// 很突然，且错误信息与他刚看到的"✅ 可用"矛盾。
-		_, _ = fmt.Fprintln(w, "  ✅ 防火墙后端可用（放行端口时需要管理员权限）")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.fw_ok"))
 	} else {
-		_, _ = fmt.Fprintf(w, "  ⚠️  防火墙后端不可用：%s\n", env.FirewallNote)
-		_, _ = fmt.Fprintln(w, "     你仍然可以用它，但需要手工在系统防火墙里放行端口。")
+		_, _ = fmt.Fprintf(w, i18n.T("cli.init.fw_bad_a"), env.FirewallNote)
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.fw_bad_b"))
 	}
 
 	if env.CanBindLowPorts {
-		_, _ = fmt.Fprintf(w, "  ✅ 可以绑定低端口（443 等）—— %s\n", env.LowPortBackend)
+		_, _ = fmt.Fprintf(w, i18n.T("cli.init.lowport_ok"), env.LowPortBackend)
 	} else {
-		_, _ = fmt.Fprintf(w, "  ⚠️  不能绑定低端口（443 等）：%s\n", env.LowPortNote)
-		_, _ = fmt.Fprintln(w, "     用 443 需要 root / setcap，或者改用 ≥1024 的端口。")
+		_, _ = fmt.Fprintf(w, i18n.T("cli.init.lowport_bad_a"), env.LowPortNote)
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.lowport_bad_b"))
 	}
 
 	// --- 内核状态 ---
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "【内核】")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.init.kernel_section"))
 	if running {
-		_, _ = fmt.Fprintln(w, "  ✅ 正在运行")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.kernel_running"))
 	} else {
-		_, _ = fmt.Fprintln(w, "  ⏹  未运行")
-		_, _ = fmt.Fprintln(w, "     现在跑起来：isc daemon run")
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.kernel_stopped"))
+		_, _ = fmt.Fprintln(w, i18n.T("cli.init.start_now"))
 		_, _ = fmt.Fprintln(w,
-			"     装成系统服务（推荐，需管理员）：isc service install && isc service start")
+			i18n.T("cli.init.install_service"))
 	}
 
 	// --- 下一步 ---
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "【下一步】")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.init.steps_section"))
 
 	steps := nextSteps(env, port, domain, running)
 	for i, s := range steps {
@@ -241,10 +236,9 @@ func renderInit(app *App, env environment, running bool, port int, domain string
 
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, strings.Repeat("-", 62))
+	_, _ = fmt.Fprintln(w, i18n.T("cli.init.footer_undo"))
 	_, _ = fmt.Fprintln(w,
-		"提示：任何系统变更都可以撤销。用 isc changes 看历史，isc rollback <ID> 撤销。")
-	_, _ = fmt.Fprintln(w,
-		"     控制台（图形界面）用 isc console 打开。")
+		i18n.T("cli.init.footer_console"))
 }
 
 // step 是引导里的一条下一步。
@@ -267,19 +261,19 @@ func nextSteps(env environment, port int, domain string, running bool) []step {
 	// 1. 内核跑起来。
 	if !running {
 		steps = append(steps, step{
-			Desc:    "把内核跑起来",
+			Desc:    i18n.T("cli.init.step_run_desc"),
 			Command: "isc daemon run",
-			Note:    "（前台运行，Ctrl-C 停止。长期使用请用 isc service install）",
+			Note:    i18n.T("cli.init.step_run_note"),
 		})
 	}
 
 	// 2. 配 DNS 凭据。
 	if domain != "" {
 		steps = append(steps, step{
-			Desc:    "添加 DNS 服务商凭据",
-			Command: "isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>",
-			Note: "Token 只开 Zone:DNS:Edit 权限即可 —— 内核只需要改 DNS 记录。" +
-				"用 isc credential fields cloudflare 可以看到需要哪些字段。",
+			Desc:    i18n.T("cli.init.step_cred_desc"),
+			Command: i18n.T("cli.init.step_cred_cmd"),
+			Note: i18n.T("cli.init.step_cred_note_a") +
+				i18n.T("cli.init.step_cred_note_b"),
 		})
 
 		// 3. 建动态解析任务。
@@ -288,43 +282,40 @@ func nextSteps(env environment, port int, domain string, running bool) []step {
 			recType = "A"
 		}
 		steps = append(steps, step{
-			Desc: "创建动态解析任务",
-			Command: fmt.Sprintf(
-				"isc ddns add --label 我的域名 --credential <凭据ID> "+
-					"--domain %s --type %s --source %s",
+			Desc: i18n.T("cli.init.step_ddns_desc"),
+			Command: fmt.Sprintf(i18n.T("cli.init.step_ddns_cmd"),
 				domain, recType, sourceFor(env, recType)),
-			Note: "凭据 ID 从上一步的输出里取（或 isc credential list）。",
+			Note: i18n.T("cli.init.step_ddns_note"),
 		})
 	} else {
 		steps = append(steps, step{
-			Desc:    "添加 DNS 服务商凭据",
-			Command: "isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>",
-			Note:    "（把 cloudflare 换成你实际用的服务商）",
+			Desc:    i18n.T("cli.init.step_cred_desc"),
+			Command: i18n.T("cli.init.step_cred_cmd"),
+			Note:    i18n.T("cli.init.step_cred_note2"),
 		})
 		steps = append(steps, step{
-			Desc: "创建动态解析任务",
-			Command: "isc ddns add --label 我的域名 --credential <凭据ID> " +
-				"--domain home.example.com --type AAAA --source ipv6",
-			Note: "加 --domain 参数重跑 isc init 可以得到填好域名的版本。",
+			Desc:    i18n.T("cli.init.step_ddns_desc"),
+			Command: i18n.T("cli.init.step_ddns_cmd2"),
+			Note:    i18n.T("cli.init.step_ddns_note2"),
 		})
 	}
 
 	// 4. 放行端口。
 	if port > 0 {
 		steps = append(steps, step{
-			Desc:    "在防火墙中放行端口（会先生成计划供你确认）",
-			Command: fmt.Sprintf("isc expose --port %d --label 我的服务", port),
-			Note:    "这一步需要管理员权限；应用之后可以用 isc rollback 撤销。",
+			Desc:    i18n.T("cli.init.step_expose_desc"),
+			Command: fmt.Sprintf(i18n.T("cli.init.step_expose_cmd"), port),
+			Note:    i18n.T("cli.init.step_expose_note"),
 		})
 	}
 
 	// 5. 确认真的通了。
 	steps = append(steps, step{
-		Desc:    "用手机确认能从公网访问",
+		Desc:    i18n.T("cli.init.step_verify_desc"),
 		Command: "isc verify",
-		Note: "**这一步不能省。** 在电脑上访问自己的域名成功" +
-			"不能说明什么 —— 路由器可能在做 NAT 回环，" +
-			"只有来自公网的请求才证明得了。",
+		Note: i18n.T("cli.init.step_verify_note_a") +
+			i18n.T("cli.init.step_verify_note_b") +
+			i18n.T("cli.init.step_verify_note_c"),
 	})
 
 	return steps

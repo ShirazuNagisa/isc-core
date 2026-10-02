@@ -585,6 +585,142 @@ var messagesZh = map[string]string{
 	"cli.doctor.conclusion_ok_a":      "结论：本机已具备条件。但**本机自测通过不等于外网能连上** ——\n",
 	"cli.doctor.conclusion_ok_b":      "      请务必用手机 4G/5G 打开验证地址确认。\n",
 
+	"cli.expose.short": "在防火墙中放行一个端口（先生成计划、可预览、可撤销）",
+	"cli.expose.long": "生成一份「放行端口」的变更计划，确认后应用。\n\n" +
+		"命令会先把要做的改动打印出来再等你确认。放行端口是修改系统状态，\n" +
+		"你会看到：\n\n" +
+		"  · 当前已有的 ISC 规则（不会动它们）\n" +
+		"  · 本次要新增的规则\n" +
+		"  · 风险等级与注意事项\n\n" +
+		"应用后可以用 'isc changes' 查看历史、用 'isc rollback <计划ID>' 撤销。\n\n" +
+		"注意：\n" +
+		"  · 需要管理员权限（Windows 上非管理员无法创建防火墙规则）；\n" +
+		"  · 放行的是**本机**防火墙 —— 路由器那一层要另行设置。",
+	"cli.expose.no_change":         "\n无需改动 —— 规则已经存在。",
+	"cli.expose.confirm":           "确认应用这份变更？",
+	"cli.expose.cancelled":         "已取消。",
+	"cli.expose.flag_port":         "要放行的端口（必填）",
+	"cli.expose.flag_protocol":     "协议：tcp 或 udp",
+	"cli.expose.flag_label":        "服务名，会出现在系统防火墙界面里",
+	"cli.expose.flag_provider":     "可达方式",
+	"cli.expose.flag_yes":          "跳过确认直接应用",
+	"cli.expose.plan_title":        "变更计划",
+	"cli.expose.plan_risk":         "风险：%s\n",
+	"cli.expose.plan_id":           "计划 ID：%s\n",
+	"cli.expose.plan_diff":         "\n将要发生的改动：",
+	"cli.expose.plan_irreversible": "  ⚠ 这一步不可撤销\n",
+	"cli.expose.plan_notes":        "\n注意：",
+	"cli.expose.plan_details":      "\n说明：",
+	"cli.expose.applied":           "✅ 变更已生效。",
+	"cli.expose.applied_undo":      "   撤销：isc rollback %s\n",
+	"cli.expose.failed":            "❌ 变更失败，已自动回滚到执行前的状态。",
+	"cli.expose.rollback_failed":   "‼️  变更失败，**且自动回滚未能完成**。",
+	"cli.expose.rollback_hint_a":   "   系统可能处于中间状态，请用 'isc doctor' 检查，\n",
+	"cli.expose.rollback_hint_b":   "   必要时在系统防火墙中手动清理以 isc- 开头的规则。",
+	"cli.expose.state":             "状态：%s\n",
+	"cli.expose.failed_step":       "   失败步骤：%s\n",
+	"cli.expose.failed_reason":     "     原因：%s\n",
+
+	"cli.changes.short":        "查看系统变更历史与待确认的计划",
+	"cli.changes.flag_limit":   "历史记录条数",
+	"cli.changes.pending":      "待确认的计划（%d）\n",
+	"cli.changes.pending_line": "      风险 %s，%s 过期\n",
+	"cli.changes.pending_hint": "\n  这些计划还没有生效。应用：isc expose --port ... 或经接口确认。",
+	"cli.changes.empty":        "还没有任何系统变更记录。",
+	"cli.changes.title":        "变更历史",
+	"cli.changes.plan_id_line": "      计划 ID %s",
+	"cli.changes.undo":         "   撤销：isc rollback %s",
+
+	"cli.rollback.use":   "rollback <计划ID>",
+	"cli.rollback.short": "撤销一次已生效的系统变更",
+	"cli.rollback.long": "撤销一次此前应用过的变更。\n\n" +
+		"它跨越内核重启依然可用 —— 撤销所需的信息随变更一起持久化了。\n" +
+		"用 'isc changes' 可以查到计划 ID。\n\n" +
+		"撤销是幂等的：已经撤销过的再撤一次会成功返回。",
+	"cli.rollback.done":     "✅ 已撤销：%s\n",
+	"cli.rollback.state":    "状态：%s\n",
+	"cli.rollback.no_stdin": "\n（无法读取输入，已取消；自动化场景请加 --yes）",
+	"cli.rollback.yes":      "是",
+	"cli.risk.high":         "高 —— 可能影响你与这台机器的连接",
+	"cli.risk.medium":       "中 —— 会开放一个端口",
+	"cli.risk.low":          "低",
+
+	"cli.init.short": "首次使用引导：探测环境并给出下一步命令",
+	"cli.init.long": "首次使用引导。\n\n" +
+		"它会检查这台机器能不能对外提供服务（公网 IPv6、委派前缀、防火墙权限、\n" +
+		"低端口绑定能力），然后打印一份**填好了具体值**的下一步清单。\n\n" +
+		"它不修改任何系统状态 —— 只会告诉你该做什么。真正的变更都在后续的\n" +
+		"命令里，而那些变更都可以撤销（见 isc changes / isc rollback）。",
+	"cli.init.flag_port":   "打算对外开放的端口（用于检查能否绑定与是否有服务在监听）",
+	"cli.init.flag_domain": "打算使用的域名（用于生成可直接复制的命令）",
+	"cli.init.title":       "ISC 首次使用引导",
+	"cli.init.env_section": "【环境】",
+	"cli.init.ipv6_ok":     "  ✅ 公网 IPv6：%s\n",
+	"cli.init.iface":       "     网卡：%s\n",
+	"cli.init.ipv6_missing": "  ❌ 没有找到公网 IPv6 地址\n" +
+		"     这是本产品最核心的前提。请先确认：\n" +
+		"       · 路由器里开启了 IPv6，并且**开启了前缀委派（DHCPv6-PD）**\n" +
+		"       · 光猫是桥接模式（路由模式下常常拿不到委派前缀）\n" +
+		"       · 系统里 IPv6 没有被禁用\n" +
+		"     用 isc ip 可以看到每块网卡的详细情况。",
+	"cli.init.prefix":      "  ℹ️  委派前缀：%s\n",
+	"cli.init.prefix_hint": "     运营商重拨后这个前缀会变，ISC 会自动跟进并更新 DNS。",
+	"cli.init.ipv4_public": "  ℹ️  检测到公网 IPv4（本产品的重点在 IPv6，但 A 记录同样可用）",
+	"cli.init.ipv4_cgnat":  "  ℹ️  没有公网 IPv4 —— 这在国内家宽上是常态，不影响使用",
+	"cli.init.fw_ok":       "  ✅ 防火墙后端可用（放行端口时需要管理员权限）",
+	"cli.init.fw_bad": "  ⚠️  防火墙后端不可用：%s\n" +
+		"     你仍然可以用它，但需要手工在系统防火墙里放行端口。",
+	"cli.init.lowport_ok": "  ✅ 可以绑定低端口（443 等）—— %s\n",
+	"cli.init.lowport_bad": "  ⚠️  不能绑定低端口（443 等）：%s\n" +
+		"     用 443 需要 root / setcap，或者改用 ≥1024 的端口。",
+	"cli.init.kernel_section":  "【内核】",
+	"cli.init.kernel_running":  "  ✅ 正在运行",
+	"cli.init.kernel_stopped":  "  ⏹  未运行",
+	"cli.init.start_now":       "     现在跑起来：isc daemon run",
+	"cli.init.install_service": "     装成系统服务（推荐，需管理员）：isc service install && isc service start",
+	"cli.init.steps_section":   "【下一步】",
+	"cli.init.footer_console":  "     控制台（图形界面）用 isc console 打开。",
+
+	"cli.init.step_run_desc":  "把内核跑起来",
+	"cli.init.step_run_note":  "（前台运行，Ctrl-C 停止。长期使用请用 isc service install）",
+	"cli.init.step_cred_desc": "添加 DNS 服务商凭据",
+	"cli.init.step_cred_cmd":  "isc credential add cloudflare --label 我的CF --field token=<API-TOKEN>",
+	"cli.init.step_cred_note": "Token 只开 Zone:DNS:Edit 权限即可 —— 内核只需要改 DNS 记录。" +
+		"用 isc credential fields cloudflare 可以看到需要哪些字段。",
+	"cli.init.step_ddns_desc": "创建动态解析任务",
+	"cli.init.step_ddns_cmd": "isc ddns add --label 我的域名 --credential <凭据ID> " +
+		"--domain %s --type %s --source %s",
+	"cli.init.step_ddns_note":   "凭据 ID 从上一步的输出里取（或 isc credential list）。",
+	"cli.init.step_cred_note2":  "（把 cloudflare 换成你实际用的服务商）",
+	"cli.init.step_ddns_note2":  "加 --domain 参数重跑 isc init 可以得到填好域名的版本。",
+	"cli.init.step_expose_desc": "在防火墙中放行端口（会先生成计划供你确认）",
+	"cli.init.step_expose_cmd":  "isc expose --port %d --label 我的服务",
+	"cli.init.step_expose_note": "这一步需要管理员权限；应用之后可以用 isc rollback 撤销。",
+	"cli.init.step_verify_desc": "用手机确认能从公网访问",
+	"cli.init.step_verify_note": "**这一步不能省。** 在电脑上访问自己的域名成功\n" +
+		"不能说明什么 —— 路由器可能在做 NAT 回环，\n" +
+		"只有来自公网的请求才证明得了。",
+
+	"cli.init.ipv6_missing_a": "  ❌ 没有找到公网 IPv6 地址",
+	"cli.init.ipv6_missing_b": "     这是本产品最核心的前提。请先确认：",
+	"cli.init.ipv6_missing_c": "       · 路由器里开启了 IPv6，并且**开启了前缀委派（DHCPv6-PD）**",
+	"cli.init.ipv6_missing_d": "       · 光猫是桥接模式（路由模式下常常拿不到委派前缀）",
+	"cli.init.ipv6_missing_e": "       · 系统里 IPv6 没有被禁用",
+	"cli.init.fw_bad_a":       "  ⚠️  防火墙后端不可用：%s",
+	"cli.init.fw_bad_b":       "     你仍然可以用它，但需要手工在系统防火墙里放行端口。",
+	"cli.init.lowport_bad_a":  "  ⚠️  不能绑定低端口（443 等）：%s",
+	"cli.init.lowport_bad_b":  "     用 443 需要 root / setcap，或者改用 ≥1024 的端口。",
+	"cli.init.footer_undo":    "提示：任何系统变更都可以撤销。用 isc changes 看历史，isc rollback <ID> 撤销。",
+
+	"cli.init.step_verify_note_a": "**这一步不能省。** 在电脑上访问自己的域名成功\n",
+	"cli.init.step_verify_note_b": "不能说明什么 —— 路由器可能在做 NAT 回环，\n",
+	"cli.init.step_verify_note_c": "只有来自公网的请求才证明得了。",
+	"cli.init.step_ddns_cmd2":     "isc ddns add --label 我的域名 --credential <凭据ID> --domain home.example.com --type AAAA --source ipv6",
+
+	"cli.init.ipv6_missing_f":   "     用 isc ip 可以看到每块网卡的详细情况。",
+	"cli.init.step_cred_note_a": "Token 只开 Zone:DNS:Edit 权限即可 —— 内核只需要改 DNS 记录。",
+	"cli.init.step_cred_note_b": "用 isc credential fields cloudflare 可以看到需要哪些字段。",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

@@ -79,11 +79,7 @@ func TestFlagValue(t *testing.T) {
 // 这条测试把"语言必须先设、树必须后建"这个顺序固定下来：它**先**设
 // 语言，**再**建树，然后断言帮助文本跟着变。
 func TestHelpTextFollowsAmbientLanguage(t *testing.T) {
-	// 不用 t.Parallel：它改的是全局默认语言。
-	prev := i18n.Default
-	t.Cleanup(func() { i18n.SetDefault(prev) })
-
-	i18n.SetDefault(i18n.En)
+	withLang(t, i18n.En)
 	root := New()
 
 	// 根命令自己的说明。
@@ -118,10 +114,7 @@ func TestHelpTextFollowsAmbientLanguage(t *testing.T) {
 
 // TestHelpTextDefaultsToChinese 确认上一条不是"永远英文"。
 func TestHelpTextDefaultsToChinese(t *testing.T) {
-	prev := i18n.Default
-	t.Cleanup(func() { i18n.SetDefault(prev) })
-
-	i18n.SetDefault(i18n.ZhCN)
+	withLang(t, i18n.ZhCN)
 	root := New()
 
 	if !strings.Contains(root.Short, "电脑") {

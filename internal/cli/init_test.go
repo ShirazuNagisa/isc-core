@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"strings"
 	"testing"
@@ -131,7 +132,9 @@ func TestSourceFor(t *testing.T) {
 // 它是整条链路里唯一能区分「本机没配好」与「运营商封了」的手段。
 // 少了它，用户会在一个自己无法判断的状态里反复折腾。
 func TestNextStepsIncludesVerify(t *testing.T) {
-	t.Parallel()
+	// 断言的是 i18n 目录里的中文文案，因此必须把语言固定住 ——
+	// 否则会被并行测试改掉（见 lang_helper_test.go）。
+	withLang(t, i18n.ZhCN)
 
 	cases := []environment{
 		{},
