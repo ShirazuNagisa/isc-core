@@ -168,6 +168,114 @@ var messagesEn = map[string]string{
 	"service.install_failed": "Failed to install the system service",
 	"service.action_failed":  "The system service operation failed",
 
+	"cli.zones.short": "List the DNS zones a credential can manage",
+	"cli.zones.long": "List the DNS zones a credential can manage.\n\n" +
+		"Get the credential ID from isc credential list.\n\n" +
+		"Not every provider supports this — Tier-2 (the 30 dynamic-DNS-only\n" +
+		"providers) cannot list zones. This command says so plainly instead of\n" +
+		"handing you an empty list.",
+	"cli.zones.empty": "This credential can manage no zones.",
+	"cli.zones.empty_hint": "Common causes: the credential's scope covers no " +
+		"domain, or the provider cannot list zones (Tier-2).",
+	"cli.zones.title": "Zones (%d)",
+	"cli.zones.next":  "Next: isc records list %s <zone-id>",
+
+	"cli.records.short": "Manage DNS records (Tier-1 providers only)",
+	"cli.records.long": "Browse and edit DNS records.\n\n" +
+		"**Tier-1 providers only**: Cloudflare / Alibaba Cloud / Tencent Cloud /\n" +
+		"DNSPod / Huawei Cloud / GoDaddy. Tier-2 (the 30 dynamic-DNS-only\n" +
+		"providers) has no record management.\n\n" +
+		"Record models differ between providers: a Huawei Cloud record belongs to\n" +
+		"a \"record set\", and GoDaddy records have no independent ID — deleting\n" +
+		"one affects other values under the same name.\n" +
+		"See docs/PROVIDER-MATRIX.md.",
+	"cli.records.list_short":  "List records in a zone",
+	"cli.records.list_empty":  "No matching records in this zone.",
+	"cli.records.list_title":  "Records (%d)",
+	"cli.records.col_type":    "TYPE",
+	"cli.records.col_name":    "NAME",
+	"cli.records.col_content": "CONTENT",
+	"cli.records.ttl_default": "default",
+	"cli.records.filter_type": "only this type (A / AAAA / CNAME / MX / TXT …)",
+	"cli.records.filter_name": "only this name",
+	"cli.records.add_short":   "Add a record",
+	"cli.records.add_long": "Add a DNS record.\n\n" +
+		"Use the **full name** (www.example.com), not a relative one (www) —\n" +
+		"providers disagree on relative names, while the full name means the\n" +
+		"same thing on all six.",
+	"cli.records.need_type":    "--type is required to specify the record type",
+	"cli.records.need_content": "--content is required to specify the record content",
+	"cli.records.added":        "✅ Added %s %s → %s",
+	"cli.records.flag_type":    "record type (required): A / AAAA / CNAME / MX / TXT …",
+	"cli.records.flag_content": "record content (required)",
+	"cli.records.flag_ttl":     "TTL in seconds (0 = provider default)",
+	"cli.records.rm_short":     "Delete a record",
+	"cli.records.rm_long": "Delete a DNS record.\n\n" +
+		"**Note the semantic differences**: GoDaddy records have no independent\n" +
+		"ID, so deleting one affects **every** value of the same type under that\n" +
+		"name. A Huawei Cloud record belongs to a \"record set\", so the deletion\n" +
+		"granularity differs. See docs/PROVIDER-MATRIX.md.",
+	"cli.records.rm_confirm": "This will delete record %s. Add --yes to confirm.",
+	"cli.records.removed":    "✅ Record %s deleted",
+	"cli.records.yes_flag":   "skip confirmation",
+
+	"cli.settings.short":     "View and change kernel settings",
+	"cli.settings.long":      "View and change kernel settings.\n\nWith no subcommand, prints every current setting.",
+	"cli.settings.set_short": "Change settings",
+	"cli.settings.set_long": "Change settings. **Only the fields you give explicitly are " +
+		"submitted**; everything else stays as it is.\n\n" +
+		"Examples:\n" +
+		"  isc settings set --acme-email you@example.com --acme-dns-credential-id <id>\n" +
+		"  isc settings set --proxy-enabled --proxy-port 443 --proxy-tls\n\n" +
+		"ACME is a prerequisite for HTTPS: a DNS-01 credential must be set before\n" +
+		"enabling proxy-tls, otherwise no certificate can be issued and the\n" +
+		"symptom is \"the browser reports a certificate error\".",
+	"cli.settings.conflict_proxy":  "--proxy-enabled and --proxy-disabled cannot be given together",
+	"cli.settings.conflict_tls":    "--proxy-tls and --no-proxy-tls cannot be given together",
+	"cli.settings.nothing":         "No field to change was given. Use isc settings to see the current values.",
+	"cli.settings.updated":         "✅ Settings updated",
+	"cli.settings.flag_lang":       "UI language: zh-CN or en",
+	"cli.settings.flag_log_level":  "log level: debug / info / warn / error",
+	"cli.settings.flag_proxy_on":   "enable the reverse proxy",
+	"cli.settings.flag_proxy_off":  "disable the reverse proxy",
+	"cli.settings.flag_proxy_port": "reverse proxy listen port",
+	"cli.settings.flag_proxy_tls":  "serve the reverse proxy over HTTPS",
+	"cli.settings.flag_no_tls":     "revert the reverse proxy to plain HTTP",
+	"cli.settings.flag_acme_email": "ACME account email (the CA uses it to warn you if renewal fails)",
+	"cli.settings.flag_acme_dir": "ACME directory URL; leave empty for production. " +
+		"Certificates from the staging environment are not trusted by browsers",
+	"cli.settings.flag_acme_cred": "credential ID used for the DNS-01 challenge",
+
+	"cli.settings.render_title":   "Kernel settings",
+	"cli.settings.render_lang":    "  Language      %s",
+	"cli.settings.render_level":   "  Log level     %s",
+	"cli.settings.render_buffer":  "  Event buffer  %d",
+	"cli.settings.render_off":     "disabled",
+	"cli.settings.render_on":      "enabled",
+	"cli.settings.render_proxy":   "  Reverse proxy %s",
+	"cli.settings.render_port":    " (port %d",
+	"cli.settings.render_https":   ", HTTPS",
+	"cli.settings.render_http":    ", plain HTTP",
+	"cli.settings.render_close":   ")",
+	"cli.settings.render_acme":    "\n  ACME (prerequisite for HTTPS)",
+	"cli.settings.render_unset":   "(not set)",
+	"cli.settings.render_email":   "    Email         %s",
+	"cli.settings.render_prod":    "production",
+	"cli.settings.render_staging": "  ⚠ staging certificates are not trusted by browsers",
+	"cli.settings.render_dir":     "    Directory     %s",
+	"cli.settings.render_cred":    "    DNS-01 cred.  %s",
+	"cli.settings.render_no_cred": "    ⚠ Without a credential no certificate can be issued, and therefore no HTTPS",
+
+	"cli.root.short": "ISC — put a machine with no public IPv4 on the internet",
+	"cli.root.long": "ISC (the ingress orchestrator) makes an ordinary machine that only has a\n" +
+		"dynamic IPv6 address reachable from the public internet.\n\n" +
+		"It tracks IPv6 prefix changes, updates dynamic DNS, orchestrates the\n" +
+		"firewall, issues certificates, and publishes local services on a usable\n" +
+		"public port through a reverse proxy.\n\n" +
+		"This one command is both the CLI client and the kernel daemon entry point:\n" +
+		"  running isc status in a terminal talks to a running kernel;\n" +
+		"  running isc daemon run turns the current process into the kernel itself.",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

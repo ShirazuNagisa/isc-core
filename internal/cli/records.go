@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 本文件补齐**DNS 记录管理与设置**的命令行入口。
@@ -24,15 +25,10 @@ import (
 
 func newZonesCmd(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:   "zones <凭据ID>",
-		Short: "列出某个凭据可管理的 DNS 区域",
-		Long: `列出某个凭据可管理的 DNS 区域。
-
-用 isc credential list 拿到凭据 ID。
-
-并非所有服务商都支持 —— Tier-2（只做动态解析的那 30 家）没有列区域的
-能力。遇到时这条命令会明确说明，而不是给你一个空列表。`,
-		Args: cobra.ExactArgs(1),
+		Use:   "zones <credential-id>",
+		Short: i18n.T("cli.zones.short"),
+		Long:  i18n.T("cli.zones.long"),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -53,20 +49,18 @@ func newZonesCmd(app *App) *cobra.Command {
 			}
 
 			if len(list.Items) == 0 {
-				_, _ = fmt.Fprintln(app.out,
-					"该凭据下没有可管理的区域。\n"+
-						"常见原因：凭据的权限范围不包含任何域名，"+
-						"或该服务商不支持列出区域（Tier-2）。")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.zones.empty"))
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.zones.empty_hint"))
 				return nil
 			}
 
-			_, _ = fmt.Fprintf(app.out, "区域（%d）\n", len(list.Items))
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.zones.title")+"\n", len(list.Items))
 			_, _ = fmt.Fprintln(app.out, strings.Repeat("-", 66))
 			for _, z := range list.Items {
 				_, _ = fmt.Fprintf(app.out, "  %s  %s\n", z.Id, z.Name)
 			}
-			_, _ = fmt.Fprintln(app.out,
-				"\n下一步：isc records list "+args[0]+" <区域ID>")
+			_, _ = fmt.Fprintf(app.out, "\n%s\n",
+				i18n.T("cli.zones.next", args[0]))
 			return nil
 		},
 	}
@@ -79,15 +73,8 @@ func newZonesCmd(app *App) *cobra.Command {
 func newRecordsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "records",
-		Short: "管理 DNS 记录（仅 Tier-1 服务商）",
-		Long: `浏览与编辑 DNS 记录。
-
-**仅 Tier-1 服务商可用**：Cloudflare / 阿里云 / 腾讯云 / DNSPod /
-华为云 / GoDaddy。Tier-2（只做动态解析的那 30 家）没有记录管理能力。
-
-注意各家的记录模型不同：华为云的一条记录属于一个「记录集」，
-GoDaddy 的记录没有独立 ID —— 它们的删除会波及同名的其它值。
-详见 docs/PROVIDER-MATRIX.md。`,
+		Short: i18n.T("cli.records.short"),
+		Long:  i18n.T("cli.records.long"),
 	}
 
 	cmd.AddCommand(
@@ -105,8 +92,8 @@ func newRecordsListCmd(app *App) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "list <凭据ID> <区域ID>",
-		Short: "列出区域内的记录",
+		Use:   "list <credential-id> <zone-id>",
+		Short: i18n.T("cli.records.list_short"),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := signalContext(cmd.Context())
@@ -139,16 +126,17 @@ func newRecordsListCmd(app *App) *cobra.Command {
 			}
 
 			if len(list.Items) == 0 {
-				_, _ = fmt.Fprintln(app.out, "该区域下没有匹配的记录。")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.records.list_empty"))
 				return nil
 			}
 
-			_, _ = fmt.Fprintf(app.out, "记录（%d）\n", len(list.Items))
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.records.list_title")+"\n", len(list.Items))
 			_, _ = fmt.Fprintln(app.out, strings.Repeat("-", 78))
 			_, _ = fmt.Fprintf(app.out, "  %-8s %-34s %-22s %s\n",
-				"类型", "名称", "内容", "TTL")
+				i18n.T("cli.records.col_type"), i18n.T("cli.records.col_name"),
+				i18n.T("cli.records.col_content"), "TTL")
 			for _, rec := range list.Items {
-				ttl := "默认"
+				ttl := i18n.T("cli.records.ttl_default")
 				if rec.Ttl != nil {
 					ttl = fmt.Sprintf("%d", *rec.Ttl)
 				}
@@ -159,8 +147,9 @@ func newRecordsListCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&recType, "type", "", "只看某个类型（A / AAAA / CNAME / MX / TXT …）")
-	cmd.Flags().StringVar(&name, "name", "", "只看某个名字")
+	cmd.Flags().StringVar(&recType, "type", "",
+		i18n.T("cli.records.filter_type"))
+	cmd.Flags().StringVar(&name, "name", "", i18n.T("cli.records.filter_name"))
 	return cmd
 }
 
@@ -172,19 +161,18 @@ func newRecordsAddCmd(app *App) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "add <凭据ID> <区域ID> <记录名>",
-		Short: "新增一条记录",
-		Long: `新增一条 DNS 记录。
-
-记录名用**完整名字**（www.example.com），而不是相对名（www）——
-各家对相对名的处理不一致，而完整名字在六家上含义相同。`,
-		Args: cobra.ExactArgs(3),
+		Use:   "add <credential-id> <zone-id> <record-name>",
+		Short: i18n.T("cli.records.add_short"),
+		Long:  i18n.T("cli.records.add_long"),
+		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if recType == "" {
-				return app.fail(cmd, fmt.Errorf("必须用 --type 指定记录类型"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.records.need_type")))
 			}
 			if content == "" {
-				return app.fail(cmd, fmt.Errorf("必须用 --content 指定记录内容"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.records.need_content")))
 			}
 
 			ctx, cancel := signalContext(cmd.Context())
@@ -215,7 +203,7 @@ func newRecordsAddCmd(app *App) *cobra.Command {
 				return writeJSONOut(app.out, created)
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 已新增 %s %s → %s\n",
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.records.added")+"\n",
 				created.Type, created.Name, created.Content)
 			if created.Id != "" {
 				_, _ = fmt.Fprintf(app.out, "   ID: %s\n", created.Id)
@@ -224,9 +212,11 @@ func newRecordsAddCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&recType, "type", "", "记录类型（必填）：A / AAAA / CNAME / MX / TXT …")
-	cmd.Flags().StringVar(&content, "content", "", "记录内容（必填）")
-	cmd.Flags().IntVar(&ttl, "ttl", 0, "TTL 秒数（0 = 用服务商默认值）")
+	cmd.Flags().StringVar(&recType, "type", "",
+		i18n.T("cli.records.flag_type"))
+	cmd.Flags().StringVar(&content, "content", "",
+		i18n.T("cli.records.flag_content"))
+	cmd.Flags().IntVar(&ttl, "ttl", 0, i18n.T("cli.records.flag_ttl"))
 	return cmd
 }
 
@@ -234,18 +224,14 @@ func newRecordsRemoveCmd(app *App) *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "rm <凭据ID> <区域ID> <记录ID>",
-		Short: "删除一条记录",
-		Long: `删除一条 DNS 记录。
-
-**注意部分服务商的语义差异**：GoDaddy 的记录没有独立 ID，删一条
-同名记录会波及该名字下的**全部**同类型值。华为云的一条记录属于一个
-「记录集」，删除的粒度与其它家不同。详见 docs/PROVIDER-MATRIX.md。`,
-		Args: cobra.ExactArgs(3),
+		Use:   "rm <credential-id> <zone-id> <record-id>",
+		Short: i18n.T("cli.records.rm_short"),
+		Long:  i18n.T("cli.records.rm_long"),
+		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				_, _ = fmt.Fprintf(app.out,
-					"将删除记录 %s。确认请加 --yes。\n", args[2])
+					i18n.T("cli.records.rm_confirm")+"\n", args[2])
 				return nil
 			}
 
@@ -263,12 +249,12 @@ func newRecordsRemoveCmd(app *App) *cobra.Command {
 				return app.fail(cmd, err)
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 记录 %s 已删除\n", args[2])
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.records.removed")+"\n", args[2])
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&force, "yes", false, "跳过确认")
+	cmd.Flags().BoolVar(&force, "yes", false, i18n.T("cli.records.yes_flag"))
 	return cmd
 }
 
@@ -279,10 +265,8 @@ func newRecordsRemoveCmd(app *App) *cobra.Command {
 func newSettingsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "settings",
-		Short: "查看与修改内核设置",
-		Long: `查看与修改内核设置。
-
-不带子命令时打印当前的全部设置。`,
+		Short: i18n.T("cli.settings.short"),
+		Long:  i18n.T("cli.settings.long"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -325,16 +309,9 @@ func newSettingsSetCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "set",
-		Short: "修改设置",
-		Long: `修改设置。**只提交你显式给出的字段**，其余保持不变。
-
-例：
-  isc settings set --acme-email you@example.com --acme-dns-credential-id <凭据ID>
-  isc settings set --proxy-enabled --proxy-port 443 --proxy-tls
-
-ACME 设置是 HTTPS 的前置条件：启用 proxy-tls 之前必须先指定
-DNS-01 凭据，否则证书签不出来，而症状是"浏览器报证书错误"。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.settings.set_short"),
+		Long:  i18n.T("cli.settings.set_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			patch := map[string]any{}
 
@@ -376,17 +353,16 @@ DNS-01 凭据，否则证书签不出来，而症状是"浏览器报证书错误
 
 			// 两个互斥的开关同时给出是用户搞混了，而不是"后者覆盖前者"。
 			if fl.Changed("proxy-enabled") && fl.Changed("proxy-disabled") {
-				return app.fail(cmd, fmt.Errorf(
-					"--proxy-enabled 与 --proxy-disabled 不能同时给出"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.settings.conflict_proxy")))
 			}
 			if fl.Changed("proxy-tls") && fl.Changed("no-proxy-tls") {
-				return app.fail(cmd, fmt.Errorf(
-					"--proxy-tls 与 --no-proxy-tls 不能同时给出"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.settings.conflict_tls")))
 			}
 
 			if len(patch) == 0 {
-				_, _ = fmt.Fprintln(app.out,
-					"没有给出任何要修改的字段。用 isc settings 查看当前值。")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.settings.nothing"))
 				return nil
 			}
 
@@ -407,88 +383,93 @@ DNS-01 凭据，否则证书签不出来，而症状是"浏览器报证书错误
 			if app.jsonOut {
 				return writeJSONOut(app.out, s)
 			}
-			_, _ = fmt.Fprintln(app.out, "✅ 设置已更新")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.settings.updated"))
 			renderSettings(app, s)
 			return nil
 		},
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&lang, "lang", "", "界面语言：zh-CN 或 en")
-	f.StringVar(&logLevel, "log-level", "", "日志级别：debug / info / warn / error")
-	f.BoolVar(&proxyOn, "proxy-enabled", false, "启用反向代理")
-	f.BoolVar(&proxyOff, "proxy-disabled", false, "停用反向代理")
-	f.IntVar(&proxyPort, "proxy-port", 0, "反向代理监听端口")
-	f.BoolVar(&proxyTLS, "proxy-tls", false, "反向代理使用 HTTPS")
-	f.BoolVar(&noProxyTLS, "no-proxy-tls", false, "反向代理改回明文 HTTP")
+	f.StringVar(&lang, "lang", "", i18n.T("cli.settings.flag_lang"))
+	f.StringVar(&logLevel, "log-level", "", i18n.T("cli.settings.flag_log_level"))
+	f.BoolVar(&proxyOn, "proxy-enabled", false, i18n.T("cli.settings.flag_proxy_on"))
+	f.BoolVar(&proxyOff, "proxy-disabled", false, i18n.T("cli.settings.flag_proxy_off"))
+	f.IntVar(&proxyPort, "proxy-port", 0, i18n.T("cli.settings.flag_proxy_port"))
+	f.BoolVar(&proxyTLS, "proxy-tls", false, i18n.T("cli.settings.flag_proxy_tls"))
+	f.BoolVar(&noProxyTLS, "no-proxy-tls", false, i18n.T("cli.settings.flag_no_tls"))
 	f.StringVar(&acmeEmail, "acme-email", "",
-		"ACME 账户邮箱（续期失败时 CA 用它提醒你）")
+		i18n.T("cli.settings.flag_acme_email"))
 	f.StringVar(&acmeDir, "acme-directory", "",
-		"ACME 目录地址，留空用生产环境；测试环境签的证书浏览器不信任")
+		i18n.T("cli.settings.flag_acme_dir"))
 	f.StringVar(&acmeCred, "acme-dns-credential-id", "",
-		"做 DNS-01 校验用的凭据 ID")
+		i18n.T("cli.settings.flag_acme_cred"))
 	return cmd
 }
 
 func renderSettings(app *App, s gen.Settings) {
 	w := app.out
-	_, _ = fmt.Fprintln(w, "内核设置")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.settings.render_title"))
 	_, _ = fmt.Fprintln(w, strings.Repeat("-", 66))
 
 	if s.Lang != "" {
-		_, _ = fmt.Fprintf(w, "  界面语言      %s\n", s.Lang)
+		_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_lang")+"\n", s.Lang)
 	}
 	if s.LogLevel != "" {
-		_, _ = fmt.Fprintf(w, "  日志级别      %s\n", s.LogLevel)
+		_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_level")+"\n", s.LogLevel)
 	}
 	if s.EventBufferSize != nil {
-		_, _ = fmt.Fprintf(w, "  事件缓冲      %d\n", *s.EventBufferSize)
+		_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_buffer")+"\n",
+			*s.EventBufferSize)
 	}
 
 	if s.ProxyEnabled != nil {
-		state := "停用"
+		state := i18n.T("cli.settings.render_off")
 		if *s.ProxyEnabled {
-			state = "启用"
+			state = i18n.T("cli.settings.render_on")
 		}
-		_, _ = fmt.Fprintf(w, "  反向代理      %s", state)
+		_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_proxy"), state)
 		if s.ProxyPort != nil {
-			_, _ = fmt.Fprintf(w, "（端口 %d", *s.ProxyPort)
+			_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_port"), *s.ProxyPort)
 			if s.ProxyTls != nil && *s.ProxyTls {
-				_, _ = fmt.Fprint(w, "，HTTPS")
+				_, _ = fmt.Fprint(w, i18n.T("cli.settings.render_https"))
 			} else {
-				_, _ = fmt.Fprint(w, "，明文 HTTP")
+				_, _ = fmt.Fprint(w, i18n.T("cli.settings.render_http"))
 			}
-			_, _ = fmt.Fprint(w, "）")
+			_, _ = fmt.Fprint(w, i18n.T("cli.settings.render_close"))
 		}
 		_, _ = fmt.Fprintln(w)
 	}
 
 	// ACME 那一组是 HTTPS 的前置条件，因此单独提示。
-	_, _ = fmt.Fprintln(w, "\n  ACME（HTTPS 的前置条件）")
-	email := "（未设置）"
+	_, _ = fmt.Fprintln(w, i18n.T("cli.settings.render_acme"))
+	unset := i18n.T("cli.settings.render_unset")
+	email := unset
 	if s.AcmeEmail != nil && *s.AcmeEmail != "" {
 		email = *s.AcmeEmail
 	}
-	_, _ = fmt.Fprintf(w, "    邮箱        %s\n", email)
+	_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_email")+"\n", email)
 
-	dir := "生产环境"
+	dir := i18n.T("cli.settings.render_prod")
 	if s.AcmeDirectory != nil && *s.AcmeDirectory != "" {
 		dir = *s.AcmeDirectory
+		// 只在**非生产**的目录上加警告。
+		//
+		// 判据是这个字符串，而不是某个常量：ACME 目录是可以自定义的，
+		// 而"staging"是 Let's Encrypt 与其兼容实现共用的命名惯例。
 		if strings.Contains(dir, "staging") {
-			dir += "  ⚠ 测试环境签的证书浏览器不信任"
+			dir += i18n.T("cli.settings.render_staging")
 		}
 	}
-	_, _ = fmt.Fprintf(w, "    目录        %s\n", dir)
+	_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_dir")+"\n", dir)
 
-	cred := "（未设置）"
+	cred := unset
 	if s.AcmeDnsCredentialId != nil && *s.AcmeDnsCredentialId != "" {
 		cred = *s.AcmeDnsCredentialId
 	}
-	_, _ = fmt.Fprintf(w, "    DNS-01 凭据 %s\n", cred)
+	_, _ = fmt.Fprintf(w, i18n.T("cli.settings.render_cred")+"\n", cred)
 
-	if cred == "（未设置）" {
-		_, _ = fmt.Fprintln(w,
-			"    ⚠ 未设置凭据时无法签发证书，也就无法启用 HTTPS")
+	if cred == unset {
+		_, _ = fmt.Fprintln(w, i18n.T("cli.settings.render_no_cred"))
 	}
 }
 

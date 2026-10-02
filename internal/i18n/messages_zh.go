@@ -169,6 +169,105 @@ var messagesZh = map[string]string{
 	"service.install_failed": "安装系统服务失败",
 	"service.action_failed":  "系统服务操作失败",
 
+	"cli.zones.short": "列出某个凭据可管理的 DNS 区域",
+	"cli.zones.long": "列出某个凭据可管理的 DNS 区域。\n\n" +
+		"用 isc credential list 拿到凭据 ID。\n\n" +
+		"并非所有服务商都支持 —— Tier-2（只做动态解析的那 30 家）没有列区域的\n" +
+		"能力。遇到时这条命令会明确说明，而不是给你一个空列表。",
+	"cli.zones.empty": "该凭据下没有可管理的区域。",
+	"cli.zones.empty_hint": "常见原因：凭据的权限范围不包含任何域名，" +
+		"或该服务商不支持列出区域（Tier-2）。",
+	"cli.zones.title": "区域（%d）",
+	"cli.zones.next":  "下一步：isc records list %s <区域ID>",
+
+	"cli.records.short": "管理 DNS 记录（仅 Tier-1 服务商）",
+	"cli.records.long": "浏览与编辑 DNS 记录。\n\n" +
+		"**仅 Tier-1 服务商可用**：Cloudflare / 阿里云 / 腾讯云 / DNSPod /\n" +
+		"华为云 / GoDaddy。Tier-2（只做动态解析的那 30 家）没有记录管理能力。\n\n" +
+		"注意各家的记录模型不同：华为云的一条记录属于一个「记录集」，\n" +
+		"GoDaddy 的记录没有独立 ID —— 它们的删除会波及同名的其它值。\n" +
+		"详见 docs/PROVIDER-MATRIX.md。",
+	"cli.records.list_short":  "列出区域内的记录",
+	"cli.records.list_empty":  "该区域下没有匹配的记录。",
+	"cli.records.list_title":  "记录（%d）",
+	"cli.records.col_type":    "类型",
+	"cli.records.col_name":    "名称",
+	"cli.records.col_content": "内容",
+	"cli.records.ttl_default": "默认",
+	"cli.records.filter_type": "只看某个类型（A / AAAA / CNAME / MX / TXT …）",
+	"cli.records.filter_name": "只看某个名字",
+	"cli.records.add_short":   "新增一条记录",
+	"cli.records.add_long": "新增一条 DNS 记录。\n\n" +
+		"记录名用**完整名字**（www.example.com），而不是相对名（www）——\n" +
+		"各家对相对名的处理不一致，而完整名字在六家上含义相同。",
+	"cli.records.need_type":    "必须用 --type 指定记录类型",
+	"cli.records.need_content": "必须用 --content 指定记录内容",
+	"cli.records.added":        "✅ 已新增 %s %s → %s",
+	"cli.records.flag_type":    "记录类型（必填）：A / AAAA / CNAME / MX / TXT …",
+	"cli.records.flag_content": "记录内容（必填）",
+	"cli.records.flag_ttl":     "TTL 秒数（0 = 用服务商默认值）",
+	"cli.records.rm_short":     "删除一条记录",
+	"cli.records.rm_long": "删除一条 DNS 记录。\n\n" +
+		"**注意部分服务商的语义差异**：GoDaddy 的记录没有独立 ID，删一条\n" +
+		"同名记录会波及该名字下的**全部**同类型值。华为云的一条记录属于一个\n" +
+		"「记录集」，删除的粒度与其它家不同。详见 docs/PROVIDER-MATRIX.md。",
+	"cli.records.rm_confirm": "将删除记录 %s。确认请加 --yes。",
+	"cli.records.removed":    "✅ 记录 %s 已删除",
+	"cli.records.yes_flag":   "跳过确认",
+
+	"cli.settings.short":     "查看与修改内核设置",
+	"cli.settings.long":      "查看与修改内核设置。\n\n不带子命令时打印当前的全部设置。",
+	"cli.settings.set_short": "修改设置",
+	"cli.settings.set_long": "修改设置。**只提交你显式给出的字段**，其余保持不变。\n\n" +
+		"例：\n" +
+		"  isc settings set --acme-email you@example.com --acme-dns-credential-id <凭据ID>\n" +
+		"  isc settings set --proxy-enabled --proxy-port 443 --proxy-tls\n\n" +
+		"ACME 设置是 HTTPS 的前置条件：启用 proxy-tls 之前必须先指定\n" +
+		"DNS-01 凭据，否则证书签不出来，而症状是「浏览器报证书错误」。",
+	"cli.settings.conflict_proxy":  "--proxy-enabled 与 --proxy-disabled 不能同时给出",
+	"cli.settings.conflict_tls":    "--proxy-tls 与 --no-proxy-tls 不能同时给出",
+	"cli.settings.nothing":         "没有给出任何要修改的字段。用 isc settings 查看当前值。",
+	"cli.settings.updated":         "✅ 设置已更新",
+	"cli.settings.flag_lang":       "界面语言：zh-CN 或 en",
+	"cli.settings.flag_log_level":  "日志级别：debug / info / warn / error",
+	"cli.settings.flag_proxy_on":   "启用反向代理",
+	"cli.settings.flag_proxy_off":  "停用反向代理",
+	"cli.settings.flag_proxy_port": "反向代理监听端口",
+	"cli.settings.flag_proxy_tls":  "反向代理使用 HTTPS",
+	"cli.settings.flag_no_tls":     "反向代理改回明文 HTTP",
+	"cli.settings.flag_acme_email": "ACME 账户邮箱（续期失败时 CA 用它提醒你）",
+	"cli.settings.flag_acme_dir": "ACME 目录地址，留空用生产环境；" +
+		"测试环境签的证书浏览器不信任",
+	"cli.settings.flag_acme_cred": "做 DNS-01 校验用的凭据 ID",
+
+	"cli.settings.render_title":   "内核设置",
+	"cli.settings.render_lang":    "  界面语言      %s",
+	"cli.settings.render_level":   "  日志级别      %s",
+	"cli.settings.render_buffer":  "  事件缓冲      %d",
+	"cli.settings.render_off":     "停用",
+	"cli.settings.render_on":      "启用",
+	"cli.settings.render_proxy":   "  反向代理      %s",
+	"cli.settings.render_port":    "（端口 %d",
+	"cli.settings.render_https":   "，HTTPS",
+	"cli.settings.render_http":    "，明文 HTTP",
+	"cli.settings.render_close":   "）",
+	"cli.settings.render_acme":    "\n  ACME（HTTPS 的前置条件）",
+	"cli.settings.render_unset":   "（未设置）",
+	"cli.settings.render_email":   "    邮箱        %s",
+	"cli.settings.render_prod":    "生产环境",
+	"cli.settings.render_staging": "  ⚠ 测试环境签的证书浏览器不信任",
+	"cli.settings.render_dir":     "    目录        %s",
+	"cli.settings.render_cred":    "    DNS-01 凭据 %s",
+	"cli.settings.render_no_cred": "    ⚠ 未设置凭据时无法签发证书，也就无法启用 HTTPS",
+
+	"cli.root.short": "ISC —— 把没有公网 IPv4 的电脑接入公网",
+	"cli.root.long": "ISC（接入编排器）让一台只有动态 IPv6 的普通电脑可以从公网访问。\n\n" +
+		"它跟踪 IPv6 前缀变化、更新动态域名解析、编排防火墙、签发证书，\n" +
+		"并通过反向代理把本地服务发布到一个可用的公网端口上。\n\n" +
+		"本命令同时是 CLI 客户端与内核守护进程的入口：\n" +
+		"  在终端里执行 isc status 是与运行中的内核通信；\n" +
+		"  执行 isc daemon run 则是把当前进程变成内核本身。",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

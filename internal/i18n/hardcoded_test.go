@@ -49,6 +49,8 @@ import (
 // 推进的。这个列表让"哪些已经做完"一目了然，而不是只能从总数推断。
 var convertedFiles = []string{
 	"internal/cli/credential.go",
+	"internal/cli/records.go",
+	"internal/cli/root.go",
 }
 
 // hardcodedBaseline 是各包当前硬编码中文串的数量。
@@ -56,7 +58,7 @@ var convertedFiles = []string{
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	"internal/cli":            392,
+	"internal/cli":            317,
 	"internal/ddnsgo":         318,
 	"internal/platform":       204,
 	"internal/provider/tier1": 158,

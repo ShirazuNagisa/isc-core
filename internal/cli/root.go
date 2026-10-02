@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -63,21 +64,24 @@ type App struct {
 	log *slog.Logger
 }
 
-// New 构造根命令。
+// New 构造根命令（供测试使用）。
+//
+// 注意：**语言必须在调用它之前定好**。Short / Long / 标志说明都是
+// i18n.T(...) 的结果，而在函数返回时它们就已经被求值了 —— 之后再改
+// 语言不会影响已经构造好的命令。
+//
+// 生产入口是 Execute，它保证了那个顺序。测试里如果不关心语言，
+// 直接调 New 即可。
 func New() *cobra.Command {
-	app := &App{out: os.Stdout, in: os.Stdin}
+	return newWithApp(&App{out: os.Stdout, in: os.Stdin})
+}
 
+// newWithApp 用给定的 App 构造根命令。
+func newWithApp(app *App) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "isc",
-		Short: "ISC —— 把没有公网 IPv4 的电脑接入公网",
-		Long: `ISC（接入编排器）让一台只有动态 IPv6 的普通电脑可以从公网访问。
-
-它跟踪 IPv6 前缀变化、更新动态域名解析、编排防火墙、签发证书，
-并通过反向代理把本地服务发布到一个可用的公网端口上。
-
-本命令同时是 CLI 客户端与内核守护进程的入口：
-  在终端里执行 isc status 是与运行中的内核通信；
-  执行 isc daemon run 则是把当前进程变成内核本身。`,
+		Use:           "isc",
+		Short:         i18n.T("cli.root.short"),
+		Long:          i18n.T("cli.root.long"),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// 子命令自行处理错误输出，这里只负责把错误向上传递。
@@ -123,7 +127,22 @@ func New() *cobra.Command {
 
 // Execute 是 cmd/isc 的入口。
 func Execute() int {
-	root := New()
+	app := &App{out: os.Stdout, in: os.Stdin}
+
+	// **语言必须在构造命令树之前定好。**
+	//
+	// # 为什么要提前到这一步
+	//
+	// Short / Long / 标志说明都是 `i18n.T(...)` 的结果，而它们在 New()
+	// 里就被求值了。更要紧的是 cobra 处理 `--help` 发生在
+	// PersistentPreRunE **之前** —— 因此把语言解析放在 init 里，
+	// 对帮助文本永远来不及。
+	//
+	// 症状是：`--lang en isc credential add --help` 的子命令输出已经是
+	// 英文，而帮助正文仍是中文。帮助正文恰恰是用户最先看到的东西。
+	app.resolveLangEarly(os.Args[1:])
+
+	root := newWithApp(app)
 	if err := root.Execute(); err != nil {
 		// 错误已经由各子命令写成了人类可读形式；
 		// 这里只保证进程退出码非零，让脚本能判断成败。
@@ -165,19 +184,20 @@ func (a *App) init(cmd *cobra.Command) error {
 	if v, err := flags.GetString("lang"); err == nil {
 		a.lang = i18n.Parse(v)
 	}
-	if flags.Changed("lang") {
-		a.langExplicit = true
-	}
-	if !a.langExplicit {
-		// 只有**没显式指定**时才去问内核。
-		//
-		// --lang 是显式覆盖，它不该被内核设置盖掉 —— 那会让
-		// "临时用英文看一眼"变成做不到的事。
-		if l, ok := a.langFromDaemon(); ok {
+	// 语言通常已经由 resolveLangEarly 定好了（它必须跑在构造命令树
+	// 之前，否则帮助文本来不及）。这里只处理一种它覆盖不到的情况：
+	// 调用方直接用了 New() 而没有走 Execute（测试就是这样）。
+	if a.lang == "" {
+		if v, err := flags.GetString("lang"); err == nil && v != "" {
+			a.lang = i18n.Parse(v)
+			a.langExplicit = true
+		} else if l, ok := a.langFromDaemon(); ok {
 			a.lang = l
+		} else {
+			a.lang = i18n.Default
 		}
+		i18n.SetDefault(a.lang)
 	}
-	i18n.SetDefault(a.lang)
 
 	level := slog.LevelInfo
 	if a.verbose {
@@ -207,6 +227,60 @@ func (a *App) connect(ctx context.Context) (*Client, error) {
 		client.SetLang(string(a.lang))
 	}
 	return client, nil
+}
+
+// resolveLangEarly 在**构造命令树之前**确定语言。
+//
+// 优先级与 init 里一致（--lang > 内核设置 > 默认值），区别只是时机：
+// 这里跑在 New() 之前，让帮助文本也能用上正确的语言。
+//
+// 它自己解析 --data-dir，因为"内核设置"要从运行时文件所在的数据目录
+// 里找 —— 而那个目录正是 --data-dir 决定的。
+func (a *App) resolveLangEarly(args []string) {
+	// 数据目录：命令行 > 环境变量 > 平台默认。
+	if v := flagValue(args, "data-dir"); v != "" {
+		_ = os.Setenv(paths.EnvDataDir, v)
+	}
+	p, err := paths.Resolve()
+	if err == nil {
+		a.paths = p
+	}
+
+	// 显式的 --lang 优先。
+	if v := flagValue(args, "lang"); v != "" {
+		a.lang = i18n.Parse(v)
+		a.langExplicit = true
+		i18n.SetDefault(a.lang)
+		return
+	}
+
+	// 否则跟随内核设置；问不到就用默认值。
+	if l, ok := a.langFromDaemon(); ok {
+		a.lang = l
+	} else {
+		a.lang = i18n.Default
+	}
+	i18n.SetDefault(a.lang)
+}
+
+// flagValue 从参数列表里取一个字符串标志的值。
+//
+// 支持 `--name value` 与 `--name=value` 两种写法 —— cobra 两种都认，
+// 而这里必须在 cobra 之前跑，所以只能自己解析。
+//
+// 只做**够用**的解析：不处理组合短标志、不管 `--` 分隔符。这里要的
+// 是两个已知的长标志，而复杂化只会引入新的解析 bug。
+func flagValue(args []string, name string) string {
+	long := "--" + name
+	for i, a := range args {
+		if v, ok := strings.CutPrefix(a, long+"="); ok {
+			return v
+		}
+		if a == long && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // langFromDaemon 向运行中的内核询问当前的语言设置。
