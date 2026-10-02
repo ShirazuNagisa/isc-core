@@ -18,6 +18,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
@@ -63,6 +64,10 @@ var defaultTargets = []target{
 const (
 	modulePath = "github.com/ShirazuNagisa/isc-core"
 	binaryName = "isc"
+
+	// 打包元数据。
+	maintainer = "Sh1razu <ShirazuNagisa@users.noreply.github.com>"
+	homepage   = "https://github.com/ShirazuNagisa/isc-core"
 )
 
 // zipEpoch 是写进 zip 头的固定时间戳。
@@ -157,17 +162,42 @@ func run(outDir, versionArg string, runTests bool) error {
 	for _, t := range defaultTargets {
 		fmt.Printf("==> 构建 %s\n", t.Label)
 
-		binPath, err := buildTarget(root, t, outDir, ldflags)
+		// buildTarget 返回的是**暂存目录**（里面有可执行文件与文档），
+		// 而不是可执行文件本身。早先这里把它叫做 binPath，
+		// 而那个名字在说谎 —— 打包与 .deb 生成都需要这个目录。
+		stage, err := buildTarget(root, t, outDir, ldflags)
 		if err != nil {
 			return err
 		}
 
-		archive, err := pack(outDir, t, binPath, version, exeNameFor(t))
+		archive, err := pack(outDir, t, stage, version, exeNameFor(t))
 		if err != nil {
 			return err
 		}
 		artifacts = append(artifacts, archive)
 		fmt.Printf("    %s\n", filepath.Base(archive))
+
+		// Linux 额外产出一个 .deb。
+		//
+		// 只有 Linux 需要：Windows 与 macOS 的用户不会用 apt。
+		if t.GOOS == "linux" {
+			debPath := filepath.Join(outDir,
+				fmt.Sprintf("%s_%s_%s.deb", binaryName, version, t.GOARCH))
+			if err := BuildDeb(debPath, DebOptions{
+				Package:     binaryName,
+				Version:     version,
+				Arch:        t.GOARCH,
+				Maintainer:  maintainer,
+				Description: "ISC 接入编排器内核：动态域名解析、IPv6 前缀跟踪与反向代理",
+				Homepage:    homepage,
+				BinaryPath:  filepath.Join(stage, exeNameFor(t)),
+				DocDir:      stage,
+			}); err != nil {
+				return fmt.Errorf("生成 %s 失败: %w", filepath.Base(debPath), err)
+			}
+			artifacts = append(artifacts, debPath)
+			fmt.Printf("    %s\n", filepath.Base(debPath))
+		}
 	}
 
 	// 清掉暂存目录。
@@ -206,7 +236,10 @@ func exeNameFor(t target) string {
 	return binaryName
 }
 
-// buildTarget 编译单个目标，返回可执行文件路径。
+// buildTarget 编译单个目标，返回**暂存目录**。
+//
+// 目录里除了可执行文件还有随包分发的文档（许可证、说明），
+// 因此打包与 .deb 生成都以目录为单位，而不是单个文件。
 func buildTarget(root string, t target, outDir, ldflags string) (string, error) {
 	exeName := exeNameFor(t)
 
@@ -459,6 +492,25 @@ func writeChecksums(path string, files []string) error {
 		}
 	}
 	return f.Sync()
+}
+
+// md5File 算一个文件的 MD5。
+//
+// 用 MD5 而不是 SHA-256：deb 的 md5sums 文件是 dpkg 的既定格式，
+// 而它只用 MD5。这里**不是**在用 MD5 做安全保证 —— 包的真实性由
+// SHA256SUMS 与用户的核对来保证。
+func md5File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close() //nolint:errcheck // 只读文件
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func sha256File(path string) (string, error) {

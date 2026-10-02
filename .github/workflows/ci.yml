@@ -159,10 +159,10 @@ jobs:
             }
           done
 
-          # 校验和必须覆盖全部产物。
+          # 校验和必须覆盖全部产物（7 个压缩包 + 2 个 .deb）。
           lines=$(wc -l < dist/SHA256SUMS)
-          if [ "$lines" -ne 7 ]; then
-            echo "::error::SHA256SUMS 应当有 7 行，实际 $lines 行"
+          if [ "$lines" -ne 9 ]; then
+            echo "::error::SHA256SUMS 应当有 9 行，实际 $lines 行"
             exit 1
           fi
           (cd dist && sha256sum -c SHA256SUMS)
@@ -181,6 +181,45 @@ jobs:
           # 可执行位必须保留 —— tar.gz 在 Unix 上是标准，
           # 而丢了这个位会让用户解压后无法直接运行。
           test -x /tmp/x/isc || { echo "::error::isc 没有可执行位"; exit 1; }
+
+      - name: 核对 .deb
+        run: |
+          set -euo pipefail
+
+          # CI 跑在 Ubuntu 上，因此可以用真正的 dpkg 来验证 ——
+          # 这是比单元测试更强的证据：单元测试用的是我们自己写的
+          # ar 解析器，而这里是 Debian 自己的工具。
+          deb=dist/isc-0.0.0-ci-linux-amd64.deb
+          test -f "$deb" || { echo "::error::缺少 .deb"; exit 1; }
+
+          echo "--- dpkg-deb --info ---"
+          dpkg-deb --info "$deb"
+
+          echo "--- dpkg-deb --contents ---"
+          dpkg-deb --contents "$deb"
+
+          # 可执行文件必须在，且必须带执行位。
+          dpkg-deb --contents "$deb" | grep -q '^-rwxr-xr-x .* \./usr/bin/isc$' || {
+            echo "::error::/usr/bin/isc 缺失或没有执行位"
+            exit 1
+          }
+
+          # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
+          if dpkg-deb --contents "$deb" | grep -q 'usr/share/doc/isc/isc$'; then
+            echo "::error::可执行文件被复制进了文档目录，包体积会翻倍"
+            exit 1
+          fi
+
+          # GPLv3 要求许可证随包分发。
+          dpkg-deb --contents "$deb" | grep -q 'usr/share/doc/isc/LICENSE' || {
+            echo "::error::包里缺少 LICENSE"
+            exit 1
+          }
+
+          # 真正安装一遍再卸载 —— 这是端到端的证据。
+          sudo dpkg -i "$deb"
+          isc version
+          sudo dpkg -r isc
 
       - name: 核对版本注入
         run: |

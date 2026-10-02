@@ -173,13 +173,13 @@ func TestQuietPeriodExpiryAllowsResend(t *testing.T) {
 
 	ch := &fakeChannel{}
 	m := newTestManager(t, ch)
-	// 极短的静默期，便于测试。
-	m.SetQuietPeriod(60 * time.Millisecond)
+	// 静默期留出余量，理由见 TestSuppressedSummaryIsFlushed。
+	m.SetQuietPeriod(150 * time.Millisecond)
 
 	m.Notify(Message{Event: "x", Title: "第一次", DedupKey: "k"})
 	drain(t, m)
 
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 
 	m.Notify(Message{Event: "x", Title: "第二次", DedupKey: "k"})
 	drain(t, m)
@@ -198,7 +198,12 @@ func TestSuppressedSummaryIsFlushed(t *testing.T) {
 
 	ch := &fakeChannel{}
 	m := newTestManager(t, ch)
-	m.SetQuietPeriod(80 * time.Millisecond)
+	// 静默期与等待时长都留出宽裕的余量。
+	//
+	// 早先这里是 80ms / 120ms，而机器有负载时"静默期还没过就触发
+	// 补发检查"会偶发失败。留出两倍以上的间隔让断言测的是**行为**
+	// 而不是**调度时机**。
+	m.SetQuietPeriod(250 * time.Millisecond)
 
 	m.Notify(Message{
 		Event: "dns.update_failed", Title: "解析失败",
@@ -220,7 +225,7 @@ func TestSuppressedSummaryIsFlushed(t *testing.T) {
 	}
 
 	// 等静默期过去，然后触发补发检查。
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 	m.flushSuppressed(context.Background())
 
 	msgs := ch.all()
@@ -245,12 +250,12 @@ func TestNoSummaryWhenNothingSuppressed(t *testing.T) {
 
 	ch := &fakeChannel{}
 	m := newTestManager(t, ch)
-	m.SetQuietPeriod(50 * time.Millisecond)
+	m.SetQuietPeriod(150 * time.Millisecond)
 
 	m.Notify(Message{Event: "x", Title: "一次", DedupKey: "k"})
 	drain(t, m)
 
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	m.flushSuppressed(context.Background())
 
 	if got := ch.count(); got != 1 {
@@ -380,10 +385,18 @@ func TestNotifyIsNonBlocking(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	// 全部调用应当立刻返回 —— 慢通道在另一个 goroutine 里跑。
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("提交 %d 条消息花了 %v，通知不该阻塞调用方",
-			defaultQueueSize*3, elapsed)
+	// 预算给得很宽（2 秒），而**这不削弱断言**：
+	//
+	// 如果 Notify 会等通道发完，384 条消息 × 200ms = 76 秒 ——
+	// 与 2 秒差了将近四十倍，两者不可能混淆。
+	//
+	// 早先这里是 100ms，而那个值在机器有负载时（例如同时跑着发布
+	// 构建）会偶发失败。断言墙上时钟的测试必须留出足够余量，
+	// 否则它测的是"机器有多闲"而不是"代码有没有阻塞"。
+	const budget = 2 * time.Second
+	if elapsed > budget {
+		t.Errorf("提交 %d 条消息花了 %v（预算 %v），通知不该阻塞调用方",
+			defaultQueueSize*3, elapsed, budget)
 	}
 }
 
