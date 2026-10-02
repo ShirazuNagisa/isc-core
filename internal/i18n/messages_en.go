@@ -158,6 +158,9 @@ var messagesEn = map[string]string{
 	// --- certificates ---
 	"cert.no_tls_routes": "No HTTPS routes are configured yet, so no certificate is needed",
 
+	// --- notifications ---
+	"notify.cert_hint": "Run 'isc cert list' for details; DNS-01 failures usually mean a credential permission or domain ownership problem.",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

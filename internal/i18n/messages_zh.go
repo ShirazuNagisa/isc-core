@@ -159,6 +159,9 @@ var messagesZh = map[string]string{
 	// --- 证书 ---
 	"cert.no_tls_routes": "还没有配置启用 HTTPS 的路由，无处可用证书",
 
+	// --- 通知 ---
+	"notify.cert_hint": "请用 isc cert list 查看详情；DNS-01 校验失败通常与凭据权限或域名归属有关。",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

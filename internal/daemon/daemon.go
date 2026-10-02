@@ -30,6 +30,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	"github.com/ShirazuNagisa/isc-core/internal/logx"
+	"github.com/ShirazuNagisa/isc-core/internal/notify"
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
@@ -122,6 +123,7 @@ type Daemon struct {
 	verifyMgr    *verify.Manager
 	proxyMgr     *proxy.Manager
 
+	notifier     *notify.Manager
 	certStore    *acme.Store
 	certMgr      *acme.Manager
 	certProvider *acme.StoreProvider
@@ -277,6 +279,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 决定的动作。默认开着会让"我只是想用动态解析"的用户莫名其妙地
 	// 多出一个对外的监听端口。
 	d.proxyMgr = proxy.NewManager(st.ProxyRoutes(), d.log)
+
+	// 通知中心。
+	//
+	// 日志通道**始终登记**：用户还没配任何外部通道时，通知至少会
+	// 出现在日志与事件流里，而不是无声无息地消失。
+	d.notifier = notify.NewManager(d.log)
+	d.notifier.AddChannel(notify.NewLogChannel(func(msg notify.Message) {
+		if d.bus != nil {
+			d.bus.Publish("notify.sent", map[string]any{
+				"event": msg.Event, "title": msg.Title,
+				"severity": string(msg.Severity),
+			})
+		}
+	}))
 
 	// 证书存储与管理器。
 	//
@@ -654,6 +670,9 @@ func (d *Daemon) startBackground(parent context.Context) {
 	}()
 
 	go d.watchInterfaces(ctx)
+
+	// 通知中心：订阅事件总线并分发。
+	d.startNotifier(ctx)
 
 	// 证书的定期检查与续期。
 	//
