@@ -4,10 +4,25 @@ package i18n
 //
 // 必须与 consoleMessagesZh 的 key 集合完全一致 —— 由目录完整性测试强制保证。
 var consoleMessagesEn = map[string]string{
-	// page frame
-	"web.title":    "ISC console",
-	"web.loading":  "Loading…",
-	"web.lang_tag": "en",
+	// --- header and tab bar ---
+	"web.title":           "ISC verification console",
+	"web.lang_tag":        "en",
+	"web.subtitle":        "verification console",
+	"web.conn.connecting": "Connecting…",
+	"web.tab.overview":    "Overview",
+	"web.tab.ip":          "IP & prefixes",
+	"web.tab.credentials": "Credentials",
+	"web.tab.tasks":       "Dynamic DNS",
+	"web.tab.records":     "DNS records",
+	"web.tab.proxy":       "Reverse proxy",
+	"web.tab.certs":       "Certificates",
+	"web.tab.notify":      "Notifications",
+	"web.tab.service":     "System service",
+	"web.tab.events":      "Event stream",
+	"web.tab.raw":         "Raw API",
+
+	// --- overview ---
+	"web.ov.title": "Kernel status",
 }
 
 // ConsoleMessages 返回**控制台前端**在指定语言下的全部消息。

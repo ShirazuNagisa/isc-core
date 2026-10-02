@@ -80,13 +80,23 @@ func TestConsoleI18nFollowsKernelLanguage(t *testing.T) {
 
 	srv := consoleTestServer(t)
 
+	// 期望值从目录本身取，而不是写死字符串。
+	//
+	// 写死的话，每次改一句文案都要回来改测试 —— 而那种测试守不住任何东西：
+	// 它只是把文案抄了一遍。
+	zhTitle := i18n.ConsoleMessages(i18n.ZhCN)["web.title"]
+	enTitle := i18n.ConsoleMessages(i18n.En)["web.title"]
+	if zhTitle == enTitle || zhTitle == "" {
+		t.Fatalf("两种语言的 web.title 不该相同或为空：zh=%q en=%q", zhTitle, enTitle)
+	}
+
 	for _, tc := range []struct {
 		lang   i18n.Lang
 		want   string
 		absent string
 	}{
-		{i18n.ZhCN, "ISC 控制台", "ISC console"},
-		{i18n.En, "ISC console", "ISC 控制台"},
+		{i18n.ZhCN, zhTitle, enTitle},
+		{i18n.En, enTitle, zhTitle},
 	} {
 		i18n.SetDefault(tc.lang)
 

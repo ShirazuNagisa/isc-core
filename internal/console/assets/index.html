@@ -12,7 +12,7 @@
 -->
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; form-action 'none'; base-uri 'none'">
-<title>ISC 验证控制台</title>
+<title data-i18n="web.title"></title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,35 +20,35 @@
 <header class="topbar">
   <div class="brand">
     <span class="logo">ISC</span>
-    <span class="subtitle">验证控制台</span>
+    <span class="subtitle" data-i18n="web.subtitle"></span>
   </div>
   <div class="meta" id="topMeta">
     <span class="pill" id="pillVersion">—</span>
-    <span class="pill" id="pillConn">连接中…</span>
+    <span class="pill" id="pillConn" data-i18n="web.conn.connecting"></span>
   </div>
 </header>
 
 <div id="bootError" class="boot-error" hidden></div>
 
 <nav class="tabs" id="tabs">
-  <button data-tab="overview" class="active">概览</button>
-  <button data-tab="ip">IP 与前缀</button>
-  <button data-tab="credentials">凭据</button>
-  <button data-tab="tasks">动态解析</button>
-  <button data-tab="records">DNS 记录</button>
-  <button data-tab="proxy">反向代理</button>
-        <button data-tab="certs">证书</button>
-        <button data-tab="notify">通知</button>
-        <button data-tab="service">系统服务</button>
-        <button data-tab="events">事件流</button>
-  <button data-tab="raw">原始接口</button>
+  <button data-tab="overview" class="active" data-i18n="web.tab.overview"></button>
+  <button data-tab="ip" data-i18n="web.tab.ip"></button>
+  <button data-tab="credentials" data-i18n="web.tab.credentials"></button>
+  <button data-tab="tasks" data-i18n="web.tab.tasks"></button>
+  <button data-tab="records" data-i18n="web.tab.records"></button>
+  <button data-tab="proxy" data-i18n="web.tab.proxy"></button>
+        <button data-tab="certs" data-i18n="web.tab.certs"></button>
+        <button data-tab="notify" data-i18n="web.tab.notify"></button>
+        <button data-tab="service" data-i18n="web.tab.service"></button>
+        <button data-tab="events" data-i18n="web.tab.events"></button>
+  <button data-tab="raw" data-i18n="web.tab.raw"></button>
 </nav>
 
 <main>
 
 <!-- ==================== 概览 ==================== -->
 <section id="tab-overview" class="tab-panel active">
-  <h2>内核状态</h2>
+  <h2 data-i18n="web.ov.title"></h2>
   <div class="grid" id="overviewCards"></div>
 
   <h2>平台能力</h2>

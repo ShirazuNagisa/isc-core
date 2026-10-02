@@ -17,9 +17,29 @@ package i18n
 //
 // 前提写在这里：**这些值只来自本文件，绝不可来自用户输入**。
 // 一旦有用户可控的内容混进来，innerHTML 就成了 XSS 入口。
+// # 键名怎么取
+//
+// `web.<区块>.<名字>`。区块对应 index.html 里的 `<section id="tab-…">`，
+// 因此"这句话该去哪儿找"有唯一答案。带内联标签的句子用 `_html` 后缀标记，
+// 提醒改它的人别把它塞进 data-i18n（那会显示成字面量）。
 var consoleMessagesZh = map[string]string{
-	// 页面骨架
-	"web.title":    "ISC 控制台",
-	"web.loading":  "正在加载…",
-	"web.lang_tag": "zh-CN",
+	// --- 页头与标签栏 ---
+	"web.title":           "ISC 验证控制台",
+	"web.lang_tag":        "zh-CN",
+	"web.subtitle":        "验证控制台",
+	"web.conn.connecting": "连接中…",
+	"web.tab.overview":    "概览",
+	"web.tab.ip":          "IP 与前缀",
+	"web.tab.credentials": "凭据",
+	"web.tab.tasks":       "动态解析",
+	"web.tab.records":     "DNS 记录",
+	"web.tab.proxy":       "反向代理",
+	"web.tab.certs":       "证书",
+	"web.tab.notify":      "通知",
+	"web.tab.service":     "系统服务",
+	"web.tab.events":      "事件流",
+	"web.tab.raw":         "原始接口",
+
+	// --- 概览 ---
+	"web.ov.title": "内核状态",
 }

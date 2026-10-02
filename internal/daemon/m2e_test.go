@@ -64,7 +64,13 @@ func TestConsoleIsServedOverLoopbackTCP(t *testing.T) {
 	resp.Body.Close() //nolint:errcheck // 测试清理
 
 	html := string(body)
-	if !strings.Contains(html, "<title>") {
+	// 查 `<title` 而不是 `<title>`：后者是**语法细节**，
+	// 而这条断言要守的是"它是个 HTML 页面"。
+	//
+	// 实测过一次：给 title 加上 data-i18n 属性之后，`<title>` 这个子串
+	// 就不存在了 —— 而页面完全正常。断言写得比意图更具体时，
+	// 它就会在无关的改动上失败，久而久之被人当成噪声关掉。
+	if !strings.Contains(html, "<title") {
 		t.Error("首页不像是一个 HTML 页面")
 	}
 	// 必须引用本地的样式与脚本 —— 引用外部 CDN 会把本机管理界面的
