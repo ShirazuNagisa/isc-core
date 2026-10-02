@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,7 @@ func (s *darwinServiceManager) Describe() ImplState {
 	return ImplState{
 		Available: true,
 		Backend:   "launchd",
-		Note:      filepath.Join(darwinLaunchDir, darwinPlistName) + "；安装与启停需要 root",
+		Note:      filepath.Join(darwinLaunchDir, darwinPlistName) + i18n.T("platform.unit_note"),
 	}
 }
 
@@ -67,7 +68,7 @@ func (s *darwinServiceManager) Install(ctx context.Context, cfg ServiceConfig) e
 
 	// 0644：plist 里不含机密，而 launchd 以 root 读取它。
 	if err := os.WriteFile(path, []byte(RenderLaunchdPlist(cfg)), 0o644); err != nil {
-		return fmt.Errorf("platform: 写入 plist 失败 %s：%w", path, err)
+		return fmt.Errorf(i18n.T("platform.unit_write_failed_darwin"), path, err)
 	}
 
 	// -w 会同时把服务登记为开机自启。
@@ -98,7 +99,7 @@ func (s *darwinServiceManager) Uninstall(ctx context.Context) error {
 	_ = launchctl(ctx, "unload", "-w", path)
 
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("platform: 删除 plist 失败 %s：%w", path, err)
+		return fmt.Errorf(i18n.T("platform.unit_delete_failed_darwin"), path, err)
 	}
 	return nil
 }
@@ -146,9 +147,7 @@ func requireDarwinRoot() error {
 	if os.Geteuid() == 0 {
 		return nil
 	}
-	return errors.New(
-		"platform: 安装与管理系统服务需要 root 权限。\n" +
-			"请用 sudo 重新运行这条命令")
+	return errors.New(i18n.T("platform.unit_need_root"))
 }
 
 func launchctl(ctx context.Context, args ...string) error {
@@ -158,7 +157,7 @@ func launchctl(ctx context.Context, args ...string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("platform: launchctl %s 失败：%s",
+		return fmt.Errorf(i18n.T("platform.launchctl_failed"),
 			strings.Join(args, " "), msg)
 	}
 	return nil

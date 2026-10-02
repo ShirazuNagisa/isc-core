@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +42,7 @@ func (s *linuxServiceManager) Describe() ImplState {
 	return ImplState{
 		Available: true,
 		Backend:   "systemd",
-		Note:      "/etc/systemd/system/" + linuxUnitFileName + "；安装与启停需要 root",
+		Note:      "/etc/systemd/system/" + linuxUnitFileName + i18n.T("platform.unit_note"),
 	}
 }
 
@@ -60,7 +61,7 @@ func (s *linuxServiceManager) Install(ctx context.Context, cfg ServiceConfig) er
 	// 0644 是单元文件的标准权限 —— systemd 会以 root 读取它，
 	// 而它不含任何机密。
 	if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
-		return fmt.Errorf("platform: 写入 unit 文件失败 %s：%w", path, err)
+		return fmt.Errorf(i18n.T("platform.unit_write_failed"), path, err)
 	}
 
 	// daemon-reload 是必须的：不重新加载的话 systemd 仍然用缓存的
@@ -90,7 +91,7 @@ func (s *linuxServiceManager) Uninstall(ctx context.Context) error {
 
 	path := filepath.Join(linuxSystemdDir, linuxUnitFileName)
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("platform: 删除 unit 文件失败 %s：%w", path, err)
+		return fmt.Errorf(i18n.T("platform.unit_delete_failed"), path, err)
 	}
 
 	_ = systemctl(ctx, "daemon-reload")
@@ -135,9 +136,7 @@ func requireRoot() error {
 	if os.Geteuid() == 0 {
 		return nil
 	}
-	return errors.New(
-		"platform: 安装与管理系统服务需要 root 权限。\n" +
-			"请用 sudo 重新运行这条命令")
+	return errors.New(i18n.T("platform.unit_need_root"))
 }
 
 func systemctl(ctx context.Context, args ...string) error {
@@ -147,7 +146,7 @@ func systemctl(ctx context.Context, args ...string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("platform: systemctl %s 失败：%s",
+		return fmt.Errorf(i18n.T("platform.systemctl_failed"),
 			strings.Join(args, " "), msg)
 	}
 	return nil

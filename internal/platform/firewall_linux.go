@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os/exec"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func (f *nftablesFirewall) Describe() ImplState {
 	return ImplState{
 		Available: true,
 		Backend:   "nftables",
-		Note:      "使用独立的 inet isc 表；需要 root 或 CAP_NET_ADMIN 权限",
+		Note:      i18n.T("platform.nft_note"),
 	}
 }
 
@@ -77,7 +78,7 @@ func (f *nftablesFirewall) Inspect(ctx context.Context) ([]Rule, error) {
 		if isNftTableMissing(out) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("platform: 读取 nftables 规则失败: %w\n%s",
+		return nil, fmt.Errorf(i18n.T("platform.nft_read_failed"),
 			err, strings.TrimSpace(string(out)))
 	}
 
@@ -85,7 +86,7 @@ func (f *nftablesFirewall) Inspect(ctx context.Context) ([]Rule, error) {
 	if err != nil {
 		// 落到这里说明 nft 的输出不是我们认识的 JSON ——
 		// 可能是版本差异。把原始输出的开头带上，便于定位。
-		return nil, fmt.Errorf("%w\n输出开头: %s", err, head(string(out), 200))
+		return nil, fmt.Errorf(i18n.T("platform.nft_output_head"), err, head(string(out), 200))
 	}
 
 	rules := make([]Rule, 0, len(parsed))
@@ -95,7 +96,7 @@ func (f *nftablesFirewall) Inspect(ctx context.Context) ([]Rule, error) {
 			Protocol:    p.Proto,
 			Port:        p.Port,
 			Source:      p.Source,
-			Description: "由 ISC 管理 —— 可在 ISC 中一键撤销",
+			Description: i18n.T("platform.pf_rule_desc"),
 		})
 	}
 	return rules, nil
@@ -132,7 +133,7 @@ func (f *nftablesFirewall) Plan(ctx context.Context, desired []Rule) (Change, er
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return Change{}, fmt.Errorf("platform: 序列化变更失败: %w", err)
+		return Change{}, fmt.Errorf(i18n.T("platform.pf_marshal"), err)
 	}
 
 	added := diffRuleNames(desired, current)
@@ -141,13 +142,13 @@ func (f *nftablesFirewall) Plan(ctx context.Context, desired []Rule) (Change, er
 	var summary string
 	switch {
 	case len(added) == 0 && len(removed) == 0:
-		summary = "无需改动"
+		summary = i18n.T("platform.pf_nochange")
 	case len(removed) == 0:
-		summary = fmt.Sprintf("新增 %d 条入站规则", len(added))
+		summary = fmt.Sprintf(i18n.T("platform.pf_add"), len(added))
 	case len(added) == 0:
-		summary = fmt.Sprintf("移除 %d 条入站规则", len(removed))
+		summary = fmt.Sprintf(i18n.T("platform.pf_remove"), len(removed))
 	default:
-		summary = fmt.Sprintf("新增 %d 条、移除 %d 条入站规则",
+		summary = fmt.Sprintf(i18n.T("platform.pf_addremove"),
 			len(added), len(removed))
 	}
 
@@ -173,7 +174,7 @@ func (f *nftablesFirewall) Plan(ctx context.Context, desired []Rule) (Change, er
 func (f *nftablesFirewall) Apply(ctx context.Context, ch Change) error {
 	var payload nftPayload
 	if err := json.Unmarshal(ch.Payload, &payload); err != nil {
-		return fmt.Errorf("platform: 变更载荷无法解析: %w", err)
+		return fmt.Errorf(i18n.T("platform.pf_unmarshal"), err)
 	}
 	if len(payload.Commands) == 0 {
 		return nil // 无需改动
@@ -195,7 +196,7 @@ func (f *nftablesFirewall) Apply(ctx context.Context, ch Change) error {
 func (f *nftablesFirewall) Rollback(ctx context.Context, ch Change) error {
 	var payload nftPayload
 	if err := json.Unmarshal(ch.Payload, &payload); err != nil {
-		return fmt.Errorf("platform: 变更载荷无法解析: %w", err)
+		return fmt.Errorf(i18n.T("platform.pf_unmarshal"), err)
 	}
 
 	// 目标状态：变更前的那些规则名。
@@ -235,7 +236,7 @@ func (f *nftablesFirewall) applyCommands(ctx context.Context, cmds []string) err
 
 	out, err := f.runStdin(ctx, script, "-f", "-")
 	if err != nil {
-		return fmt.Errorf("platform: 应用 nftables 变更失败: %w\n%s",
+		return fmt.Errorf(i18n.T("platform.nft_apply_failed"),
 			err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -247,7 +248,7 @@ func (f *nftablesFirewall) inspectParsed(ctx context.Context) ([]nftRule, error)
 		if isNftTableMissing(out) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("platform: 读取 nftables 规则失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("platform.nft_read_failed2"), err)
 	}
 	return ParseNftRuleset(out)
 }

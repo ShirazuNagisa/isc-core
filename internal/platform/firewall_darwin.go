@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"os/exec"
 	"strings"
@@ -66,7 +67,7 @@ func (f *pfFirewall) Describe() ImplState {
 		Available: true,
 		Backend:   "pf",
 		Note: "/etc/pf.anchors/" + pfAnchorName +
-			"；需要 root 权限（pfctl 与写 /etc 都是）",
+			i18n.T("platform.pf_note"),
 	}
 }
 
@@ -78,7 +79,7 @@ func (f *pfFirewall) Inspect(_ context.Context) ([]Rule, error) {
 			// anchor 文件还不存在 = 还没配过任何规则。不是错误。
 			return nil, nil
 		}
-		return nil, fmt.Errorf("platform: 读取 %s 失败: %w", f.anchorPath, err)
+		return nil, fmt.Errorf(i18n.T("platform.pf_read_failed"), f.anchorPath, err)
 	}
 
 	// 只解析出规则名 —— 完整的 pf 语法相当复杂，而我们只需要知道
@@ -95,7 +96,7 @@ func (f *pfFirewall) Inspect(_ context.Context) ([]Rule, error) {
 			Name:        name,
 			Protocol:    Protocol(proto),
 			Port:        NewPort(port),
-			Description: "由 ISC 管理 —— 可在 ISC 中一键撤销",
+			Description: i18n.T("platform.pf_rule_desc"),
 		})
 	}
 	return out, nil
@@ -131,8 +132,8 @@ func (f *pfFirewall) Plan(ctx context.Context, desired []Rule) (Change, error) {
 				Platform:   "darwin",
 				Backend:    "pf",
 				Kind:       "firewall.rules",
-				Summary:    "无需改动",
-				Diff:       "（无变化）",
+				Summary:    i18n.T("platform.pf_nochange"),
+				Diff:       i18n.T("platform.fw_nochange"),
 				Reversible: true,
 			}, nil
 		}
@@ -144,7 +145,7 @@ func (f *pfFirewall) Plan(ctx context.Context, desired []Rule) (Change, error) {
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return Change{}, fmt.Errorf("platform: 序列化变更失败: %w", err)
+		return Change{}, fmt.Errorf(i18n.T("platform.pf_marshal"), err)
 	}
 
 	added := diffRuleNames(desired, current)
@@ -153,13 +154,13 @@ func (f *pfFirewall) Plan(ctx context.Context, desired []Rule) (Change, error) {
 	var summary string
 	switch {
 	case len(added) == 0 && len(removed) == 0:
-		summary = "无需改动"
+		summary = i18n.T("platform.pf_nochange")
 	case len(removed) == 0:
-		summary = fmt.Sprintf("新增 %d 条入站规则", len(added))
+		summary = fmt.Sprintf(i18n.T("platform.pf_add"), len(added))
 	case len(added) == 0:
-		summary = fmt.Sprintf("移除 %d 条入站规则", len(removed))
+		summary = fmt.Sprintf(i18n.T("platform.pf_remove"), len(removed))
 	default:
-		summary = fmt.Sprintf("新增 %d 条、移除 %d 条入站规则",
+		summary = fmt.Sprintf(i18n.T("platform.pf_addremove"),
 			len(added), len(removed))
 	}
 
@@ -180,7 +181,7 @@ func (f *pfFirewall) Plan(ctx context.Context, desired []Rule) (Change, error) {
 func (f *pfFirewall) Apply(ctx context.Context, ch Change) error {
 	var payload pfPayload
 	if err := json.Unmarshal(ch.Payload, &payload); err != nil {
-		return fmt.Errorf("platform: 变更载荷无法解析: %w", err)
+		return fmt.Errorf(i18n.T("platform.pf_unmarshal"), err)
 	}
 	return f.writeAndReload(ctx, payload.Content)
 }
@@ -189,7 +190,7 @@ func (f *pfFirewall) Apply(ctx context.Context, ch Change) error {
 func (f *pfFirewall) Rollback(ctx context.Context, ch Change) error {
 	var payload pfPayload
 	if err := json.Unmarshal(ch.Payload, &payload); err != nil {
-		return fmt.Errorf("platform: 变更载荷无法解析: %w", err)
+		return fmt.Errorf(i18n.T("platform.pf_unmarshal"), err)
 	}
 
 	// 由名字还原出规则。
@@ -230,8 +231,7 @@ func (f *pfFirewall) writeAndReload(ctx context.Context, content string) error {
 	// 它必须对所有用户可读：pfctl 以 root 读它，而让用户能查看
 	// 自己的防火墙规则是有价值的（0644）。
 	if err := os.WriteFile(f.anchorPath, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("platform: 写入 %s 失败: %w"+
-			"（需要 root 权限）", f.anchorPath, err)
+		return fmt.Errorf(i18n.T("platform.pf_write_failed"), f.anchorPath, err)
 	}
 
 	// 校验语法再启用。
@@ -240,7 +240,7 @@ func (f *pfFirewall) writeAndReload(ctx context.Context, content string) error {
 	// **把已经在生效的规则全部清掉**。先 -n（只解析不加载）能把
 	// 问题挡在造成影响之前。
 	if out, err := f.run(ctx, "-n", "-f", f.confPath); err != nil {
-		return fmt.Errorf("platform: %s 语法检查失败（未改动生效中的规则）: %w\n%s",
+		return fmt.Errorf(i18n.T("platform.pf_syntax_failed"),
 			f.confPath, err, strings.TrimSpace(string(out)))
 	}
 
@@ -249,11 +249,11 @@ func (f *pfFirewall) writeAndReload(ctx context.Context, content string) error {
 	// 两个都要：只 -f 在 pf 未启用时不会让它开始工作，而只 -E 不会
 	// 读到新写的 anchor。
 	if out, err := f.run(ctx, "-f", f.confPath); err != nil {
-		return fmt.Errorf("platform: 重新加载 %s 失败: %w\n%s",
+		return fmt.Errorf(i18n.T("platform.pf_reload_failed"),
 			f.confPath, err, strings.TrimSpace(string(out)))
 	}
 	if out, err := f.run(ctx, "-E"); err != nil {
-		return fmt.Errorf("platform: 启用 pf 失败: %w\n%s",
+		return fmt.Errorf(i18n.T("platform.pf_enable_failed"),
 			err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -263,7 +263,7 @@ func (f *pfFirewall) writeAndReload(ctx context.Context, content string) error {
 func (f *pfFirewall) ensureAnchorDeclared() error {
 	byt, err := os.ReadFile(f.confPath)
 	if err != nil {
-		return fmt.Errorf("platform: 读取 %s 失败: %w", f.confPath, err)
+		return fmt.Errorf(i18n.T("platform.pf_read_failed"), f.confPath, err)
 	}
 
 	updated := AppendPfAnchor(string(byt))
@@ -280,14 +280,12 @@ func (f *pfFirewall) ensureAnchorDeclared() error {
 	// 备份失败**不阻断**：用户在只有只读文件系统的环境里仍然
 	// 应当能继续，而那时他会看到我们打印的备份失败提示。
 	if err := os.WriteFile(f.confPath+pfConfBackupSuffix, byt, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr,
-			"警告：未能备份 %s（%v）。原始内容仍可通过删除 "+
-				"anchor 行恢复。\n", f.confPath, err)
+		fmt.Fprintf(os.Stderr, i18n.T("platform.pf_backup_failed"),
+			f.confPath, err, pfAnchorName)
 	}
 
 	if err := os.WriteFile(f.confPath, []byte(updated), 0o644); err != nil {
-		return fmt.Errorf("platform: 写入 %s 失败: %w"+
-			"（需要 root 权限）", f.confPath, err)
+		return fmt.Errorf(i18n.T("platform.pf_write_failed"), f.confPath, err)
 	}
 	return nil
 }

@@ -877,6 +877,74 @@ var messagesZh = map[string]string{
 		"该方式在三平台行为一致，代价是地址变化的感知有最多一个轮询周期的延迟",
 	"platform.ipmon_enum": "platform: 枚举网卡失败: %w",
 
+	// --- macOS 防火墙（pf）---
+	"platform.pf_note":          "；需要 root 权限（pfctl 与写 /etc 都是）",
+	"platform.pf_rule_desc":     "由 ISC 管理 —— 可在 ISC 中一键撤销",
+	"platform.pf_read_failed":   "platform: 读取 %s 失败: %w",
+	"platform.pf_marshal":       "platform: 序列化变更失败: %w",
+	"platform.pf_nochange":      "无需改动",
+	"platform.pf_add":           "新增 %d 条入站规则",
+	"platform.pf_remove":        "移除 %d 条入站规则",
+	"platform.pf_addremove":     "新增 %d 条、移除 %d 条入站规则",
+	"platform.pf_unmarshal":     "platform: 变更载荷无法解析: %w",
+	"platform.pf_write_failed":  "platform: 写入 %s 失败: %w（需要 root 权限）",
+	"platform.pf_syntax_failed": "platform: %s 语法检查失败（未改动生效中的规则）: %w\n%s",
+	"platform.pf_reload_failed": "platform: 重新加载 %s 失败: %w\n%s",
+	"platform.pf_enable_failed": "platform: 启用 pf 失败: %w\n%s",
+	"platform.pf_backup_failed": "警告：未能备份 %s（%v）。原始内容仍可通过删除 %q " +
+		"anchor 行恢复。\n",
+
+	// --- Linux 防火墙（nftables）---
+	"platform.nft_note":         "使用独立的 inet isc 表；需要 root 或 CAP_NET_ADMIN 权限",
+	"platform.nft_read_failed2": "platform: 读取 nftables 规则失败: %w",
+	"platform.nft_read_failed":  "platform: 读取 nftables 规则失败: %w\n%s",
+	"platform.nft_output_head":  "%w\n输出开头: %s",
+	"platform.nft_marshal":      "platform: 序列化变更失败: %w",
+	"platform.nft_nochange":     "无需改动",
+	"platform.nft_add":          "新增 %d 条入站规则",
+	"platform.nft_remove":       "移除 %d 条入站规则",
+	"platform.nft_addremove":    "新增 %d 条、移除 %d 条入站规则",
+	"platform.nft_unmarshal":    "platform: 变更载荷无法解析: %w",
+	"platform.nft_apply_failed": "platform: 应用 nftables 变更失败: %w\n%s",
+
+	// --- 类 Unix 密钥库 ---
+	"platform.nokeychain":        "未找到 security 命令",
+	"platform.nosecretservice":   "当前环境没有 Secret Service 会话（通常是无人登录的服务器或容器）",
+	"platform.nosecrettool":      "未找到 secret-tool（libsecret 未安装）",
+	"platform.nokeystore":        "当前平台没有受支持的系统密钥库",
+	"platform.keystore_note":     "主密钥由系统密钥库保护",
+	"platform.keystore_fallback": "系统密钥库不可用，已回退到文件存储",
+	"platform.keystore_write":    "platform: 写入系统密钥库失败（%s）: %w: %s",
+	"platform.keystore_read":     "platform: 读取系统密钥库失败（%s）: %w: %s",
+	"platform.keystore_badb64":   "platform: 系统密钥库中的值不是合法的 base64（可能被其它程序改写）: %w",
+
+	// --- Linux / macOS 服务 ---
+	"platform.unit_note":          "；安装与启停需要 root",
+	"platform.unit_write_failed":  "platform: 写入 unit 文件失败 %s：%w",
+	"platform.unit_delete_failed": "platform: 删除 unit 文件失败 %s：%w",
+	"platform.unit_need_root": "platform: 安装与管理系统服务需要 root 权限。\n" +
+		"请用 sudo 重新运行这条命令",
+	"platform.systemctl_failed":          "platform: systemctl %s 失败：%s",
+	"platform.unit_write_failed_darwin":  "platform: 写入 plist 失败 %s：%w",
+	"platform.unit_delete_failed_darwin": "platform: 删除 plist 失败 %s：%w",
+	"platform.launchctl_failed":          "platform: launchctl %s 失败：%s",
+
+	// --- Unix 套接字传输 ---
+	"platform.unix_only":     "platform: 类 Unix 平台仅支持 %s 传输，收到 %s",
+	"platform.stale_cleanup": "platform: 清理残留套接字 %s 失败: %w",
+	"platform.not_socket":    "platform: %s 已存在且不是套接字文件，拒绝覆盖（请手工检查）",
+	"platform.sock_failed":   "platform: 创建 Unix 套接字 %s 失败: %w",
+	"platform.chmod_sock":    "platform: 收紧套接字 %s 权限失败: %w",
+
+	// --- Linux 平台能力 ---
+	"platform.systemd_todo": "systemd 后端将在 M5 实现",
+	"platform.launchd_todo": "launchd 后端将在 M5 实现",
+	"platform.lowport_root": "以 root 运行，可绑定低端口",
+	"platform.lowport_cap":  "已授予 CAP_NET_BIND_SERVICE，可绑定低端口",
+	"platform.lowport_denied": "缺少 CAP_NET_BIND_SERVICE，无法绑定 <1024 端口；" +
+		"建议改用高位端口或授予能力",
+	"platform.unsupported_platform": "当前平台不在支持列表内（Windows / Linux / macOS）",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

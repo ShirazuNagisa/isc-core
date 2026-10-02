@@ -2,6 +2,10 @@
 
 package platform
 
+import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+)
+
 import "runtime"
 
 // 本文件覆盖 Windows / Linux / macOS 之外的平台（FreeBSD、OpenBSD 等）。
@@ -14,9 +18,9 @@ import "runtime"
 func Current(dataRoot string) *Bundle {
 	return &Bundle{
 		Firewall: newUnsupportedFirewall(
-			"当前平台不在支持列表内（Windows / Linux / macOS）"),
+			i18n.T("platform.unsupported_platform")),
 		ServiceManager: newUnsupportedServiceManager(
-			"当前平台不在支持列表内（Windows / Linux / macOS）"),
+			i18n.T("platform.unsupported_platform")),
 		IPMonitor:     newPollingIPMonitor(),
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),

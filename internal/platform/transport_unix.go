@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"os"
 	"path/filepath"
@@ -47,7 +48,7 @@ func localEndpoint(runDir string) Endpoint {
 // listenLocal 实现 Unix 套接字的监听。
 func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 	if scheme != SchemeUnix {
-		return nil, fmt.Errorf("platform: 类 Unix 平台仅支持 %s 传输，收到 %s", SchemeUnix, scheme)
+		return nil, fmt.Errorf(i18n.T("platform.unix_only"), SchemeUnix, scheme)
 	}
 
 	// 上次异常退出可能留下 socket 文件，导致 bind 失败（EADDRINUSE）。
@@ -55,24 +56,24 @@ func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 	if fi, err := os.Lstat(addr); err == nil {
 		if fi.Mode()&os.ModeSocket != 0 {
 			if err := os.Remove(addr); err != nil {
-				return nil, fmt.Errorf("platform: 清理残留套接字 %s 失败: %w", addr, err)
+				return nil, fmt.Errorf(i18n.T("platform.stale_cleanup"), addr, err)
 			}
 		} else {
 			return nil, fmt.Errorf(
-				"platform: %s 已存在且不是套接字文件，拒绝覆盖（请手工检查）", addr)
+				i18n.T("platform.not_socket"), addr)
 		}
 	}
 
 	l, err := net.Listen("unix", addr)
 	if err != nil {
-		return nil, fmt.Errorf("platform: 创建 Unix 套接字 %s 失败: %w", addr, err)
+		return nil, fmt.Errorf(i18n.T("platform.sock_failed"), addr, err)
 	}
 
 	// 监听建立后立刻收紧权限：默认 umask 可能让同组或其他用户可连。
 	if err := os.Chmod(addr, 0o600); err != nil {
 		_ = l.Close()
 		_ = os.Remove(addr)
-		return nil, fmt.Errorf("platform: 收紧套接字 %s 权限失败: %w", addr, err)
+		return nil, fmt.Errorf(i18n.T("platform.chmod_sock"), addr, err)
 	}
 
 	return &unixListener{Listener: l, path: addr}, nil
@@ -81,7 +82,7 @@ func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 // dialLocal 连接 Unix 套接字。
 func dialLocal(ctx context.Context, scheme, addr string) (net.Conn, error) {
 	if scheme != SchemeUnix {
-		return nil, fmt.Errorf("platform: 类 Unix 平台仅支持 %s 传输，收到 %s", SchemeUnix, scheme)
+		return nil, fmt.Errorf(i18n.T("platform.unix_only"), SchemeUnix, scheme)
 	}
 	d := &net.Dialer{Timeout: 10 * time.Second}
 	return d.DialContext(ctx, "unix", addr)

@@ -2,6 +2,10 @@
 
 package platform
 
+import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+)
+
 import "runtime"
 
 // 本文件是 macOS 平台的后端装配点。
@@ -23,7 +27,7 @@ func Current(dataRoot string) *Bundle {
 	return &Bundle{
 		Firewall: newPfFirewall(),
 		ServiceManager: newUnsupportedServiceManager(
-			"launchd 后端将在 M5 实现"),
+			i18n.T("platform.launchd_todo")),
 		IPMonitor:     newPollingIPMonitor(),
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),

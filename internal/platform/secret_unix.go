@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"os/exec"
 	"runtime"
@@ -41,20 +42,20 @@ func newPlatformSecretStore(root string) SecretStore {
 		if bin, err := exec.LookPath("security"); err == nil {
 			return &cliSecretStore{dir: dir, bin: bin, kind: kindKeychain}
 		}
-		return newFileSecretStore(dir, "未找到 security 命令")
+		return newFileSecretStore(dir, i18n.T("platform.nokeychain"))
 
 	case "linux", "freebsd", "openbsd", "netbsd":
 		if !hasSecretServiceSession() {
 			return newFileSecretStore(dir,
-				"当前环境没有 Secret Service 会话（通常是无人登录的服务器或容器）")
+				i18n.T("platform.nosecretservice"))
 		}
 		if bin, err := exec.LookPath("secret-tool"); err == nil {
 			return &cliSecretStore{dir: dir, bin: bin, kind: kindSecretTool}
 		}
-		return newFileSecretStore(dir, "未找到 secret-tool（libsecret 未安装）")
+		return newFileSecretStore(dir, i18n.T("platform.nosecrettool"))
 
 	default:
-		return newFileSecretStore(dir, "当前平台没有受支持的系统密钥库")
+		return newFileSecretStore(dir, i18n.T("platform.nokeystore"))
 	}
 }
 
@@ -98,9 +99,9 @@ func (s *cliSecretStore) Describe() ImplState {
 	if s.kind == kindSecretTool {
 		backend = "linux-secret-service"
 	}
-	note := "主密钥由系统密钥库保护"
+	note := i18n.T("platform.keystore_note")
 	if s.fellBack {
-		note = "系统密钥库不可用，已回退到文件存储"
+		note = i18n.T("platform.keystore_fallback")
 		backend += "+file-fallback"
 	}
 	return ImplState{Available: true, Backend: backend, Note: note}
@@ -131,7 +132,7 @@ func (s *cliSecretStore) Put(ctx context.Context, name string, value []byte) err
 	}
 
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("platform: 写入系统密钥库失败（%s）: %w: %s",
+		return fmt.Errorf(i18n.T("platform.keystore_write"),
 			s.bin, err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -159,7 +160,7 @@ func (s *cliSecretStore) Get(ctx context.Context, name string) ([]byte, bool, er
 		if stdout.Len() == 0 {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("platform: 读取系统密钥库失败（%s）: %w: %s",
+		return nil, false, fmt.Errorf(i18n.T("platform.keystore_read"),
 			s.bin, err, strings.TrimSpace(stderr.String()))
 	}
 
@@ -169,7 +170,7 @@ func (s *cliSecretStore) Get(ctx context.Context, name string) ([]byte, bool, er
 	}
 	value, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, false, fmt.Errorf("platform: 系统密钥库中的值不是合法的 base64（可能被其它程序改写）: %w", err)
+		return nil, false, fmt.Errorf(i18n.T("platform.keystore_badb64"), err)
 	}
 	return value, true, nil
 }

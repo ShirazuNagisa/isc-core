@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"os"
 	"runtime"
 	"strconv"
@@ -25,7 +26,7 @@ func Current(dataRoot string) *Bundle {
 	return &Bundle{
 		Firewall: newNftablesFirewall(),
 		ServiceManager: newUnsupportedServiceManager(
-			"systemd 后端将在 M5 实现"),
+			i18n.T("platform.systemd_todo")),
 		IPMonitor:     newPollingIPMonitor(),
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
@@ -46,18 +47,18 @@ func detectLinuxLowPort() LowPortBinder {
 	if os.Geteuid() == 0 {
 		return restrictedLowPortBinder{
 			bindLow: true,
-			note:    "以 root 运行，可绑定低端口",
+			note:    i18n.T("platform.lowport_root"),
 		}
 	}
 	if hasCapNetBindService() {
 		return restrictedLowPortBinder{
 			bindLow: true,
-			note:    "已授予 CAP_NET_BIND_SERVICE，可绑定低端口",
+			note:    i18n.T("platform.lowport_cap"),
 		}
 	}
 	return restrictedLowPortBinder{
 		bindLow: false,
-		note:    "缺少 CAP_NET_BIND_SERVICE，无法绑定 <1024 端口；建议改用高位端口或授予能力",
+		note:    i18n.T("platform.lowport_denied"),
 	}
 }
 

@@ -341,6 +341,63 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### `internal/platform` 完成：73 → 4
+
+第四批做完了**全部非 Windows 的平台实现**：`firewall_darwin.go`（pf）、
+`firewall_linux.go`（nftables）、`secret_unix.go`（Keychain / Secret Service）、
+`service_linux.go`（systemd）、`service_darwin.go`（launchd）、
+`transport_unix.go`（UDS）、`platform_linux.go`、`platform_other.go`、
+`platform_darwin.go`。
+
+**`internal/platform` 累计 204 → 4。**
+
+##### 剩下的 4 处是**故意的**
+
+```
+ipmon.go:412  "蓝牙", "本地连接*", "虚拟", "回环"
+```
+
+它们是匹配系统网卡名的**模式**，不是文案 —— 就是上一轮把代码改坏、
+被 `TestIsVirtualInterface` 拦住的那四条。它们**必须留在目录之外**。
+
+棘轮的基线停在 4 而不是 0，注释里写明了原因。这是本项目第一个
+"**达标的定义不是零**"的包。
+
+##### 只在 CI 才能验证的部分，这一轮做了什么
+
+这九个文件本机一行都跑不到，能做的三件事都做了：
+
+1. **四个目标平台的 `go vet`**：linux/amd64、darwin/arm64、freebsd/amd64、
+   windows/amd64 全部通过；
+2. **目录一致性**：`TestCatalogsHaveIdenticalKeys` 覆盖分层表，
+   `TestUsedKeysExist` 保证代码里用到的 key 都存在；
+3. **把"本机跑不到"写进注释**，而不是让它静默地变成"我以为测过了"。
+
+##### 一次环境故障，以及它为什么值得记下来
+
+最后一次全量测试时出现了大批 `FAIL`：
+
+```
+runtime: VirtualAlloc of 3227648 bytes failed with errno=1455
+```
+
+而 `internal/i18n` 单独跑是 `ok`。查下来：
+
+```
+物理内存: 总 31.3 GB / 可用 12.5 GB
+提交:     总 127.3 GB / 可用 0.1 GB   ← 提交上限耗尽
+```
+
+**这是系统级的提交内存耗尽，不是代码问题。** 判据是：
+
+- 报错是 `VirtualAlloc ... errno=1455`（ERROR_COMMITMENT_LIMIT），
+  而不是任何断言失败；
+- 物理内存仍有 12.5 GB 空闲 —— 说明卡在提交额度而非真实内存；
+- 降低并行度（`-p 2`）后大部分包恢复正常。
+
+值得记下来是因为**它的表象与"我改坏了代码"完全一样**：一片 FAIL。
+如果不去看具体的报错文本，很容易误判成自己的改动有问题，进而去改
+本来正确的代码。
 ##### `internal/platform` 第三批：跨平台纯逻辑（106 → 73）
 
 `firewall_pf_def.go`、`firewall_nft_def.go`、`firewall_common.go`、

@@ -906,6 +906,73 @@ var messagesEn = map[string]string{
 	"platform.ipmon_note": "Reads interface addresses and prefixes by polling the standard library (every %s); behaviour is identical on all three platforms, at the cost of up to one polling period of delay in noticing an address change",
 	"platform.ipmon_enum": "platform: failed to enumerate interfaces: %w",
 
+	// --- macOS firewall (pf) ---
+	"platform.pf_note":          "; root is required (both for pfctl and for writing /etc)",
+	"platform.pf_rule_desc":     "Managed by ISC — undo it from ISC in one step",
+	"platform.pf_read_failed":   "platform: failed to read %s: %w",
+	"platform.pf_marshal":       "platform: failed to serialise the change: %w",
+	"platform.pf_nochange":      "no change needed",
+	"platform.pf_add":           "Add %d inbound rule(s)",
+	"platform.pf_remove":        "Remove %d inbound rule(s)",
+	"platform.pf_addremove":     "Add %d and remove %d inbound rule(s)",
+	"platform.pf_unmarshal":     "platform: the change payload cannot be parsed: %w",
+	"platform.pf_write_failed":  "platform: failed to write %s: %w (root is required)",
+	"platform.pf_syntax_failed": "platform: the syntax check for %s failed (the live rules were left untouched): %w\n%s",
+	"platform.pf_reload_failed": "platform: failed to reload %s: %w\n%s",
+	"platform.pf_enable_failed": "platform: failed to enable pf: %w\n%s",
+	"platform.pf_backup_failed": "Warning: could not back up %s (%v). The original content can still be restored by removing the %q anchor line.\n",
+
+	// --- Linux firewall (nftables) ---
+	"platform.nft_note":         "Uses a dedicated inet isc table; root or CAP_NET_ADMIN is required",
+	"platform.nft_read_failed2": "platform: failed to read the nftables rules: %w",
+	"platform.nft_read_failed":  "platform: failed to read the nftables rules: %w\n%s",
+	"platform.nft_output_head":  "%w\nstart of the output: %s",
+	"platform.nft_marshal":      "platform: failed to serialise the change: %w",
+	"platform.nft_nochange":     "no change needed",
+	"platform.nft_add":          "Add %d inbound rule(s)",
+	"platform.nft_remove":       "Remove %d inbound rule(s)",
+	"platform.nft_addremove":    "Add %d and remove %d inbound rule(s)",
+	"platform.nft_unmarshal":    "platform: the change payload cannot be parsed: %w",
+	"platform.nft_apply_failed": "platform: failed to apply the nftables change: %w\n%s",
+
+	// --- Unix secret store ---
+	"platform.nokeychain":        "the security command was not found",
+	"platform.nosecretservice":   "there is no Secret Service session in this environment (usually a headless server or a container)",
+	"platform.nosecrettool":      "secret-tool was not found (libsecret is not installed)",
+	"platform.nokeystore":        "no supported system key store on this platform",
+	"platform.keystore_note":     "The master key is protected by the system key store",
+	"platform.keystore_fallback": "the system key store is unavailable; fell back to file storage",
+	"platform.keystore_write":    "platform: failed to write to the system key store (%s): %w: %s",
+	"platform.keystore_read":     "platform: failed to read from the system key store (%s): %w: %s",
+	"platform.keystore_badb64":   "platform: the value in the system key store is not valid base64 (it may have been rewritten by another program): %w",
+
+	// --- Linux / macOS service ---
+	"platform.unit_note":          "; root is required to install and to start/stop it",
+	"platform.unit_write_failed":  "platform: failed to write the unit file %s: %w",
+	"platform.unit_delete_failed": "platform: failed to delete the unit file %s: %w",
+	"platform.unit_need_root": "platform: installing and managing the system service needs root.\n" +
+		"Re-run this command with sudo",
+	"platform.systemctl_failed":          "platform: systemctl %s failed: %s",
+	"platform.unit_write_failed_darwin":  "platform: failed to write the plist %s: %w",
+	"platform.unit_delete_failed_darwin": "platform: failed to delete the plist %s: %w",
+	"platform.launchctl_failed":          "platform: launchctl %s failed: %s",
+
+	// --- Unix socket transport ---
+	"platform.unix_only":     "platform: Unix-like platforms support only the %s transport, got %s",
+	"platform.stale_cleanup": "platform: failed to clean up the stale socket %s: %w",
+	"platform.not_socket":    "platform: %s already exists and is not a socket file; refusing to overwrite (check it by hand)",
+	"platform.sock_failed":   "platform: failed to create the Unix socket %s: %w",
+	"platform.chmod_sock":    "platform: failed to tighten the permissions of socket %s: %w",
+
+	// --- Linux platform capabilities ---
+	"platform.systemd_todo": "the systemd backend will be implemented in M5",
+	"platform.launchd_todo": "the launchd backend will be implemented in M5",
+	"platform.lowport_root": "running as root, so low ports can be bound",
+	"platform.lowport_cap":  "CAP_NET_BIND_SERVICE is granted, so low ports can be bound",
+	"platform.lowport_denied": "CAP_NET_BIND_SERVICE is missing, so ports <1024 cannot be bound; " +
+		"use a high port or grant the capability",
+	"platform.unsupported_platform": "this platform is not on the supported list (Windows / Linux / macOS)",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
