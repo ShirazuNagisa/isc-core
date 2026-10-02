@@ -15,12 +15,12 @@ import (
 // **不需要为每家 DNS 服务商写死表单**。GUI 遍历 credential_fields
 // 生成输入框、依据 capabilities 决定哪些按钮可用，新增服务商时
 // 内核与 GUI 都不用改代码。
-func (s *Server) ListProviders(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
 	list := s.Providers.List()
 
 	items := make([]gen.Provider, 0, len(list))
 	for _, p := range list {
-		items = append(items, toGenProvider(p))
+		items = append(items, toGenProvider(i18n.FromContext(r.Context()), p))
 	}
 	writeJSON(w, s.Log, http.StatusOK, "application/json",
 		struct {
@@ -28,7 +28,7 @@ func (s *Server) ListProviders(w http.ResponseWriter, _ *http.Request) {
 		}{Items: items})
 }
 
-func toGenProvider(p provider.Provider) gen.Provider {
+func toGenProvider(cat *i18n.Catalog, p provider.Provider) gen.Provider {
 	tier := gen.ProviderTier(p.Tier)
 	out := gen.Provider{
 		Name:         p.Name,
@@ -42,11 +42,11 @@ func toGenProvider(p provider.Provider) gen.Provider {
 	for _, f := range p.CredentialFields {
 		out.CredentialFields = append(out.CredentialFields, gen.ProviderField{
 			Key:         f.Key,
-			Label:       i18n.T(f.LabelKey),
+			Label:       cat.T(f.LabelKey),
 			Secret:      f.Secret,
 			Required:    f.Required,
-			Placeholder: optionalT(f.PlaceholderKey),
-			Help:        optionalT(f.HelpKey),
+			Placeholder: optionalT(cat, f.PlaceholderKey),
+			Help:        optionalT(cat, f.HelpKey),
 			Example:     strPtr(f.Example),
 		})
 	}
@@ -71,11 +71,14 @@ func toGenProviderCapabilities(c provider.Capabilities) gen.ProviderCapabilities
 }
 
 // optionalT 翻译一个可选的 i18n key；空 key 返回 nil。
-func optionalT(key string) *string {
+//
+// 目录由调用方传入（来自请求 context）而不是用全局默认值 ——
+// 否则同一次响应里会混两种语言：标签用请求语言、说明用内核语言。
+func optionalT(cat *i18n.Catalog, key string) *string {
 	if key == "" {
 		return nil
 	}
-	return strPtr(i18n.T(key))
+	return strPtr(cat.T(key))
 }
 
 // toGenCredential 把领域实体转成接口模型。

@@ -47,9 +47,11 @@ const problemTypeBase = "https://isc.invalid/problems/"
 // problem 构造一个 RFC 9457 错误对象。
 //
 // titleKey 是 i18n 消息 key；detail 已经是本地化后的文本（可为空）。
-func problem(status int, code, titleKey, detail string) gen.Problem {
+func problem(cat *i18n.Catalog, status int, code, titleKey, detail string) gen.Problem {
 	typ := problemTypeBase + code
-	title := i18n.T(titleKey)
+	// 用**请求自己的**目录，而不是全局默认值 —— 见 i18n/context.go 的说明。
+	// cat 由 writeProblem 从 context 里取，永不返回 nil。
+	title := cat.T(titleKey)
 	p := gen.Problem{
 		Type:   typ,
 		Title:  title,
@@ -66,7 +68,7 @@ func problem(status int, code, titleKey, detail string) gen.Problem {
 func writeProblem(w http.ResponseWriter, r *http.Request, log *slog.Logger,
 	status int, code, titleKey, detail string) {
 
-	p := problem(status, code, titleKey, detail)
+	p := problem(i18n.FromContext(r.Context()), status, code, titleKey, detail)
 	if r != nil && r.URL != nil {
 		instance := r.URL.Path
 		p.Instance = &instance

@@ -54,7 +54,7 @@ func newProxyStatusCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -95,7 +95,7 @@ func newProxyListCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -134,7 +134,7 @@ func newProxyAddCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -204,7 +204,7 @@ func newProxyRmCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}

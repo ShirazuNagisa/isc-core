@@ -136,7 +136,7 @@ func newDdnsAddCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -200,7 +200,7 @@ func newDdnsRemoveCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}

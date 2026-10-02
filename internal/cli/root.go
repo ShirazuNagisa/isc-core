@@ -17,9 +17,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/logx"
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
@@ -32,6 +34,12 @@ type App struct {
 
 	// lang 是输出语言。
 	lang i18n.Lang
+
+	// langExplicit 表示语言是用户用 --lang **显式指定**的。
+	//
+	// 只有显式指定时才把它带给服务端：没指定时应当跟随内核自己的
+	// 语言设置，而"把默认值也发过去"会让内核设置永远不生效。
+	langExplicit bool
 
 	// jsonOut 为 true 时所有输出改为 JSON。
 	jsonOut bool
@@ -141,8 +149,33 @@ func (a *App) init(cmd *cobra.Command) error {
 	}
 	a.paths = p
 
+	// 语言优先级：--lang（显式）> 内核设置 > 默认值。
+	//
+	// # 为什么必须读内核设置
+	//
+	// 早先这里**只**看 --lang，于是用户在内核设置里把语言改成 English
+	// 之后会出现三处不一致：
+	//
+	//	控制台              英文 ✓
+	//	服务端生成的内容    英文 ✓
+	//	CLI 的输出          中文 ✗（除非每次命令都带 --lang en）
+	//
+	// 而"我在设置里选过英文了"是用户唯一记得的事 —— 他不会想到还要
+	// 在每条命令上再带一次标志。
 	if v, err := flags.GetString("lang"); err == nil {
 		a.lang = i18n.Parse(v)
+	}
+	if flags.Changed("lang") {
+		a.langExplicit = true
+	}
+	if !a.langExplicit {
+		// 只有**没显式指定**时才去问内核。
+		//
+		// --lang 是显式覆盖，它不该被内核设置盖掉 —— 那会让
+		// "临时用英文看一眼"变成做不到的事。
+		if l, ok := a.langFromDaemon(); ok {
+			a.lang = l
+		}
 	}
 	i18n.SetDefault(a.lang)
 
@@ -156,6 +189,61 @@ func (a *App) init(cmd *cobra.Command) error {
 	a.log = slog.New(a.logHandler)
 
 	return nil
+}
+
+// connect 连接内核，并把**显式指定**的语言带给它。
+//
+// # 为什么做成方法
+//
+// 在这之前，`Connect(ctx, app.paths.RuntimeFile())` 在 31 处被逐字重复。
+// 那不只是啰嗦：语言需要跟着每一次连接走，而在 31 个地方各加一行
+// 意味着漏掉任何一处都会产生"这一条命令的语言不对"这种难查的问题。
+func (a *App) connect(ctx context.Context) (*Client, error) {
+	client, err := Connect(ctx, a.paths.RuntimeFile())
+	if err != nil {
+		return nil, err
+	}
+	if a.langExplicit {
+		client.SetLang(string(a.lang))
+	}
+	return client, nil
+}
+
+// langFromDaemon 向运行中的内核询问当前的语言设置。
+//
+// # 成本
+//
+// 内核**没在运行时**它立刻返回（Connect 读不到运行时文件就直接
+// 返回 ErrNotRunning，不等任何超时），因此 `isc daemon run` 之类的
+// 命令不会因此变慢。
+//
+// 内核在运行时，代价是一次本地往返（命名管道 / 回环），可以忽略。
+//
+// # 失败一律静默
+//
+// 问不到就用默认值 —— 语言是**界面偏好**，而为了它让一条命令失败
+// 是本末倒置的。
+func (a *App) langFromDaemon() (i18n.Lang, bool) {
+	if a.paths.RuntimeFile() == "" {
+		return "", false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	client, err := Connect(ctx, a.paths.RuntimeFile())
+	if err != nil {
+		return "", false
+	}
+
+	var s gen.Settings
+	if err := client.getInto(ctx, "/v1/settings", &s); err != nil {
+		return "", false
+	}
+	if s.Lang == "" {
+		return "", false
+	}
+	return i18n.Parse(string(s.Lang)), true
 }
 
 // signalContext 返回一个在收到中断信号时取消的 context。

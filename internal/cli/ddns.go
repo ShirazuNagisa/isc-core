@@ -30,7 +30,7 @@ IPv6 前缀是本产品的核心概念：ISP 重拨后变化的是整个 /64 前
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -91,7 +91,7 @@ func newDdnsListCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -138,7 +138,7 @@ func newDdnsRunCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}

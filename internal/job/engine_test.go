@@ -441,3 +441,57 @@ func TestJobIDsAreUniqueAndOpaque(t *testing.T) {
 		}
 	}
 }
+
+// TestCancelTerminalJobIsRejectedEvenWhileInFlight 钉住一个真实的竞态。
+//
+// # 它抓的是什么
+//
+// 任务的收尾顺序是：任务体返回前先把状态落库（succeeded / failed），
+// 之后才轮到 run 的 defer 把它从在途表 e.cancels 里摘掉 —— 中间还夹着
+// 日志与事件发布。
+//
+// 于是存在一道真实的缝隙：状态已是终态，但在途表里还有它。只看在途表
+// 的 Cancel 会得出"可以取消"的结论，然后 cancel() 一个**早就做完**的
+// 任务，并向客户端报告成功。
+//
+// # 这个缺陷最初是怎么被发现的
+//
+// 它以"测试偶发失败"的形式出现：TestCancelFinishedJobRejected 在
+// `go test ./...` 的并发负载下挂掉，单独跑却稳定通过 —— 那道缝隙只有
+// 在调度被打断时才够宽。
+//
+// 所以这里**不去赌那道缝**，而是直接构造它的前提：手工把一条终态记录
+// 塞进存储、同时在在途表里留一个条目，然后断言 Cancel 依然拒绝。
+// 靠时序去撞的测试会在最需要它的时候变得不稳定。
+func TestCancelTerminalJobIsRejectedEvenWhileInFlight(t *testing.T) {
+	t.Parallel()
+
+	e, _ := newTestEngine(t, context.Background())
+
+	// 一条已经完成的任务。
+	j, err := e.Submit(context.Background(), "test.ok",
+		func(context.Context, Reporter) (any, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, j.ID, StatusSucceeded)
+
+	// 人为把它重新挂回在途表 —— 模拟"状态已落库、但还没摘掉"的那一瞬。
+	//
+	// 正常的 run 会很快把它删掉，而这里我们要的是**确定性地**复现
+	//（或者更准确地说：确保这条判断存在）。因此塞一个空转的
+	// cancel 进去，让在途表里确实有这个 ID。
+	e.mu.Lock()
+	e.cancels[j.ID] = func() {}
+	e.mu.Unlock()
+
+	_, err = e.Cancel(context.Background(), j.ID)
+	if !errors.Is(err, ErrNotCancelable) {
+		t.Fatalf("终态任务必须不可取消（即使在途表里还有它），得到 %v", err)
+	}
+
+	// 清理，免得影响同一引擎上的其它断言。
+	e.mu.Lock()
+	delete(e.cancels, j.ID)
+	e.mu.Unlock()
+}

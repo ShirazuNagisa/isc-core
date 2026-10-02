@@ -341,19 +341,6 @@ func (e *Engine) Cancel(ctx context.Context, id string) (Job, error) {
 	cancel, ok := e.cancels[id]
 	e.mu.Unlock()
 
-	if !ok {
-		j, found, err := e.store.Get(ctx, id)
-		if err != nil {
-			return Job{}, err
-		}
-		if !found {
-			return Job{}, ErrNotFound
-		}
-		return j, ErrNotCancelable
-	}
-
-	cancel()
-
 	j, found, err := e.store.Get(ctx, id)
 	if err != nil {
 		return Job{}, err
@@ -361,6 +348,36 @@ func (e *Engine) Cancel(ctx context.Context, id string) (Job, error) {
 	if !found {
 		return Job{}, ErrNotFound
 	}
+
+	// **终态的任务不可取消，即使它还挂在在途表里。**
+	//
+	// # 这道判断为什么必需
+	//
+	// 任务的收尾顺序是：任务体返回前先把状态落库（succeeded / failed），
+	// 之后才轮到 run 的 defer 把它从 e.cancels 里摘掉 —— 中间还夹着
+	// 日志与事件发布。
+	//
+	// 于是存在一道真实的缝隙：状态已经是终态，但在途表里还有它。
+	// 只看在途表会得出"可以取消"的结论，然后 cancel() 一个**早就做完**
+	// 的任务，并向客户端报告成功。
+	//
+	// 这个缺陷最初是以"测试偶发失败"的形式出现的（
+	// TestCancelFinishedJobRejected 在并发负载下挂掉、单独跑却稳定通过）。
+	// 它不只是测试问题：客户端会以为它取消掉了一件事，而那件事其实
+	// 已经完成，并且可能已经产生了副作用。
+	if j.Status.Finished() {
+		return j, ErrNotCancelable
+	}
+
+	if !ok {
+		return j, ErrNotCancelable
+	}
+
+	cancel()
+
+	// 取消是**异步**的：这里只发出信号，任务体随后才会观察到
+	// 上下文被取消并转入 canceled。因此返回的是此刻的状态
+	//（仍是 running），客户端应当通过事件流或轮询看最终结果。
 	return j, nil
 }
 

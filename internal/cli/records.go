@@ -37,7 +37,7 @@ func newZonesCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -112,7 +112,7 @@ func newRecordsListCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -190,7 +190,7 @@ func newRecordsAddCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -252,7 +252,7 @@ func newRecordsRemoveCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -287,7 +287,7 @@ func newSettingsCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -393,7 +393,7 @@ DNS-01 凭据，否则证书签不出来，而症状是"浏览器报证书错误
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}

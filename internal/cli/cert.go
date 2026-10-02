@@ -46,7 +46,7 @@ func newCertListCmd(app *App) *cobra.Command {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}
@@ -78,7 +78,7 @@ ACME 的失败配额（生产环境每小时 5 次）。`,
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
 
-			client, err := Connect(ctx, app.paths.RuntimeFile())
+			client, err := app.connect(ctx)
 			if err != nil {
 				return app.fail(cmd, err)
 			}

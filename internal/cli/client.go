@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
@@ -44,8 +45,21 @@ type Client struct {
 	// token 是访问令牌。
 	token string
 
+	// lang 是这次调用要用的语言（空表示跟随内核设置）。
+	//
+	// 它会被放进 Accept-Language，让**服务端渲染的内容**也用同一种
+	// 语言 —— 否则同一次输出里会混两种：CLI 的串用 --lang，而字段说明
+	// 用内核的语言。
+	lang string
+
 	http *http.Client
 }
+
+// SetLang 设置这次调用要用的语言。
+//
+// 关联的是**显式给出的** `--lang`：没给时不设置，让服务端用它自己的
+// 设置 —— 那正是"内核设置里选的语言"。
+func (c *Client) SetLang(lang string) { c.lang = lang }
 
 // Connect 发现并连接内核。
 //
@@ -188,6 +202,18 @@ func (c *Client) doBody(ctx context.Context, method, path string, body []byte, o
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
+	}
+
+	// 把语言偏好带给服务端。
+	//
+	// 用标准的 Accept-Language 而不是自定义头：服务端那边因此不需要
+	// 为本产品写任何特殊逻辑，而抓包、curl 调试时也是自解释的。
+	if c.lang != "" {
+		if strings.Contains(path, "?") {
+			path += "&lang=" + c.lang
+		} else {
+			path += "?lang=" + c.lang
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)

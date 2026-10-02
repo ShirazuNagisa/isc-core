@@ -177,6 +177,9 @@ func (s *Server) Routes() http.Handler {
 
 	return Chain(mux,
 		RequestID(),
+		// 语言在很外层：这样连鉴权失败、Host 校验失败的响应
+		// 也能用客户端期待的语言。
+		Language,
 		Recover(s.Log),
 		LogRequests(s.Log),
 		// Host 校验必须在鉴权之前：它挡的是 DNS rebinding ——

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"net/http"
 	"time"
@@ -149,4 +150,38 @@ func LogRequests(log *slog.Logger) Middleware {
 			}
 		})
 	}
+}
+
+// Language 按 Accept-Language 为每个请求选定消息目录。
+//
+// # 为什么需要它
+//
+// 内核的语言设置是全局的，而 `--lang` 是**客户端**的偏好。没有这一层时
+// 会出现混排 —— CLI 的串是中文、服务端渲染的字段说明是英文（或反过来），
+// 取决于两边各自的语言：
+//
+//	$ isc --lang zh-CN credential fields cloudflare
+//	--field token=<API token>  （必填） [敏感]  Create it under My Profile…
+//
+// 认标准的 `Accept-Language` 而不是自定义头：浏览器会自动带上它，
+// 因此控制台**不需要写任何代码**就能跟随浏览器语言。
+//
+// 认不出来时**不设置**目录，让下游回退到全局默认值 —— 那正是
+// "内核设置里选的语言"。
+func Language(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 显式的查询参数优先于请求头。
+		//
+		// 它存在的意义是让 CLI 与脚本能明确指定，而不必构造一个
+		// 请求头 —— 后者在 shell 里很啰嗦。
+		lang := r.URL.Query().Get("lang")
+		if lang == "" {
+			lang = r.Header.Get("Accept-Language")
+		}
+
+		if cat := i18n.FromHeader(lang); cat != nil {
+			r = r.WithContext(i18n.WithCatalog(r.Context(), cat))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
