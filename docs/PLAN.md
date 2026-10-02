@@ -341,6 +341,64 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### 继续清：Windows 服务后端 + 进程存活判定 + 目录 ACL
+
+**54 → 27。** 这一轮补了三组本机可测的：
+
+**一、`service_windows.go` 的十个辅助函数**
+
+其中一半决定**用户被告知什么**。最有价值的一条是
+`TestServiceErrorClassificationSurvivesWrapping`：那四个分类函数用
+`errors.Is` 而不是 `==`，而这不是风格问题 —— 内核的错误在向上传递时会被
+`fmt.Errorf("...: %w", err)` **层层包装**（服务管理器 → 平台层 → API 层 →
+CLI）。用 `==` 比较的话，任何一层包装都会让它静默失效，于是"服务已经装过了"
+变成一句红色的失败，而用户会去手工卸载一个本来就装好的服务。
+
+配套的**反面**测试同样重要：防止"全都返回 true"式的假通过 —— 那个方向的
+错误更危险，任何失败都会被当成"服务已经装好了"，于是内核静默地没装上。
+
+`buildBinaryPath` 那条也值得一提：`C:\Program Files\...` 是用户**最常见**的
+安装位置，而 Windows 的 ImagePath 是一整条命令行 —— 不加引号会被解析成
+程序 `C:\Program` 加三个参数，错误信息只说"系统找不到指定的文件"。
+
+**二、`runtimeinfo.processAlive`**
+
+它的返回值直接决定 `Connect` 是否认为内核还活着，两个错误方向都有代价：
+
+```
+残留 runtime.json + 判定"活着" → 客户端去连不存在的管道，报含糊的"内核不可达"
+真内核 + 判定"已死"           → 客户端说"内核没在运行"，用户又启动一个
+```
+
+Windows 上它必须用 OpenProcess + GetExitCodeProcess，因为 `os.FindProcess`
+在 Windows 上**恒返回成功**（它不做任何系统调用）。
+
+其中一条是**元测试**（`TestProcessAliveIsNotConstant`）：要求"自己活着"与
+"pid=0 不存在"给出**不同**的答案 —— 一个恒定实现无法同时满足，而它正是
+最糟的那种"通过"。
+
+**三、`paths_windows.go` 的目录 ACL**
+
+这是 `%ProgramData%\ISC` 的权限收紧，而那个目录里放着 runtime.json（含访问
+令牌）。不切断继承的话，同机器上任何账号都能读走它。
+
+最重要的一条不看代码做了什么，而是**把生效的 DACL 读回来**看结果：
+`SE_DACL_PROTECTED` 必须置上，且授予的**不同主体**恰好是设计里那三个。
+
+##### 两处**我的**测试写错了
+
+1. **ACE 条数**：我断言"恰好 3 条"，实际是 6 条。`SUB_CONTAINERS_AND_OBJECTS_INHERIT`
+   会被 `SetEntriesInAcl` 展开成容器与对象两条 ACE。**实现是对的，预期错了。**
+   改成断言"不同的**主体**恰好 3 个"。
+
+2. **`unsafe.Pointer`**：为了从 `TrusteeValue`（uintptr）还原 SID，我写了
+   `(*windows.SID)(unsafe.Pointer(v))`，`go vet` 正确地拦下了它
+   （uintptr → unsafe.Pointer 是危险的转换）。改成在那个测试里只断言
+   "被填了"，把**身份**校验放到"读回生效 DACL"那条 —— 那里是从
+   `*ACCESS_ALLOWED_ACE` 取的指针，来源明确。
+
+这两处都不是实现的问题，而是**测试编码了错误的预期**。它们的价值在于：
+如果当时选择"改实现去迎合测试"，就会把正确的代码改坏。
 ##### 把这条线索系统化：写了个工具扫「带标签文件里没被测的函数」
 
 两轮都是靠"感觉"找到的缺口。这一轮把它变成可重复的检查：列出所有带
