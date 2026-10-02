@@ -1,3 +1,13 @@
+// 本文件里的文案都经 window.iscI18n 取。
+//
+// 这两个别名是为了让调用处短一些 —— 它们是拼接生成 HTML 的那部分，
+// 取值点多达几十处，`window.iscI18n.t(...)` 会把真正的结构淹掉。
+//
+// 第二个参数是**兜底**：消息表没到或 key 不存在时显示它。动态渲染的内容
+// 必须保留兜底（不像 index.html 那样写死在标记上），因为这些字符串只在
+// 这里出现一次，没有第二个来源。
+const t = (key, fallback) => window.iscI18n.t(key, fallback);
+const tf = (key, fallback, params) => window.iscI18n.tf(key, fallback, params);
 // ---------------------------------------------------------------------------
 // 反向代理
 // ---------------------------------------------------------------------------
@@ -24,7 +34,7 @@ async function loadProxy() {
 function renderProxyStatus(s) {
   const box = $('pxState');
   if (!s) {
-    box.innerHTML = '<span class="err">无法读取代理状态</span>';
+    box.innerHTML = '<span class="err">' + t('web.px.err_state', '无法读取代理状态') + '</span>';
     return;
   }
 
@@ -33,7 +43,7 @@ function renderProxyStatus(s) {
     box.innerHTML = '运行中：' + scheme + '，监听端口 ' + esc(s.port) +
       '，' + esc(s.routes) + ' 条规则';
   } else {
-    box.textContent = '未运行';
+    box.textContent = t('web.px.not_running', '未运行');
   }
 
   // 失败原因必须显示出来 —— 只写日志的话，用户在界面上
@@ -48,12 +58,12 @@ function renderProxyRoutes() {
   const routes = state.proxyRoutes || [];
 
   if (routes.length === 0) {
-    box.innerHTML = '<p class="hint">还没有转发规则。</p>';
+    box.innerHTML = '<p class="hint">' + t('web.px.empty', '还没有转发规则。') + '</p>';
     return;
   }
 
   let html = '<table><thead><tr>' +
-    '<th>域名</th><th>上游</th><th>HTTPS</th><th></th>' +
+    '<th>' + t('web.th.domain', '域名') + '</th><th>' + t('web.th.upstream', '上游') + '</th><th>HTTPS</th><th></th>' +
     '</tr></thead><tbody>';
 
   for (const r of routes) {
@@ -62,8 +72,8 @@ function renderProxyRoutes() {
       '<td><code>' + esc(r.upstream) + '</code></td>' +
       '<td>' + (r.tls ? '✅' : '—') + '</td>' +
       '<td class="actions">' +
-      '<button data-editpx="' + esc(r.id) + '">编辑</button>' +
-      '<button data-delpx="' + esc(r.id) + '" class="danger">删除</button>' +
+      '<button data-editpx="' + esc(r.id) + '">' + t('web.common.edit', '编辑') + '</button>' +
+      '<button data-delpx="' + esc(r.id) + '" class="danger">' + t('web.common.delete', '删除') + '</button>' +
       '</td></tr>';
   }
 
@@ -76,18 +86,17 @@ function renderProxyForm(existing) {
 
   form.hidden = false;
   form.innerHTML =
-    '<h3>' + (existing ? '编辑规则' : '新增规则') + '</h3>' +
-    '<label>域名（每行一个）' +
+    '<h3>' + (existing ? t('web.px.edit_rule', '编辑规则') : t('web.px.new_rule', '新增规则')) + '</h3>' +
+    '<label>' + t('web.px.l_domains', '域名（每行一个）') + ' ' +
     '<textarea id="pxHosts" rows="3" placeholder="home.example.com">' +
     esc((r.hosts || []).join('\n')) + '</textarea></label>' +
-    '<label>上游地址 <input id="pxUpstream" placeholder="127.0.0.1:8096" value="' +
+    '<label>' + t('web.px.l_upstream', '上游地址') + ' <input id="pxUpstream" placeholder="127.0.0.1:8096" value="' +
     esc(r.upstream) + '"></label>' +
-    '<p class="hint">只允许本机与内网地址。允许公网地址会让这个功能变成一个' +
-    '<strong>开放代理</strong>。</p>' +
+    '<p class="hint">' + t('web.px.hint_private', '只允许本机与内网地址。允许公网地址会让这个功能变成一个<strong>开放代理</strong>。') + '</p>' +
     '<label class="check"><input type="checkbox" id="pxRouteTls"' +
-    (r.tls ? ' checked' : '') + '> 为此域名提供 HTTPS</label>' +
-    '<div class="row"><button id="pxSaveRoute" class="primary">保存</button>' +
-    '<button id="pxCancel">取消</button></div>';
+    (r.tls ? ' checked' : '') + '> ' + t('web.px.l_tls', '为此域名提供 HTTPS') + '</label>' +
+    '<div class="row"><button id="pxSaveRoute" class="primary">' + t('web.common.save', '保存') + '</button>' +
+    '<button id="pxCancel">' + t('web.common.cancel', '取消') + '</button></div>';
 
   $('pxCancel').onclick = () => { form.hidden = true; };
   $('pxSaveRoute').onclick = () => saveProxyRoute(r.id);
@@ -97,8 +106,8 @@ async function saveProxyRoute(id) {
   const hosts = $('pxHosts').value
     .split('\n').map((s) => s.trim()).filter(Boolean);
 
-  if (hosts.length === 0) { toast('至少填一个域名', 'err'); return; }
-  if (!$('pxUpstream').value.trim()) { toast('请填上游地址', 'err'); return; }
+  if (hosts.length === 0) { toast(t('web.px.need_domain', '至少填一个域名'), 'err'); return; }
+  if (!$('pxUpstream').value.trim()) { toast(t('web.px.need_upstream', '请填上游地址'), 'err'); return; }
 
   const route = {
     id: id || ('r' + Date.now()),
@@ -114,19 +123,19 @@ async function saveProxyRoute(id) {
   const r = await api('PUT', '/v1/proxy/routes', { items: next });
   if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
 
-  toast('已保存', 'ok');
+  toast(t('web.common.saved', '已保存'), 'ok');
   $('pxForm').hidden = true;
   loadProxy();
 }
 
 async function deleteProxyRoute(id) {
-  if (!confirm('确定删除这条规则？')) return;
+  if (!confirm(t('web.px.confirm_delete', '确定删除这条规则？'))) return;
 
   const next = (state.proxyRoutes || []).filter((x) => x.id !== id);
   const r = await api('PUT', '/v1/proxy/routes', { items: next });
   if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
 
-  toast('已删除', 'ok');
+  toast(t('web.common.deleted', '已删除'), 'ok');
   loadProxy();
 }
 
@@ -142,7 +151,7 @@ async function saveProxySettings() {
     toast('保存失败：' + explain(r), 'err');
     return;
   }
-  toast('设置已保存', 'ok');
+  toast(t('web.settings.saved', '设置已保存'), 'ok');
   // 等监听重启完再刷新状态。
   setTimeout(loadProxyStatus, 600);
 }
@@ -160,7 +169,7 @@ async function loadCerts() {
   const r = await api('GET', '/v1/certs');
   if (!r.ok) {
     $('certList').innerHTML =
-      '<p class="err">读取失败：' + esc(explain(r)) + '</p>';
+      '<p class="err">' + t('web.common.read_failed', '读取失败：') + esc(explain(r)) + '</p>';
     return;
   }
 
@@ -169,8 +178,8 @@ async function loadCerts() {
   const box = $('certList');
 
   if (items.length === 0) {
-    box.innerHTML = '<p class="hint">还没有任何证书。' +
-      '为一条路由启用 HTTPS 之后，内核会自动申请证书。</p>';
+    box.innerHTML = '<p class="hint">' + t('web.cert.empty', '还没有任何证书。') +
+      t('web.cert.empty_hint', '为一条路由启用 HTTPS 之后，内核会自动申请证书。') + '</p>';
     return;
   }
 
@@ -181,7 +190,7 @@ async function loadCerts() {
       '<strong>' + icon + ' ' + esc(c.name) + '</strong>';
 
     if (c.domains && c.domains.length) {
-      html += '<div class="hint">覆盖：' + esc(c.domains.join('、')) + '</div>';
+      html += '<div class="hint">' + t('web.cert.covers', '覆盖：') + esc(c.domains.join('、')) + '</div>';
     }
     if (c.expires_at) {
       html += '<div class="hint">有效期至 ' +
@@ -197,10 +206,10 @@ async function loadCerts() {
     }
 
     if (c.needs_renew && c.reason) {
-      html += '<div class="hint">需要续期：' + esc(c.reason) + '</div>';
+      html += '<div class="hint">' + t('web.cert.needs_renewal', '需要续期：') + esc(c.reason) + '</div>';
     }
     if (c.error) {
-      html += '<div class="err">上次失败：' + esc(c.error) + '</div>';
+      html += '<div class="err">' + t('web.cert.last_error', '上次失败：') + esc(c.error) + '</div>';
     }
 
     html += '</div>';
@@ -213,7 +222,7 @@ function daysUntil(iso) {
 }
 
 async function renewCerts() {
-  toast('正在检查并续期，可能需要一两分钟…', 'ok');
+  toast(t('web.cert.checking', '正在检查并续期，可能需要一两分钟…'), 'ok');
   const r = await api('POST', '/v1/certs/renew');
   if (!r.ok) { toast('续期失败：' + explain(r), 'err'); return; }
 
@@ -245,13 +254,13 @@ function renderNotifyChannels() {
   const items = state.notifyChannels || [];
 
   if (items.length === 0) {
-    box.innerHTML = '<p class="hint">还没有配置任何通道。' +
-      '（日志通道始终可用，通知会出现在事件流里。）</p>';
+    box.innerHTML = '<p class="hint">' + t('web.nt.empty', '还没有配置任何通道。') +
+      t('web.nt.empty_hint', '（日志通道始终可用，通知会出现在事件流里。）') + '</p>';
     return;
   }
 
   let html = '<table><thead><tr>' +
-    '<th>名称</th><th>类型</th><th>目标</th><th>级别</th><th>状态</th><th></th>' +
+    '<th>' + t('web.th.name', '名称') + '</th><th>' + t('web.th.kind', '类型') + '</th><th>' + t('web.th.target', '目标') + '</th><th>' + t('web.th.level', '级别') + '</th><th>' + t('web.th.status', '状态') + '</th><th></th>' +
     '</tr></thead><tbody>';
 
   for (const c of items) {
@@ -260,10 +269,10 @@ function renderNotifyChannels() {
       '<td>' + esc(c.kind) + '</td>' +
       '<td><code>' + esc(c.url || '—') + '</code></td>' +
       '<td>' + esc(c.min_severity || 'info') + '</td>' +
-      '<td>' + (c.enabled === false ? '停用' : '启用') + '</td>' +
+      '<td>' + (c.enabled === false ? t('web.common.disabled', '停用') : t('web.common.enabled', '启用')) + '</td>' +
       '<td class="actions">' +
-      '<button data-editnt="' + esc(c.id) + '">编辑</button>' +
-      '<button data-delnt="' + esc(c.id) + '" class="danger">删除</button>' +
+      '<button data-editnt="' + esc(c.id) + '">' + t('web.common.edit', '编辑') + '</button>' +
+      '<button data-delnt="' + esc(c.id) + '" class="danger">' + t('web.common.delete', '删除') + '</button>' +
       '</td></tr>';
   }
 
@@ -279,21 +288,21 @@ function renderNotifyForm(existing) {
 
   form.hidden = false;
   form.innerHTML =
-    '<h3>' + (existing ? '编辑通道' : '新增通道') + '</h3>' +
-    '<label>名称 <input id="ntName" value="' + esc(c.name) + '"></label>' +
-    '<label>类型 <select id="ntKind">' +
+    '<h3>' + (existing ? t('web.nt.edit', '编辑通道') : t('web.nt.new', '新增通道')) + '</h3>' +
+    '<label>' + t('web.th.name', '名称') + ' <input id="ntName" value="' + esc(c.name) + '"></label>' +
+    '<label>' + t('web.th.kind', '类型') + ' <select id="ntKind">' +
     '<option value="webhook"' + (c.kind === 'webhook' ? ' selected' : '') +
     '>Webhook</option>' +
     '<option value="log"' + (c.kind === 'log' ? ' selected' : '') +
-    '>日志</option></select></label>' +
-    '<label>目标地址 <input id="ntUrl" placeholder="https://…" value="' +
+    '>' + t('web.nt.kind_log', '日志') + '</option></select></label>' +
+    '<label>' + t('web.nt.l_url', '目标地址') + ' <input id="ntUrl" placeholder="https://…" value="' +
     esc(c.url) + '"></label>' +
-    '<label>最低级别 <select id="ntSeverity">' +
+    '<label>' + t('web.nt.l_severity', '最低级别') + ' <select id="ntSeverity">' +
     ['info', 'warning', 'error'].map((s) =>
       '<option value="' + s + '"' + (c.min_severity === s ? ' selected' : '') +
       '>' + s + '</option>').join('') +
     '</select></label>' +
-    '<label>请求体模板（留空用默认 JSON）' +
+    '<label>' + t('web.nt.l_template', '请求体模板（留空用默认 JSON）') +
     '<textarea id="ntTemplate" rows="4" placeholder=\'{"text":"{{.Title}}"}\'>' +
     esc(c.body_template || '') + '</textarea></label>' +
     '<p class="hint">' +
@@ -304,7 +313,7 @@ function renderNotifyForm(existing) {
     '</p>' +
     '<label class="check"><input type="checkbox" id="ntEnabled"' +
     (c.enabled === false ? '' : ' checked') + '> 启用</label>' +
-    '<div class="row"><button id="ntSave" class="primary">保存</button>' +
+    '<div class="row"><button id="ntSave" class="primary">' + t('web.common.save', '保存') + '</button>' +
     '<button id="ntCancel">取消</button></div>';
 
   $('ntCancel').onclick = () => { form.hidden = true; };
@@ -313,7 +322,7 @@ function renderNotifyForm(existing) {
 
 async function saveNotifyChannel(id) {
   const name = $('ntName').value.trim();
-  if (!name) { toast('请填名称', 'err'); return; }
+  if (!name) { toast(t('web.nt.need_name', '请填名称'), 'err'); return; }
 
   const ch = {
     id: id || ('c' + Date.now()),
@@ -332,31 +341,31 @@ async function saveNotifyChannel(id) {
   const r = await api('PUT', '/v1/notify/channels', { items: next });
   if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
 
-  toast('已保存', 'ok');
+  toast(t('web.common.saved', '已保存'), 'ok');
   $('ntForm').hidden = true;
   loadNotify();
 }
 
 async function deleteNotifyChannel(id) {
-  if (!confirm('确定删除这个通道？')) return;
+  if (!confirm(t('web.nt.confirm_delete', '确定删除这个通道？'))) return;
 
   const next = (state.notifyChannels || []).filter((x) => x.id !== id);
   const r = await api('PUT', '/v1/notify/channels', { items: next });
   if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
 
-  toast('已删除', 'ok');
+  toast(t('web.common.deleted', '已删除'), 'ok');
   loadNotify();
 }
 
 function renderDeliveries(items) {
   const box = $('ntDeliveries');
   if (items.length === 0) {
-    box.innerHTML = '<p class="hint">还没有投递记录。</p>';
+    box.innerHTML = '<p class="hint">' + t('web.nt.no_deliveries', '还没有投递记录。') + '</p>';
     return;
   }
 
   let html = '<table><thead><tr>' +
-    '<th>时间</th><th>通道</th><th>类型</th><th>结果</th>' +
+    '<th>' + t('web.th.time', '时间') + '</th><th>' + t('web.th.channel', '通道') + '</th><th>' + t('web.th.kind', '类型') + '</th><th>' + t('web.th.result', '结果') + '</th>' +
     '</tr></thead><tbody>';
 
   for (const d of items) {

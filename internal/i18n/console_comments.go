@@ -1,6 +1,9 @@
 package i18n
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // 本文件把"注释"从控制台前端资源里剥掉，供棘轮计数使用。
 //
@@ -15,18 +18,35 @@ import "strings"
 // 这与 Go 侧"日志被当成文案"是同一类错误：**计数器在测量一个 D21 不关心的
 // 东西**。那一次是改成按调用排除，这一次是按注释剥离。
 
-// stripConsoleComments 去掉 HTML 与 JS 里的注释，保留其余内容与**行号**。
+// stripConsoleComments 去掉 HTML 与 JS 里的注释，以及**已经走消息目录的调用**，
+// 保留其余内容与**行号**。
 //
 // 行号必须保留：棘轮按行比对，行号错位会让报告指向错误的行。
-// 因此注释被替换成等量的空行，而不是删掉。
+// 因此被去掉的部分会被替换成等量的空行。
 func stripConsoleComments(name, src string) string {
 	if strings.HasSuffix(name, ".html") {
-		return stripHTMLComments(src)
+		return stripI18nCalls(stripHTMLComments(src))
 	}
 	if strings.HasSuffix(name, ".js") {
-		return stripJSComments(src)
+		return stripI18nCalls(stripJSComments(src))
 	}
 	return src
+}
+
+// consoleI18nCallRe 匹配 `t(...)` / `tf(...)` 的**整个调用**。
+//
+// # 为什么这些要剥掉
+//
+// 与 ddnsgo 的 `Log(key, ...)` 是同一个道理：这些字符串**已经走消息目录**，
+// 只是以兜底参数的形式留在调用处。计数器的职责是找"没有走目录的文案"，
+// 把这些算进去会让那个数字降不到 0 —— 而它明明已经迁移完了。
+//
+// 非贪婪且不跨行：这些调用都写在一行里，跨行匹配会把代码吃掉。
+var consoleI18nCallRe = regexp.MustCompile(`\b(?:t|tf)\([^)\n]*\)`)
+
+// stripI18nCalls 把已经走 i18n 的调用替换成等量空白。
+func stripI18nCalls(src string) string {
+	return consoleI18nCallRe.ReplaceAllStringFunc(src, blankLines)
 }
 
 // stripHTMLComments 去掉 <!-- --> 注释。

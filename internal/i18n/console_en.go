@@ -164,6 +164,65 @@ var consoleMessagesEn = map[string]string{
 	"web.raw.l_path":      "Path",
 	"web.raw.l_body":      "Request body (JSON, optional)",
 
+	// --- rendered by JS (panels.js) ---
+	//
+	// These go through t() / tf() rather than data-i18n attributes: they are
+	// concatenated markup with no static element in the page. The second
+	// argument is the fallback — unlike index.html, these strings appear only
+	// here, so there is no second source for them.
+	"web.px.err_state":      "could not read the proxy status",
+	"web.px.not_running":    "not running",
+	"web.px.empty":          "No forwarding rules yet.",
+	"web.px.edit_rule":      "Edit rule",
+	"web.px.new_rule":       "New rule",
+	"web.px.l_domains":      "Domains (one per line)",
+	"web.px.l_upstream":     "Upstream address",
+	"web.px.hint_private":   "Only loopback and private addresses are allowed. Allowing public ones would turn this feature into an <strong>open proxy</strong>.",
+	"web.px.l_tls":          "Serve HTTPS for this domain",
+	"web.px.need_domain":    "Enter at least one domain",
+	"web.px.need_upstream":  "Enter the upstream address",
+	"web.px.confirm_delete": "Delete this rule?",
+
+	"web.cert.empty":         "No certificates yet.",
+	"web.cert.empty_hint":    "Once you enable HTTPS on a route, the kernel requests the certificate automatically.",
+	"web.cert.covers":        "Covers: ",
+	"web.cert.needs_renewal": "Needs renewal: ",
+	"web.cert.last_error":    "Last failure: ",
+	"web.cert.checking":      "Checking and renewing; this can take a minute or two…",
+
+	"web.nt.empty":          "No channels configured yet.",
+	"web.nt.empty_hint":     "(the log channel is always available; notifications appear in the event stream.)",
+	"web.nt.edit":           "Edit channel",
+	"web.nt.kind_log":       "log",
+	"web.nt.l_url":          "Target URL",
+	"web.nt.l_severity":     "Minimum severity",
+	"web.nt.l_template":     "Body template (blank uses the default JSON)",
+	"web.nt.no_deliveries":  "No deliveries yet.",
+	"web.nt.need_name":      "Enter a name",
+	"web.nt.confirm_delete": "Delete this channel?",
+
+	"web.th.domain":   "Domain",
+	"web.th.upstream": "Upstream",
+	"web.th.name":     "Name",
+	"web.th.kind":     "Type",
+	"web.th.target":   "Target",
+	"web.th.level":    "Level",
+	"web.th.status":   "Status",
+	"web.th.time":     "Time",
+	"web.th.channel":  "Channel",
+	"web.th.result":   "Result",
+
+	"web.common.edit":        "Edit",
+	"web.common.delete":      "Delete",
+	"web.common.save":        "Save",
+	"web.common.cancel":      "Cancel",
+	"web.common.saved":       "Saved",
+	"web.common.deleted":     "Deleted",
+	"web.common.enabled":     "Enabled",
+	"web.common.disabled":    "Disabled",
+	"web.common.read_failed": "Read failed: ",
+	"web.settings.saved":     "Settings saved",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

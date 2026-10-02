@@ -34,6 +34,21 @@
     return fallback !== undefined ? fallback : key;
   }
 
+  // tf 取一条消息并替换 {name} 占位符。
+  //
+  // 拼接生成的文案（"运行中：tcp，监听端口 8080"）如果逐段取词，语序就被
+  // 写死在代码里了 —— 而语序恰恰是翻译时最常要动的东西。整句 + 占位符
+  // 把语序交回给译文。
+  function tf(key, fallback, params) {
+    var s = t(key, fallback);
+    if (params) {
+      Object.keys(params).forEach(function (k) {
+        s = s.split('{' + k + '}').join(params[k]);
+      });
+    }
+    return s;
+  }
+
   // applyI18n 把静态 DOM 里的标记替换掉。
   //
   //   data-i18n        纯文本 → textContent
@@ -92,6 +107,7 @@
 
   window.iscI18n = {
     t: t,
+    tf: tf,
     apply: applyI18n,
     ready: ready
   };

@@ -146,6 +146,64 @@ var consoleMessagesZh = map[string]string{
 	"web.raw.l_path":      "路径",
 	"web.raw.l_body":      "请求体（JSON，可留空）",
 
+	// --- 由 JS 渲染的内容（panels.js）---
+	//
+	// 这一批走 t() / tf() 而不是 data-i18n 属性：它们是拼接生成的 HTML，
+	// 页面上没有对应的静态元素。第二个参数是**兜底** —— 与 index.html
+	// 不同，这些字符串只在这里出现一次，没有第二个来源。
+	"web.px.err_state":      "无法读取代理状态",
+	"web.px.not_running":    "未运行",
+	"web.px.empty":          "还没有转发规则。",
+	"web.px.edit_rule":      "编辑规则",
+	"web.px.new_rule":       "新增规则",
+	"web.px.l_domains":      "域名（每行一个）",
+	"web.px.l_upstream":     "上游地址",
+	"web.px.hint_private":   "只允许本机与内网地址。允许公网地址会让这个功能变成一个<strong>开放代理</strong>。",
+	"web.px.l_tls":          "为此域名提供 HTTPS",
+	"web.px.need_domain":    "至少填一个域名",
+	"web.px.need_upstream":  "请填上游地址",
+	"web.px.confirm_delete": "确定删除这条规则？",
+
+	"web.cert.empty":         "还没有任何证书。",
+	"web.cert.empty_hint":    "为一条路由启用 HTTPS 之后，内核会自动申请证书。",
+	"web.cert.covers":        "覆盖：",
+	"web.cert.needs_renewal": "需要续期：",
+	"web.cert.last_error":    "上次失败：",
+	"web.cert.checking":      "正在检查并续期，可能需要一两分钟…",
+
+	"web.nt.empty":          "还没有配置任何通道。",
+	"web.nt.empty_hint":     "（日志通道始终可用，通知会出现在事件流里。）",
+	"web.nt.edit":           "编辑通道",
+	"web.nt.kind_log":       "日志",
+	"web.nt.l_url":          "目标地址",
+	"web.nt.l_severity":     "最低级别",
+	"web.nt.l_template":     "请求体模板（留空用默认 JSON）",
+	"web.nt.no_deliveries":  "还没有投递记录。",
+	"web.nt.need_name":      "请填名称",
+	"web.nt.confirm_delete": "确定删除这个通道？",
+
+	"web.th.domain":   "域名",
+	"web.th.upstream": "上游",
+	"web.th.name":     "名称",
+	"web.th.kind":     "类型",
+	"web.th.target":   "目标",
+	"web.th.level":    "级别",
+	"web.th.status":   "状态",
+	"web.th.time":     "时间",
+	"web.th.channel":  "通道",
+	"web.th.result":   "结果",
+
+	"web.common.edit":        "编辑",
+	"web.common.delete":      "删除",
+	"web.common.save":        "保存",
+	"web.common.cancel":      "取消",
+	"web.common.saved":       "已保存",
+	"web.common.deleted":     "已删除",
+	"web.common.enabled":     "启用",
+	"web.common.disabled":    "停用",
+	"web.common.read_failed": "读取失败：",
+	"web.settings.saved":     "设置已保存",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }
