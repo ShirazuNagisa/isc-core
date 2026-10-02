@@ -156,6 +156,9 @@ var messagesZh = map[string]string{
 	// --- 反向代理 ---
 	"proxy.invalid_routes": "转发规则不合法",
 
+	// --- 证书 ---
+	"cert.no_tls_routes": "还没有配置启用 HTTPS 的路由，无处可用证书",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

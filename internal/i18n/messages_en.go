@@ -155,6 +155,9 @@ var messagesEn = map[string]string{
 	// --- reverse proxy ---
 	"proxy.invalid_routes": "The forwarding rules are invalid",
 
+	// --- certificates ---
+	"cert.no_tls_routes": "No HTTPS routes are configured yet, so no certificate is needed",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

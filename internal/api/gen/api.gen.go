@@ -504,6 +504,34 @@ type Capabilities struct {
 	Transport      ImplState `json:"transport"`
 }
 
+// CertList defines model for CertList.
+type CertList struct {
+	Items []CertStatus `json:"items"`
+}
+
+// CertStatus defines model for CertStatus.
+type CertStatus struct {
+	Domains *[]string `json:"domains,omitempty"`
+
+	// Error 最近一次签发失败的原因。
+	Error     *string    `json:"error,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	IssuedAt  *time.Time `json:"issued_at,omitempty"`
+
+	// Name 证书在存储里的名字（通常是主域名）。
+	Name       string `json:"name"`
+	NeedsRenew bool   `json:"needs_renew"`
+
+	// Reason 为什么需要续期。
+	Reason *string `json:"reason,omitempty"`
+
+	// Staging 是否来自 ACME 测试环境。
+	//
+	// 必须暴露出来：测试环境签发的证书**不被浏览器信任**，
+	// 而用户在界面上只会看到"证书无效"。
+	Staging *bool `json:"staging,omitempty"`
+}
+
 // ChangeDiffLine defines model for ChangeDiffLine.
 type ChangeDiffLine struct {
 	Op   ChangeDiffLineOp `json:"op"`
@@ -1519,6 +1547,12 @@ type ServerInterface interface {
 	// ListAudit 查询审计日志
 	// (GET /v1/audit)
 	ListAudit(w http.ResponseWriter, r *http.Request, params ListAuditParams)
+	// ListCerts 列出证书与它们的续期状态
+	// (GET /v1/certs)
+	ListCerts(w http.ResponseWriter, r *http.Request)
+	// RenewCerts 立即检查并为全部 HTTPS 路由申请（或续期）证书
+	// (POST /v1/certs/renew)
+	RenewCerts(w http.ResponseWriter, r *http.Request)
 	// ListChanges 列出历史系统变更
 	// (GET /v1/changes)
 	ListChanges(w http.ResponseWriter, r *http.Request, params ListChangesParams)
@@ -1737,6 +1771,34 @@ func (siw *ServerInterfaceWrapper) ListAudit(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAudit(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCerts operation middleware
+func (siw *ServerInterfaceWrapper) ListCerts(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCerts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenewCerts operation middleware
+func (siw *ServerInterfaceWrapper) RenewCerts(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenewCerts(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3137,6 +3199,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/proxy/status", wrapper.GetProxyStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ListProxyRoutes)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ReplaceProxyRoutes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/certs", wrapper.ListCerts)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/certs/renew", wrapper.RenewCerts)
 
 	return m
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apispec "github.com/ShirazuNagisa/isc-core/api"
+	"github.com/ShirazuNagisa/isc-core/internal/acme"
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/change"
@@ -103,6 +104,21 @@ type Deps struct {
 	// 接口类型而不是具体的 acme 类型：api 包因此不需要知道
 	// ACME 的存在。
 	CertProvider proxy.CertProvider
+
+	// CertInvalidate 清空代理侧的证书缓存。
+	//
+	// 续期成功后必须调用：新证书已经写进磁盘，而缓存里还是旧的 ——
+	// 不清的话用户会看到"续期成功了但浏览器仍然报证书过期"。
+	CertInvalidate func()
+
+	// Certs 是证书管理器。
+	Certs *acme.Manager
+
+	// CertRequests 返回当前需要证书的域名集合。
+	//
+	// 做成回调而不是直接读路由表：api 包因此不需要知道
+	// "证书需要覆盖什么"是由路由决定的。
+	CertRequests func() []acme.CertRequest
 }
 
 // Server 实现 gen.ServerInterface。

@@ -480,6 +480,13 @@ func contactFor(email string) []string {
 	return []string{"mailto:" + email}
 }
 
+// CertName 由域名列表生成证书的文件名。
+//
+// 导出它是因为**接口层与守护进程都需要算出同一个名字** ——
+// 少了这个一致性，"域名 → 证书名"的映射就会与存储里的实际文件名
+// 对不上，而症状是"证书明明签出来了却说找不到"。
+func CertName(domains []string) string { return certName(domains) }
+
 // certName 由域名列表生成证书的文件名。
 func certName(domains []string) string {
 	if len(domains) == 0 {

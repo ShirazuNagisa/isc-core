@@ -41,7 +41,6 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/store"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
-	"strings"
 )
 
 // tokenBytes 是访问令牌的随机字节数。
@@ -366,6 +365,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Proxy:          d.proxyMgr,
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
 		CertProvider:   d.certProvider,
+		CertInvalidate: d.certProvider.Invalidate,
+		Certs:          d.certMgr,
+		CertRequests:   d.certRequests,
 	})
 
 	// 11. 建立传输通道
@@ -519,24 +521,9 @@ func (d *Daemon) applyCertRoutes() {
 	// 重建解析器：路由是整体替换的，映射也应当整体重建。
 	d.acmeResolver = acme.NewResolver()
 	for _, req := range d.certRequests() {
-		d.acmeResolver.Add(acmeName(req.Domains), req.Domains)
+		d.acmeResolver.Add(acme.CertName(req.Domains), req.Domains)
 	}
 	d.certProvider.SetResolve(d.acmeResolver.Lookup)
-}
-
-// acmeName 由域名列表算证书名。
-//
-// 与 acme 包内部的算法一致 —— 那里没导出，因为它是实现细节；
-// 这里需要它来建立"域名 → 证书名"的映射。
-func acmeName(domains []string) string {
-	if len(domains) == 0 {
-		return "cert"
-	}
-	base := strings.TrimPrefix(domains[0], "*.")
-	if len(domains) == 1 {
-		return base
-	}
-	return fmt.Sprintf("%s+%d", base, len(domains)-1)
 }
 
 // currentTargetIP 返回给用户用手机打开的那个地址。

@@ -51,6 +51,8 @@ tags:
     description: 系统变更记录与撤销
   - name: Verify
     description: 引导式外部验证
+  - name: Certs
+    description: TLS 证书的申请与续期
   - name: Settings
     description: 运行时设置
   - name: Audit
@@ -1322,6 +1324,52 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 证书
+  # ---------------------------------------------------------------------------
+
+  /v1/certs:
+    get:
+      tags: [Certs]
+      operationId: listCerts
+      summary: 列出证书与它们的续期状态
+      description: |
+        每张证书会带上 `needs_renew` 与 `reason` —— 后者解释**为什么**
+        需要续期。用户在界面上看到"需要续期"时的第一个问题就是"为什么"，
+        少了理由他只能猜。
+      responses:
+        "200":
+          description: 证书列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/certs/renew:
+    post:
+      tags: [Certs]
+      operationId: renewCerts
+      summary: 立即检查并为全部 HTTPS 路由申请（或续期）证书
+      description: |
+        正常情况下证书会在到期前自动续期。这个端点用于**手动触发**——
+        典型场景是刚加了一条 HTTPS 路由，想立刻拿到证书而不想等下一轮检查。
+
+        它是**幂等**的：已经有效的证书不会被重新签发（那会白白消耗
+        ACME 的配额）。
+      responses:
+        "200":
+          description: 续期后的证书列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2545,6 +2593,52 @@ components:
         tls:
           type: boolean
           description: 该域名是否需要 HTTPS。
+
+    # ------------------------------------------------------------------
+    # 证书
+    # ------------------------------------------------------------------
+
+    CertList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CertStatus"
+
+    CertStatus:
+      type: object
+      required: [name, needs_renew]
+      properties:
+        name:
+          type: string
+          description: 证书在存储里的名字（通常是主域名）。
+        domains:
+          type: array
+          items:
+            type: string
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        staging:
+          type: boolean
+          description: |
+            是否来自 ACME 测试环境。
+
+            必须暴露出来：测试环境签发的证书**不被浏览器信任**，
+            而用户在界面上只会看到"证书无效"。
+        needs_renew:
+          type: boolean
+        reason:
+          type: string
+          description: 为什么需要续期。
+        error:
+          type: string
+          description: 最近一次签发失败的原因。
 
     ChangeRecord:
       type: object

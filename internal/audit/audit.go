@@ -47,6 +47,8 @@ const (
 
 	ActionProxyRoutes = "proxy.routes"
 
+	ActionCertRenew = "cert.renew"
+
 	ActionRecordCreate = "dns_record.create"
 	ActionRecordUpdate = "dns_record.update"
 	ActionRecordDelete = "dns_record.delete"
