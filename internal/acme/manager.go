@@ -184,6 +184,12 @@ func NewManager(store *Store, newClient func(CertRequest) (*Client, error),
 	}
 }
 
+// SetBus 设置事件总线。
+//
+// 单独一步而不是构造参数：总线依赖设置（缓冲容量），而设置在本包
+// 之前就要加载完。与其把构造顺序扭成一个环，不如留一个显式的回填点。
+func (m *Manager) SetBus(bus *event.Bus) { m.bus = bus }
+
 // SetCheckInterval 覆盖检查间隔，供测试使用。
 func (m *Manager) SetCheckInterval(d time.Duration) {
 	if d > 0 {

@@ -14,9 +14,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/ShirazuNagisa/isc-core/internal/acme"
 	"github.com/ShirazuNagisa/isc-core/internal/api"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/change"
@@ -39,6 +41,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/store"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
+	"strings"
 )
 
 // tokenBytes 是访问令牌的随机字节数。
@@ -119,6 +122,11 @@ type Daemon struct {
 	reach        *reach.Registry
 	verifyMgr    *verify.Manager
 	proxyMgr     *proxy.Manager
+
+	certStore    *acme.Store
+	certMgr      *acme.Manager
+	certProvider *acme.StoreProvider
+	acmeResolver *acme.Resolver
 	// monitorCancel 停掉 IP 监控与调度器的后台 goroutine。
 	monitorCancel context.CancelFunc
 
@@ -264,12 +272,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.reach.Register(reach.NewIPv6Native(
 		d.bundle.IPMonitor, d.bundle.Firewall, d.bundle.Capabilities().Firewall))
 
-	// 反向代理。
+	// 反向代理与证书。
 	//
-	// 它默认**不启动**：反代监听在公网上，开启它是一个需要用户明确
+	// 反代默认**不启动**：它监听在公网上，开启是一个需要用户明确
 	// 决定的动作。默认开着会让"我只是想用动态解析"的用户莫名其妙地
 	// 多出一个对外的监听端口。
 	d.proxyMgr = proxy.NewManager(st.ProxyRoutes(), d.log)
+
+	// 证书存储与管理器。
+	//
+	// 证书放在数据目录下的 certs/：用户能直接检查（openssl x509 -text）、
+	// 能在出问题时手工替换、也能被其它工具复用。
+	d.certStore = acme.NewStore(filepath.Join(d.opts.Paths.Root(), "certs"))
+	d.acmeResolver = acme.NewResolver()
+	d.certProvider = acme.NewStoreProvider(d.certStore, d.acmeResolver.Lookup, d.log)
+	d.certMgr = acme.NewManager(d.certStore, d.newACMEClient, nil, d.log) // bus 稍后设置
+	d.certMgr.SetEmail(settingsSvc.Get().ACMEEmail)
 
 	// 引导式外部验证。
 	//
@@ -298,6 +316,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 变更执行器也要总线：变更的结果（成功 / 失败 / 已撤销）是
 	// 控制台上最需要实时看到的事件之一。
 	d.changeRunner.SetBus(d.bus)
+
+	// 证书管理器也要总线：签发与续期的结果应当实时推到控制台。
+	d.certMgr.SetBus(d.bus)
 
 	// 登记各变更类型的撤销器。
 	//
@@ -344,6 +365,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Verify:         d.verifyMgr,
 		Proxy:          d.proxyMgr,
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
+		CertProvider:   d.certProvider,
 	})
 
 	// 11. 建立传输通道
@@ -392,6 +414,26 @@ func (d *Daemon) startProxy(ctx context.Context) {
 		return
 	}
 
+	// 同步一次证书路由映射，再决定用明文还是 HTTPS。
+	d.applyCertRoutes()
+
+	if s.ProxyTLS {
+		// HTTPS：证书由 StoreProvider 在握手时按 SNI 提供。
+		//
+		// 先签一次证书。签不出来时**不阻断启动** —— 代理会以
+		// "没有证书可用"的状态运行，而用户需要界面可用才能去改配置。
+		d.ensureCerts(ctx)
+
+		if err := d.proxyMgr.ServeTLS(ctx, s.ProxyPort, proxy.TLSOptions{
+			Provider: d.certProvider,
+		}); err != nil {
+			d.log.Error("反向代理（HTTPS）启动失败",
+				"port", s.ProxyPort, "err", err)
+			return
+		}
+		return
+	}
+
 	if err := d.proxyMgr.Start(ctx, s.ProxyPort); err != nil {
 		// 启动失败**不阻断内核**：动态解析等其它功能仍然可用，
 		// 而用户需要界面可用才能去改端口。
@@ -401,6 +443,100 @@ func (d *Daemon) startProxy(ctx context.Context) {
 		d.log.Error("反向代理启动失败", "port", s.ProxyPort, "err", err)
 		return
 	}
+}
+
+// newACMEClient 按证书请求构造 ACME 客户端。
+//
+// 每次现构造而不是持有一个：DNS-01 用的凭据取决于当前设置，
+// 而用户可能中途换了凭据 —— 持有旧的会让签发一直用错凭据。
+func (d *Daemon) newACMEClient(req acme.CertRequest) (*acme.Client, error) {
+	dynLookup := func(name string) (dns.Provider, bool) {
+		return d.registry.Lookup(name)
+	}
+	solver := acme.NewDNS01Provider(
+		credentialResolver{svc: d.credentials}, dynLookup, req.CredentialID)
+
+	return acme.NewClient(solver, d.certStore), nil
+}
+
+// certRequests 返回当前需要证书的域名集合。
+//
+// 它来自**启用了 HTTPS 的代理路由** —— 那是用户表达"这些域名要走
+// HTTPS"的唯一地方，因此证书需要覆盖什么由它决定。
+func (d *Daemon) certRequests() []acme.CertRequest {
+	if d.proxyMgr == nil || d.settings == nil {
+		return nil
+	}
+	credID := d.settings.Get().ACMEDNSCredentialID
+	if credID == "" {
+		return nil
+	}
+
+	routes := d.proxyMgr.Routes()
+	var out []acme.CertRequest
+	for _, r := range routes {
+		if !r.TLS || len(r.Hosts) == 0 {
+			continue
+		}
+		out = append(out, acme.CertRequest{
+			Domains:      r.Hosts,
+			CredentialID: credID,
+		})
+	}
+	return out
+}
+
+// ensureCerts 为当前全部 TLS 路由申请（或续期）证书。
+//
+// 单个域名失败不中断其余的：一个域名配错了不该让其它域名也拿不到证书。
+func (d *Daemon) ensureCerts(ctx context.Context) {
+	if d.certMgr == nil {
+		return
+	}
+	for _, req := range d.certRequests() {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, issued, err := d.certMgr.Ensure(ctx, req); err != nil {
+			d.log.Error("证书签发失败", "domains", req.Domains, "err", err)
+		} else if issued {
+			// 新证书已经写进磁盘，而缓存里还是旧的 —— 不清的话
+			// 用户会看到"续期成功了但浏览器仍然报证书过期"。
+			d.certProvider.Invalidate()
+		}
+	}
+}
+
+// applyCertRoutes 把 TLS 路由同步到证书解析器。
+//
+// 映射变了意味着"哪个域名用哪张证书"变了，因此必须同时清掉
+// StoreProvider 的缓存 —— 不清会让旧映射继续生效到缓存过期。
+func (d *Daemon) applyCertRoutes() {
+	if d.acmeResolver == nil {
+		return
+	}
+
+	// 重建解析器：路由是整体替换的，映射也应当整体重建。
+	d.acmeResolver = acme.NewResolver()
+	for _, req := range d.certRequests() {
+		d.acmeResolver.Add(acmeName(req.Domains), req.Domains)
+	}
+	d.certProvider.SetResolve(d.acmeResolver.Lookup)
+}
+
+// acmeName 由域名列表算证书名。
+//
+// 与 acme 包内部的算法一致 —— 那里没导出，因为它是实现细节；
+// 这里需要它来建立"域名 → 证书名"的映射。
+func acmeName(domains []string) string {
+	if len(domains) == 0 {
+		return "cert"
+	}
+	base := strings.TrimPrefix(domains[0], "*.")
+	if len(domains) == 1 {
+		return base
+	}
+	return fmt.Sprintf("%s+%d", base, len(domains)-1)
 }
 
 // currentTargetIP 返回给用户用手机打开的那个地址。
@@ -531,6 +667,16 @@ func (d *Daemon) startBackground(parent context.Context) {
 	}()
 
 	go d.watchInterfaces(ctx)
+
+	// 证书的定期检查与续期。
+	//
+	// 它一直在跑（不管代理是否开启）：证书可能在代理关闭期间进入
+	// 续期窗口，而用户下次打开代理时不该看到一张过期的证书。
+	go func() {
+		if err := d.certMgr.Run(ctx, d.certRequests); err != nil {
+			d.log.Error("证书续期循环退出", "err", err)
+		}
+	}()
 
 	// 反向代理：只在设置里开启时才启动。
 	//

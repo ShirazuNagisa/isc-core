@@ -27,6 +27,12 @@ type Status struct {
 	Running bool `json:"running"`
 	// Port 是当前监听的端口；未运行时为 0。
 	Port int `json:"port"`
+	// TLS 表示当前是否以 HTTPS 提供服务。
+	//
+	// 必须暴露出来：设置里改了 TLS 开关之后，调用方需要据此判断
+	// "要不要重启监听"。不判断的话，用户打开 HTTPS 开关会看到
+	// "什么都没发生" —— 代理还在用明文跑。
+	TLS bool `json:"tls"`
 	// Routes 是当前生效的路由数。
 	Routes int `json:"routes"`
 	// Error 是最近一次启动失败的原因。
@@ -52,6 +58,7 @@ type Manager struct {
 	httpSrv *http.Server
 	ln      net.Listener
 	port    int
+	tls     bool
 	lastErr error
 }
 
@@ -120,6 +127,7 @@ func (m *Manager) startLocked(ctx context.Context, port int) error {
 		}
 	}()
 
+	m.tls = false
 	m.log.Info("反向代理已启动", "port", port, "routes", len(srv.Routes()))
 	return nil
 }
@@ -220,6 +228,7 @@ func (m *Manager) stopLocked() {
 	m.server = nil
 	m.ln = nil
 	m.port = 0
+	m.tls = false
 
 	m.log.Info("反向代理已停止", "port", port)
 }
@@ -320,12 +329,28 @@ func normalizeHost(h string) string {
 	return strings.ToLower(strings.TrimSpace(h))
 }
 
+// Routes 返回当前生效的路由。
+//
+// 读的是**内存里那份**（当前生效的），而不是存储 —— 证书管理需要
+// 知道"现在真的在服务哪些域名"，而存储里的可能与生效的不一致
+// （保存成功但热更新失败时）。
+func (m *Manager) Routes() []Route {
+	m.mu.Lock()
+	srv := m.server
+	m.mu.Unlock()
+
+	if srv == nil {
+		return nil
+	}
+	return srv.Routes()
+}
+
 // Status 返回当前状态。
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	st := Status{Port: m.port, Running: m.httpSrv != nil}
+	st := Status{Port: m.port, Running: m.httpSrv != nil, TLS: m.tls}
 	if m.server != nil {
 		st.Routes = len(m.server.Routes())
 	}

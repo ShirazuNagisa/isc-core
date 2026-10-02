@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
+	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 )
 
@@ -17,33 +19,31 @@ func (s *Server) GetSettings(w http.ResponseWriter, _ *http.Request) {
 
 // UpdateSettings 实现 PATCH /v1/settings。
 func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Lang             *string `json:"lang"`
-		LogLevel         *string `json:"log_level"`
-		EventBufferSize  *int    `json:"event_buffer_size"`
-		NotifyOnIPChange *bool   `json:"notify_on_ip_change"`
-		ProxyEnabled     *bool   `json:"proxy_enabled"`
-		ProxyPort        *int    `json:"proxy_port"`
-	}
+	// **直接解码进 settings.Patch**，不在这里再声明一个匿名结构体。
+	//
+	// # 为什么这一点很重要
+	//
+	// 早先这里有一份与 settings.Patch 逐字段重复的匿名结构体，而它
+	// 已经被漏掉过两次：给 Settings 与 Patch 都加了新字段，却忘了
+	// 往这里也加一个 —— 于是 JSON 里的未知字段被**静默忽略**，
+	// 接口返回 200 而值根本没变。用户看到的是"点开开关什么都没发生"，
+	// 而编译、测试、日志都不会有任何提示。
+	//
+	// 复用一个结构体就从根本上消除了这类疏漏：没有第二份需要同步的
+	// 字段列表。
+	var patch settings.Patch
 	if r.Body == nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
 			CodeInvalidRequest, "error.invalid_request", "请求体为空")
 		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		writeProblem(w, r, s.Log, http.StatusBadRequest,
 			CodeInvalidRequest, "error.invalid_request", err.Error())
 		return
 	}
 
-	next, err := s.Settings.Update(r.Context(), settings.Patch{
-		Lang:             body.Lang,
-		LogLevel:         body.LogLevel,
-		EventBufferSize:  body.EventBufferSize,
-		NotifyOnIPChange: body.NotifyOnIPChange,
-		ProxyEnabled:     body.ProxyEnabled,
-		ProxyPort:        body.ProxyPort,
-	})
+	next, err := s.Settings.Update(r.Context(), patch)
 	if err != nil {
 		s.auditFailure(r, audit.ActionSettingsUpdate, "settings", err)
 		// settings 的校验错误都是用户输入问题，返回 400 而不是 500。
@@ -79,28 +79,52 @@ func (s *Server) applyProxySettings(r *http.Request, next settings.Settings) {
 		_ = s.Proxy.Stop(r.Context())
 
 	case next.ProxyEnabled && !status.Running:
-		if err := s.Proxy.Start(r.Context(), next.ProxyPort); err != nil {
-			s.Log.Error("按设置启动反向代理失败",
-				"port", next.ProxyPort, "err", err)
-		}
+		s.startProxyWithSettings(r.Context(), next)
 
-	case next.ProxyEnabled && status.Running && status.Port != next.ProxyPort:
-		// 端口变了：Start 内部会先停掉旧的再按新端口监听。
-		if err := s.Proxy.Start(r.Context(), next.ProxyPort); err != nil {
-			s.Log.Error("按新端口重启反向代理失败",
-				"port", next.ProxyPort, "err", err)
-		}
+	case next.ProxyEnabled && status.Running &&
+		(status.Port != next.ProxyPort || status.TLS != next.ProxyTLS):
+		// 端口或 TLS 模式变了：需要重启监听。
+		//
+		// **TLS 这一项很容易漏**：早先只比较端口，于是用户在已经
+		// 运行的代理上打开 HTTPS 开关时"什么都没发生" —— 代理还在
+		// 用明文跑，而界面上开关明明是打开的。
+		s.startProxyWithSettings(r.Context(), next)
+	}
+}
+
+// startProxyWithSettings 按设置启动或重启代理监听。
+func (s *Server) startProxyWithSettings(ctx context.Context, next settings.Settings) {
+	var err error
+
+	if next.ProxyTLS {
+		err = s.Proxy.ServeTLS(ctx, next.ProxyPort, proxy.TLSOptions{
+			Provider: s.CertProvider,
+		})
+	} else {
+		err = s.Proxy.Start(ctx, next.ProxyPort)
+	}
+
+	if err != nil {
+		// 启动失败**不让整个设置更新失败**：其它设置（语言、日志级别）
+		// 已经生效了，把它们一起回滚是更糟的选择。错误留在代理状态里，
+		// 用户能在界面上看到"为什么没起来"。
+		s.Log.Error("按设置启动反向代理失败",
+			"port", next.ProxyPort, "tls", next.ProxyTLS, "err", err)
 	}
 }
 
 func toGenSettings(s settings.Settings) gen.Settings {
 	return gen.Settings{
-		Lang:             gen.SettingsLang(s.Lang),
-		LogLevel:         gen.SettingsLogLevel(s.LogLevel),
-		EventBufferSize:  &s.EventBufferSize,
-		NotifyOnIpChange: &s.NotifyOnIPChange,
-		ProxyEnabled:     &s.ProxyEnabled,
-		ProxyPort:        &s.ProxyPort,
+		Lang:                gen.SettingsLang(s.Lang),
+		LogLevel:            gen.SettingsLogLevel(s.LogLevel),
+		EventBufferSize:     &s.EventBufferSize,
+		NotifyOnIpChange:    &s.NotifyOnIPChange,
+		ProxyEnabled:        &s.ProxyEnabled,
+		ProxyPort:           &s.ProxyPort,
+		ProxyTls:            &s.ProxyTLS,
+		AcmeEmail:           &s.ACMEEmail,
+		AcmeDirectory:       &s.ACMEDirectory,
+		AcmeDnsCredentialId: &s.ACMEDNSCredentialID,
 	}
 }
 

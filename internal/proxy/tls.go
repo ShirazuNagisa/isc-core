@@ -174,6 +174,7 @@ func (m *Manager) ServeTLS(ctx context.Context, port int, opts TLSOptions) error
 		IdleTimeout:       120 * time.Second,
 	}
 	m.httpSrv = httpSrv
+	m.tls = true
 
 	go func() {
 		// 传空的证书路径：证书由 TLSConfig.GetCertificate 在握手时

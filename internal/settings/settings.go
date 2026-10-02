@@ -21,6 +21,10 @@ const (
 	KeyNotifyOnIPChange = "notify_on_ip_change"
 	KeyProxyEnabled     = "proxy_enabled"
 	KeyProxyPort        = "proxy_port"
+	KeyProxyTLS         = "proxy_tls"
+	KeyACMEEmail        = "acme_email"
+	KeyACMEDirectory    = "acme_directory"
+	KeyACMEDNSCred      = "acme_dns_credential_id"
 )
 
 // 允许的取值。
@@ -66,6 +70,31 @@ type Settings struct {
 	// 对外的监听端口。
 	ProxyEnabled bool `json:"proxy_enabled"`
 
+	// ProxyTLS 表示反向代理是否用 HTTPS 提供服务。
+	//
+	// 开启它需要同时配置 ACME（邮箱 + DNS-01 凭据），否则证书签不出来，
+	// 而症状是"浏览器报证书错误"。
+	ProxyTLS bool `json:"proxy_tls"`
+
+	// ACMEEmail 是 ACME 账户的联系邮箱。
+	//
+	// 它很重要：证书快要过期而自动续期失败时，Let's Encrypt 会用它
+	// 来提醒。不填会让"续期静默失败"变成"站点某天突然打不开"。
+	ACMEEmail string `json:"acme_email"`
+
+	// ACMEDirectory 是 ACME 目录地址。
+	//
+	// 留空用生产环境。测试环境（staging）签发的证书**不被浏览器信任**，
+	// 但配额宽松得多 —— 首次配置时值得用它试一遍，因为生产环境的
+	// 失败配额是每小时 5 次，调配置很容易把它用光。
+	ACMEDirectory string `json:"acme_directory"`
+
+	// ACMEDNSCredentialID 是做 DNS-01 校验用的凭据。
+	//
+	// 该凭据对应的服务商必须支持完整的记录管理（Tier-1 六家之一）——
+	// DNS-01 需要在用户的 DNS 里创建一条 TXT 记录。
+	ACMEDNSCredentialID string `json:"acme_dns_credential_id"`
+
 	// ProxyPort 是反代监听的端口。
 	//
 	// 默认 443 而不是 8080：用户访问的地址里不该带端口号 ——
@@ -83,6 +112,8 @@ func Default() Settings {
 		NotifyOnIPChange: true,
 		ProxyEnabled:     false,
 		ProxyPort:        DefaultProxyPort,
+		ProxyTLS:         false,
+		ACMEDirectory:    "", // 空 = 生产环境
 	}
 }
 
@@ -97,12 +128,16 @@ type Store interface {
 // 用指针字段区分"没提交"与"提交了零值"—— 若用值类型，
 // 客户端想把 NotifyOnIPChange 设为 false 就会被当成"没改"。
 type Patch struct {
-	Lang             *string `json:"lang,omitempty"`
-	LogLevel         *string `json:"log_level,omitempty"`
-	EventBufferSize  *int    `json:"event_buffer_size,omitempty"`
-	NotifyOnIPChange *bool   `json:"notify_on_ip_change,omitempty"`
-	ProxyEnabled     *bool   `json:"proxy_enabled,omitempty"`
-	ProxyPort        *int    `json:"proxy_port,omitempty"`
+	Lang                *string `json:"lang,omitempty"`
+	LogLevel            *string `json:"log_level,omitempty"`
+	EventBufferSize     *int    `json:"event_buffer_size,omitempty"`
+	NotifyOnIPChange    *bool   `json:"notify_on_ip_change,omitempty"`
+	ProxyEnabled        *bool   `json:"proxy_enabled,omitempty"`
+	ProxyPort           *int    `json:"proxy_port,omitempty"`
+	ProxyTLS            *bool   `json:"proxy_tls,omitempty"`
+	ACMEEmail           *string `json:"acme_email,omitempty"`
+	ACMEDirectory       *string `json:"acme_directory,omitempty"`
+	ACMEDNSCredentialID *string `json:"acme_dns_credential_id,omitempty"`
 }
 
 // Service 提供设置的读写。
@@ -166,6 +201,18 @@ func (s *Service) Update(ctx context.Context, p Patch) (Settings, error) {
 	if p.ProxyPort != nil {
 		next.ProxyPort = *p.ProxyPort
 	}
+	if p.ProxyTLS != nil {
+		next.ProxyTLS = *p.ProxyTLS
+	}
+	if p.ACMEEmail != nil {
+		next.ACMEEmail = *p.ACMEEmail
+	}
+	if p.ACMEDirectory != nil {
+		next.ACMEDirectory = *p.ACMEDirectory
+	}
+	if p.ACMEDNSCredentialID != nil {
+		next.ACMEDNSCredentialID = *p.ACMEDNSCredentialID
+	}
 	if err := next.Validate(); err != nil {
 		s.mu.Unlock()
 		return s.current, err
@@ -215,6 +262,16 @@ func (s Settings) Validate() error {
 		// 静默补一个默认值会让用户以为自己选了端口。
 		return errors.New("settings: 开启反向代理时必须指定监听端口")
 	}
+	if s.ProxyTLS {
+		// HTTPS 必须有证书来源，而签证书需要这两样。
+		//
+		// 在这里挡住而不是等签发失败：后者的症状是"浏览器报证书错误"，
+		// 而用户完全不知道是设置少填了一项。
+		if s.ACMEDNSCredentialID == "" {
+			return errors.New(
+				"settings: 启用 HTTPS 前必须先指定用于 DNS-01 校验的凭据")
+		}
+	}
 
 	return nil
 }
@@ -262,6 +319,22 @@ func merge(base Settings, kv map[string]string) Settings {
 			base.ProxyPort = n
 		}
 	}
+	if v, ok := kv[KeyProxyTLS]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.ProxyTLS = b
+		}
+	}
+	// 邮箱与目录地址直接取用，不做格式校验 ——
+	// 校验交给 ACME 服务器，它的错误信息比我们的猜测准确。
+	if v, ok := kv[KeyACMEEmail]; ok {
+		base.ACMEEmail = v
+	}
+	if v, ok := kv[KeyACMEDirectory]; ok {
+		base.ACMEDirectory = v
+	}
+	if v, ok := kv[KeyACMEDNSCred]; ok {
+		base.ACMEDNSCredentialID = v
+	}
 	return base
 }
 
@@ -274,5 +347,9 @@ func encode(s Settings) map[string]string {
 		KeyNotifyOnIPChange: strconv.FormatBool(s.NotifyOnIPChange),
 		KeyProxyEnabled:     strconv.FormatBool(s.ProxyEnabled),
 		KeyProxyPort:        strconv.Itoa(s.ProxyPort),
+		KeyProxyTLS:         strconv.FormatBool(s.ProxyTLS),
+		KeyACMEEmail:        s.ACMEEmail,
+		KeyACMEDirectory:    s.ACMEDirectory,
+		KeyACMEDNSCred:      s.ACMEDNSCredentialID,
 	}
 }

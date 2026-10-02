@@ -97,6 +97,12 @@ type Deps struct {
 
 	// ProxyRoutes 是代理路由的持久化仓储。
 	ProxyRoutes proxy.RouteStore
+
+	// CertProvider 按 SNI 提供 TLS 证书。
+	//
+	// 接口类型而不是具体的 acme 类型：api 包因此不需要知道
+	// ACME 的存在。
+	CertProvider proxy.CertProvider
 }
 
 // Server 实现 gen.ServerInterface。

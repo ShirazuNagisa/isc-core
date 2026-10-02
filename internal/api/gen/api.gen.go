@@ -1205,6 +1205,25 @@ type RecordList struct {
 
 // Settings defines model for Settings.
 type Settings struct {
+	// AcmeDirectory ACME 目录地址。留空用生产环境。
+	//
+	// 测试环境（staging）签发的证书**不被浏览器信任**，但配额宽松
+	// 得多 —— 首次配置时值得用它试一遍，因为生产环境的失败配额是
+	// 每小时 5 次，调配置很容易把它用光。
+	AcmeDirectory *string `json:"acme_directory,omitempty"`
+
+	// AcmeDnsCredentialId 做 DNS-01 校验用的凭据 ID。
+	//
+	// 该凭据对应的服务商必须支持完整的记录管理（Tier-1 六家之一）——
+	// DNS-01 需要在你的 DNS 里创建一条 TXT 记录。
+	AcmeDnsCredentialId *string `json:"acme_dns_credential_id,omitempty"`
+
+	// AcmeEmail ACME 账户的联系邮箱。
+	//
+	// 它很重要：证书快要过期而自动续期失败时，CA 会用它来提醒。
+	// 不填会让"续期静默失败"变成"站点某天突然打不开"。
+	AcmeEmail *string `json:"acme_email,omitempty"`
+
 	// EventBufferSize 事件环形缓冲容量。调大可延长断线补发的覆盖窗口。
 	EventBufferSize *int             `json:"event_buffer_size,omitempty"`
 	Lang            SettingsLang     `json:"lang"`
@@ -1225,6 +1244,12 @@ type Settings struct {
 	// 默认 443 而不是 8080：用户访问的地址里不该带端口号，
 	// 而 443 是浏览器默认补的那个。
 	ProxyPort *int `json:"proxy_port,omitempty"`
+
+	// ProxyTls 反向代理是否用 HTTPS 提供服务。
+	//
+	// 开启它需要同时配置 ACME（DNS-01 凭据），否则证书签不出来，
+	// 而症状是"浏览器报证书错误"。
+	ProxyTls *bool `json:"proxy_tls,omitempty"`
 }
 
 // SettingsLang defines model for Settings.Lang.
@@ -1235,12 +1260,16 @@ type SettingsLogLevel string
 
 // SettingsPatch 只提交需要修改的字段。
 type SettingsPatch struct {
-	EventBufferSize  *int                   `json:"event_buffer_size,omitempty"`
-	Lang             *SettingsPatchLang     `json:"lang,omitempty"`
-	LogLevel         *SettingsPatchLogLevel `json:"log_level,omitempty"`
-	NotifyOnIpChange *bool                  `json:"notify_on_ip_change,omitempty"`
-	ProxyEnabled     *bool                  `json:"proxy_enabled,omitempty"`
-	ProxyPort        *int                   `json:"proxy_port,omitempty"`
+	AcmeDirectory       *string                `json:"acme_directory,omitempty"`
+	AcmeDnsCredentialId *string                `json:"acme_dns_credential_id,omitempty"`
+	AcmeEmail           *string                `json:"acme_email,omitempty"`
+	EventBufferSize     *int                   `json:"event_buffer_size,omitempty"`
+	Lang                *SettingsPatchLang     `json:"lang,omitempty"`
+	LogLevel            *SettingsPatchLogLevel `json:"log_level,omitempty"`
+	NotifyOnIpChange    *bool                  `json:"notify_on_ip_change,omitempty"`
+	ProxyEnabled        *bool                  `json:"proxy_enabled,omitempty"`
+	ProxyPort           *int                   `json:"proxy_port,omitempty"`
+	ProxyTls            *bool                  `json:"proxy_tls,omitempty"`
 }
 
 // SettingsPatchLang defines model for SettingsPatch.Lang.
