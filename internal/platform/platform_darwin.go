@@ -21,8 +21,7 @@ import "runtime"
 // dataRoot 是内核的数据根目录：密钥存储需要它来决定文件落点。
 func Current(dataRoot string) *Bundle {
 	return &Bundle{
-		Firewall: newUnsupportedFirewall(
-			"pf 后端将在 M3 实现；当前降级为引导模式"),
+		Firewall: newPfFirewall(),
 		ServiceManager: newUnsupportedServiceManager(
 			"launchd 后端将在 M5 实现"),
 		IPMonitor:     newPollingIPMonitor(),

@@ -514,14 +514,6 @@ func (w *windowsFirewall) Rollback(ctx context.Context, ch Change) error {
 	return nil
 }
 
-func ruleNames(rules []Rule) []string {
-	out := make([]string, 0, len(rules))
-	for _, r := range rules {
-		out = append(out, r.Name)
-	}
-	return out
-}
-
 // ---------------------------------------------------------------------------
 // 脚本生成
 // ---------------------------------------------------------------------------
@@ -642,9 +634,4 @@ func parseRuleName(name string) (proto string, port uint16, ok bool) {
 // 而"以为上游校验过所以这里不用管"正是注入漏洞的经典成因。
 func escapePS(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
-}
-
-// newChangeID 生成变更 ID。
-func newChangeID(kind string) string {
-	return fmt.Sprintf("%s-%d", kind, time.Now().UTC().UnixNano())
 }

@@ -162,7 +162,7 @@ weight 丢失），并且都没有粉饰。这些已全部进 `docs/PROVIDER-MAT
 | IPv6 直连插件 | ✅ | 分层探测：地址 → 前缀 → 防火墙后端 → 上游可达性 |
 | `isc doctor` | ✅ | 真机验证；按作用域分组输出，「该怎么办」单列 |
 | 可达性 API | ✅ | `/v1/reach/providers`、`/v1/reach/providers/{name}/probe`、`/v1/changes` |
-| 三平台防火墙后端 | 🔶 | Windows ✅（PowerShell NetSecurity）；nftables / pf 待做 |
+| 三平台防火墙后端 | ✅ | Windows（NetSecurity）/ Linux（nftables）/ macOS（pf）；**后两者未经真机验证** |
 | 引导式外部验证 | ✅ | `internal/verify/` + `/v1/verify/sessions` + `isc verify`；真机验证 |
 | 变更闭环（预览→应用→撤销） | ✅ | `/v1/reach/providers/{name}/plan`、`/v1/changes/{id}/apply`、`/v1/changes/{id}/rollback`、`isc expose` / `isc changes` / `isc rollback` |
 | 端口冲突检测 / 低端口绑定 | ✅ | `internal/reach/portcheck.go`；接入 Plan 的 Warnings / 拒绝 |
@@ -333,6 +333,81 @@ M3 验收标准的第 1、2 条因此无法满足。
 - 真机：无服务监听的端口 → 计划带警告；有服务监听（真起了一个
   TcpListener）→ 无警告；UDP → 如实报告"无法探测"。
 - 21 条单元测试（含 IPv6-only 监听、并发安全、上下文取消）。
+### M3-c2 Linux nftables 与 macOS pf 后端
+
+三平台防火墙后端至此齐全。**但要说清楚验证情况**：
+
+| | 实现 | 验证 |
+|---|---|---|
+| Windows | PowerShell NetSecurity | ✅ 真机（非管理员路径已验证；创建规则需管理员） |
+| Linux | nftables + `inet isc` 独立表 | ⚠️ 编译 + 纯逻辑测试；**无真机** |
+| macOS | pf + `/etc/pf.anchors/isc` | ⚠️ 同上；**无真机** |
+
+#### 两个后端的模型根本不同
+
+这个差异决定了后端怎么写：
+
+```
+nftables   增量。每条规则是一个对象，有内核分配的 handle，可以单独增删。
+pf         声明式。配置是一整份文本，pfctl 读进去之后整体替换。
+           规则没有身份，也没有 handle。
+```
+
+因此 pf 这边**没有"差集"这回事**：期望状态直接渲染成 anchor 全文，写进去、
+重载。代价是任何一次改动都会重载**全部**规则，而重载有可见的代价 ——
+所以 pf 后端会先比较文件内容，**没变就不重载**。
+
+而 nftables 那边刻意把**新增排在删除之前**（与直觉相反）：先删后加会让防火墙
+出现一个短暂的空窗，那些端口在两条命令之间是关闭的，对正在使用的连接来说是
+一次可观测的断开。先加后删的代价只是极短一瞬间可能同时存在新旧两条规则 ——
+那只会让某个端口多放行几毫秒，而不是把它关掉。
+
+#### 纯逻辑与平台调用分开——又一次证明是对的
+
+与 systemd / launchd 同样的做法：命令拼装、ruleset 解析、anchor 渲染、
+注入校验放在**没有构建标签**的文件里，只有"执行 nft / pfctl"是平台相关的。
+
+测试覆盖了那部分，而它是风险最集中的地方：命令拼装错了 nft 会报语法错误、
+JSON 解析取错一层就解析不到、换行符能越出配置行变成一条额外指令。
+
+**这个做法当场抓到两处真 bug**：
+
+`ruleNames` 与 `newChangeID` 定义在 `firewall_windows.go` 里，而那个文件带
+`//go:build windows` —— 于是它们**只在 Windows 上存在**。写 Linux 后端时
+才发现拿不到。
+
+同类问题紧接着又出现一次：`renderNftDiff` 定义在 `firewall_linux.go` 里，
+写 macOS 后端时编译失败。
+
+这类问题的表现很隐蔽：在开发机（Windows）上编译一切正常，而 CI 的 Linux
+构建才会失败。修法是把共用逻辑放进 `firewall_common.go`，并明确"共用逻辑
+必须有明确的落点，而不是碰巧和某个后端写在一起"。
+
+#### 几处刻意的设计
+
+- **用独立的表 / anchor，不碰用户的配置**。nftables 用 `inet isc` 表，
+  pf 用 `/etc/pf.anchors/isc`。卸载时整表删掉、或删掉 anchor 引入行即可，
+  不会与用户自己的规则混在一起。`AppendPfAnchor` **只追加**，从不重写
+  `/etc/pf.conf` —— 那里面可能有别人的配置。
+- **改 `/etc/pf.conf` 前先备份**。改坏了会让整个防火墙失效，而那时用户可能
+  连 SSH 都进不去（pf 管的就是入站连接）。备份失败不阻断，但会打印提示。
+- **先 `pfctl -n` 校验语法再加载**。一份语法错误的配置会让 `pfctl -f` 失败，
+  更糟的是**把已经在生效的规则全部清掉**。`-n` 只解析不加载，
+  把问题挡在造成影响之前。
+- **解析器容忍未知结构**。ruleset 里大部分规则不属于 ISC，形式五花八门；
+  解析器遇到不认识的结构必须**跳过而不是报错** —— 报错会让整个 Inspect
+  失败，而用户会看到"无法读取防火墙状态"，完全不知道问题出在别人的规则上。
+- **回滚是"重新计算"而不是"反向执行"**。中间可能有人手工改过规则、或者内核
+  重启过；重新计算对任何中间状态都成立，而反向执行只对"什么都没变"成立。
+
+#### 一处如实记录的降级
+
+pf 的 `Rollback` **恢复不出来源限制**。规则名编码了协议与端口，而来源地址
+没有（它不在名字里）。
+
+实际影响很小 —— IPv6 直连场景下通常不限制来源 —— 但如果用户当初配了来源
+限制，撤销之后的规则会变成"任意来源"。这是一个已知的降级，而不是一个
+被忽略的问题。
 ### M3-c Windows 防火墙后端
 
 **不用 `netsh`，用 PowerShell。** `netsh advfirewall firewall show rule`

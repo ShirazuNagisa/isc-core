@@ -13,7 +13,7 @@ import (
 //
 // M0 阶段大部分返回占位实现；随里程碑推进逐个替换：
 //
-//	Firewall       → M3  nftables（并探测 ufw / firewalld）
+//	Firewall       → 已实现（nftables，见 firewall_linux.go）（并探测 ufw / firewalld）
 //	ServiceManager → M5  systemd
 //	IPMonitor      → M2  netlink (RTM_NEWADDR / RTM_DELADDR)
 //	SecretStore    → 已实现（Secret Service，无会话时回退文件，见 secret_unix.go）
@@ -23,8 +23,7 @@ import (
 // dataRoot 是内核的数据根目录：密钥存储需要它来决定文件落点。
 func Current(dataRoot string) *Bundle {
 	return &Bundle{
-		Firewall: newUnsupportedFirewall(
-			"nftables/ufw 后端将在 M3 实现；当前降级为引导模式"),
+		Firewall: newNftablesFirewall(),
 		ServiceManager: newUnsupportedServiceManager(
 			"systemd 后端将在 M5 实现"),
 		IPMonitor:     newPollingIPMonitor(),
