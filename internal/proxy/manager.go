@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"net"
 	"net/http"
@@ -90,7 +91,7 @@ func (m *Manager) Server() *Server {
 // 期待的就是这个行为，而不是"端口没变所以什么也没发生"。
 func (m *Manager) Start(ctx context.Context, port int) error {
 	if port <= 0 || port > 65535 {
-		return fmt.Errorf("proxy: 监听端口 %d 不合法", port)
+		return fmt.Errorf(i18n.T("proxy.err.bad_port"), port)
 	}
 
 	m.mu.Lock()
@@ -183,8 +184,7 @@ func (m *Manager) prepareLocked(ctx context.Context, port int) (*Server, net.Lis
 	if err != nil {
 		m.lastErr = err
 		return nil, nil, fmt.Errorf(
-			"proxy: 无法监听端口 %d：%w"+
-				"（端口可能已被其它程序占用）", port, err)
+			i18n.T("proxy.err.listen"), port, err)
 	}
 
 	m.server = srv
@@ -243,12 +243,12 @@ func (m *Manager) Reload(ctx context.Context) error {
 	m.mu.Unlock()
 
 	if srv == nil {
-		return errors.New("proxy: 代理未在运行")
+		return errors.New(i18n.T("proxy.err.not_running"))
 	}
 
 	routes, err := m.store.List(ctx)
 	if err != nil {
-		return fmt.Errorf("proxy: 加载路由失败: %w", err)
+		return fmt.Errorf(i18n.T("proxy.err.load_routes"), err)
 	}
 	if err := srv.SetRoutes(routes); err != nil {
 		return err
@@ -314,9 +314,7 @@ func validateAll(routes []Route, selfPort int) error {
 			key := normalizeHost(h)
 			if existing, dup := seen[key]; dup {
 				return fmt.Errorf(
-					"proxy: 域名 %s 被两条路由同时使用（%s 与 %s）—— "+
-						"同一个域名只能指向一个上游，"+
-						"否则请求打到哪一条取决于不可见的顺序",
+					i18n.T("proxy.err.dup_domain"),
 					h, existing, r.ID)
 			}
 			seen[key] = r.ID

@@ -3,6 +3,7 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"net"
 	"net/http"
@@ -48,10 +49,10 @@ type Route struct {
 // Validate 检查一条路由是否可用。
 func (r Route) Validate(selfPort int) error {
 	if strings.TrimSpace(r.ID) == "" {
-		return errors.New("proxy: 路由缺少 ID")
+		return errors.New(i18n.T("proxy.err.no_route_id"))
 	}
 	if len(r.Hosts) == 0 {
-		return errors.New("proxy: 路由至少要指定一个域名")
+		return errors.New(i18n.T("proxy.err.no_domain"))
 	}
 	for _, h := range r.Hosts {
 		if err := validateHostPattern(h); err != nil {
@@ -72,8 +73,7 @@ func (r Route) Validate(selfPort int) error {
 	// 之间没有任何提示。
 	if selfPort > 0 && pointsToSelf(normalized, selfPort) {
 		return fmt.Errorf(
-			"proxy: 上游指向了代理自己（端口 %d）—— 那会造成无限循环，"+
-				"请填写实际提供服务的那个端口", selfPort)
+			i18n.T("proxy.err.self_loop"), selfPort)
 	}
 	return nil
 }
@@ -98,21 +98,21 @@ func pointsToSelf(upstream string, selfPort int) bool {
 func validateHostPattern(host string) error {
 	host = strings.TrimSpace(host)
 	if host == "" {
-		return errors.New("proxy: 域名不能为空")
+		return errors.New(i18n.T("proxy.err.empty_domain"))
 	}
 	if strings.ContainsAny(host, " /\\") {
-		return fmt.Errorf("proxy: 域名含有非法字符: %q", host)
+		return fmt.Errorf(i18n.T("proxy.err.bad_chars"), host)
 	}
 
 	// 通配只允许出现在最前面，且只允许一个。
 	if strings.Contains(host, "*") {
 		if !strings.HasPrefix(host, "*.") || strings.Count(host, "*") != 1 {
 			return fmt.Errorf(
-				"proxy: 通配只能写成 *.example.com 的形式（通配符只能在最前面）: %q", host)
+				i18n.T("proxy.err.wildcard_pos"), host)
 		}
 		rest := strings.TrimPrefix(host, "*.")
 		if rest == "" || strings.Contains(rest, "*") {
-			return fmt.Errorf("proxy: 非法的域名模式: %q", host)
+			return fmt.Errorf(i18n.T("proxy.err.bad_pattern"), host)
 		}
 	}
 	return nil
@@ -267,7 +267,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
 		s.log.Warn("拒绝 CONNECT 请求（防开放代理）",
 			"remote", r.RemoteAddr, "host", r.Host)
-		http.Error(w, "不支持 CONNECT", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T("proxy.err.no_connect"), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -278,14 +278,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// 回退会让"随便一个域名指向这台机器"都能打到某个本地服务上，
 		// 而用户完全不知道自己的服务被谁访问了。
 		s.log.Debug("没有匹配的代理路由", "host", r.Host, "path", r.URL.Path)
-		http.Error(w, "没有为此域名配置转发规则", http.StatusNotFound)
+		http.Error(w, i18n.T("proxy.err.no_rule"), http.StatusNotFound)
 		return
 	}
 
 	rp, err := s.proxyFor(route)
 	if err != nil {
 		s.log.Error("构造转发器失败", "route", route.ID, "err", err)
-		http.Error(w, "转发配置有误", http.StatusBadGateway)
+		http.Error(w, i18n.T("proxy.err.bad_forward"), http.StatusBadGateway)
 		return
 	}
 	rp.ServeHTTP(w, r)
@@ -302,7 +302,7 @@ func (s *Server) proxyFor(route Route) (*httputil.ReverseProxy, error) {
 
 	target, err := url.Parse(route.Upstream)
 	if err != nil {
-		return nil, fmt.Errorf("proxy: 解析上游地址失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("proxy.err.resolve_failed"), err)
 	}
 
 	rp := &httputil.ReverseProxy{
@@ -336,10 +336,10 @@ func (s *Server) proxyFor(route Route) (*httputil.ReverseProxy, error) {
 				"host", r.Host, "upstream", route.Upstream, "err", err)
 
 			if errors.Is(err, ErrUnsafeUpstream) {
-				http.Error(w, "上游地址不被允许", http.StatusBadGateway)
+				http.Error(w, i18n.T("proxy.err.upstream_denied"), http.StatusBadGateway)
 				return
 			}
-			http.Error(w, "无法连接到本地服务（它启动了吗？端口填对了吗？）",
+			http.Error(w, i18n.T("proxy.err.connect_local"),
 				http.StatusBadGateway)
 		},
 	}

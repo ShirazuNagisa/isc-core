@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"net/netip"
 	"strings"
@@ -52,7 +53,7 @@ import (
 // 上做，因此本包用自定义的 DialContext 在每次连接前校验。
 
 // ErrUnsafeUpstream 表示上游地址不在允许的范围内。
-var ErrUnsafeUpstream = errors.New("proxy: 上游地址必须是本机或内网地址")
+var ErrUnsafeUpstream = errors.New(i18n.T("proxy.err.upstream_private"))
 
 // ValidateUpstream 校验一个上游地址是否可以作为转发目标。
 //
@@ -65,7 +66,7 @@ var ErrUnsafeUpstream = errors.New("proxy: 上游地址必须是本机或内网�
 func ValidateUpstream(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", errors.New("proxy: 上游地址不能为空")
+		return "", errors.New(i18n.T("proxy.err.upstream_empty"))
 	}
 
 	host, port, err := splitHostPort(raw)
@@ -83,7 +84,7 @@ func ValidateUpstream(raw string) (string, error) {
 	}
 	for _, addr := range addrs {
 		if !IsLocalAddr(addr) {
-			return "", fmt.Errorf("%w：%s 解析到 %s", ErrUnsafeUpstream, host, addr)
+			return "", fmt.Errorf(i18n.T("proxy.err.denied_detail"), ErrUnsafeUpstream, host, addr)
 		}
 	}
 
@@ -100,10 +101,9 @@ func splitHostPort(raw string) (host, port string, err error) {
 		raw = raw[len("http://"):]
 	case strings.HasPrefix(lower, "https://"):
 		return "", "", errors.New(
-			"proxy: 上游不支持 https —— 本地服务之间的流量不出机器，" +
-				"加 TLS 只会让你多配一份自签证书而没有实际收益")
+			i18n.T("proxy.err.no_https"))
 	case strings.Contains(raw, "://"):
-		return "", "", fmt.Errorf("proxy: 不支持的 scheme: %s", raw)
+		return "", "", fmt.Errorf(i18n.T("proxy.err.bad_scheme"), raw)
 	}
 
 	// 去掉路径：上游应当只填到端口。
@@ -118,22 +118,22 @@ func splitHostPort(raw string) (host, port string, err error) {
 		// 服务上"，而那很难被发现。
 		if strings.Contains(err.Error(), "missing port") {
 			return "", "", fmt.Errorf(
-				"proxy: 上游地址必须带端口（例如 127.0.0.1:8096）：%s", raw)
+				i18n.T("proxy.err.need_port"), raw)
 		}
-		return "", "", fmt.Errorf("proxy: 上游地址格式不对: %w", err)
+		return "", "", fmt.Errorf(i18n.T("proxy.err.bad_upstream_fmt"), err)
 	}
 
 	if _, err := net.LookupPort("tcp", port); err != nil {
-		return "", "", fmt.Errorf("proxy: 端口不合法: %s", port)
+		return "", "", fmt.Errorf(i18n.T("proxy.err.bad_port_str"), port)
 	}
 	// 端口 0 不是合法的转发目标。
 	if port == "0" {
-		return "", "", errors.New("proxy: 端口不能为 0")
+		return "", "", errors.New(i18n.T("proxy.err.zero_port"))
 	}
 
 	host = strings.Trim(host, "[]")
 	if host == "" {
-		return "", "", errors.New("proxy: 上游地址缺少主机部分")
+		return "", "", errors.New(i18n.T("proxy.err.no_host"))
 	}
 	return host, port, nil
 }
@@ -151,10 +151,10 @@ func resolveHost(host string) ([]netip.Addr, error) {
 
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
-		return nil, fmt.Errorf("proxy: 无法解析上游主机 %q: %w", host, err)
+		return nil, fmt.Errorf(i18n.T("proxy.err.resolve_host"), host, err)
 	}
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("proxy: 上游主机 %q 没有解析到任何地址", host)
+		return nil, fmt.Errorf(i18n.T("proxy.err.no_addr"), host)
 	}
 
 	out := make([]netip.Addr, 0, len(ips))
@@ -228,7 +228,7 @@ func newSafeDialer() *safeDialer {
 func (d *safeDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return nil, fmt.Errorf("proxy: 目标地址格式不对: %w", err)
+		return nil, fmt.Errorf(i18n.T("proxy.err.bad_target_fmt"), err)
 	}
 
 	addrs, err := resolveHost(strings.Trim(host, "[]"))
@@ -241,7 +241,7 @@ func (d *safeDialer) DialContext(ctx context.Context, network, address string) (
 		if !IsLocalAddr(addr) {
 			// 拒绝而不是跳过：跳过会让"有一个合法地址"成为绕过
 			// 检查的手段。
-			return nil, fmt.Errorf("%w：%s 解析到 %s", ErrUnsafeUpstream, host, addr)
+			return nil, fmt.Errorf(i18n.T("proxy.err.denied_detail"), ErrUnsafeUpstream, host, addr)
 		}
 
 		// 用**校验过的那个 IP** 拨号，而不是主机名。
@@ -252,7 +252,7 @@ func (d *safeDialer) DialContext(ctx context.Context, network, address string) (
 		lastErr = err
 	}
 	if lastErr == nil {
-		lastErr = errors.New("没有可用的上游地址")
+		lastErr = errors.New(i18n.T("proxy.err.no_upstream_addr"))
 	}
 	return nil, lastErr
 }

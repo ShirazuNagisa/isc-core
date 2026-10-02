@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"strings"
 	"sync"
@@ -80,9 +81,7 @@ func (s *Server) TLSConfig(opts TLSOptions) *tls.Config {
 		cfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			name := normalizeSNI(hello.ServerName)
 			if name == "" {
-				return nil, fmt.Errorf(
-					"proxy: TLS 握手没有提供 SNI 主机名，无法选择证书。" +
-						"请用域名访问（而不是直接用 IP）")
+				return nil, errors.New(i18n.T("proxy.err.no_sni"))
 			}
 
 			// 缓存：GetCertificate 在**每次**握手时都会被调用，
@@ -148,7 +147,7 @@ func splitHostPortLoose(s string) (host, port string, err error) {
 // 而我们的证书是运行期签发的，只能走 GetCertificate。
 func (m *Manager) ServeTLS(ctx context.Context, port int, opts TLSOptions) error {
 	if opts.Provider == nil {
-		return fmt.Errorf("proxy: 启用 HTTPS 需要证书来源")
+		return errors.New(i18n.T("proxy.err.need_cert_source"))
 	}
 
 	m.mu.Lock()
