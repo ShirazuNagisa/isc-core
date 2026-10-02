@@ -41,5 +41,68 @@ var consoleMessagesZh = map[string]string{
 	"web.tab.raw":         "原始接口",
 
 	// --- 概览 ---
-	"web.ov.title": "内核状态",
+	"web.ov.title":     "内核状态",
+	"web.ov.cap_title": "平台能力",
+
+	// --- 本机地址与前缀 ---
+	"web.ip.title":   "本机地址与 IPv6 前缀",
+	"web.ip.refresh": "刷新",
+
+	// --- 凭据 ---
+	"web.cred.title":   "DNS 服务商凭据",
+	"web.cred.refresh": "刷新",
+	"web.cred.new":     "新建凭据",
+
+	// --- 动态解析 ---
+	"web.task.title":   "动态解析任务",
+	"web.task.refresh": "刷新",
+	"web.task.new":     "新建任务",
+
+	// --- DNS 记录 ---
+	"web.rec.title": "DNS 记录管理",
+	"web.rec.load":  "加载记录",
+	"web.rec.new":   "新增记录",
+
+	// --- 反向代理 ---
+	"web.px.title":   "反向代理",
+	"web.px.save":    "保存",
+	"web.px.status":  "刷新状态",
+	"web.px.rules":   "转发规则",
+	"web.px.refresh": "刷新",
+	"web.px.new":     "新增规则",
+
+	// --- 证书 ---
+	"web.cert.title":   "TLS 证书",
+	"web.cert.refresh": "刷新",
+	"web.cert.renew":   "立即检查并续期",
+
+	// --- 通知 ---
+	"web.nt.title":   "通知通道",
+	"web.nt.refresh": "刷新",
+	"web.nt.new":     "新增通道",
+	"web.nt.test":    "发送测试通知",
+	"web.nt.recent":  "最近的投递结果",
+
+	// --- 系统服务 ---
+	"web.svc.title":     "系统服务",
+	"web.svc.refresh":   "刷新",
+	"web.svc.start":     "启动服务",
+	"web.svc.stop":      "停止服务",
+	"web.svc.install_h": "安装服务",
+	"web.svc.install":   "安装为系统服务",
+	"web.svc.uninstall": "卸载服务",
+
+	// --- 事件流 ---
+	"web.ev.title":      "事件流",
+	"web.ev.connect":    "连接",
+	"web.ev.disconnect": "断开",
+	"web.ev.clear":      "清空",
+
+	// --- 原始接口 ---
+	"web.raw.title": "原始接口调用",
+	"web.raw.send":  "发送",
+	"web.raw.ready": "就绪",
+
+	// --- 通用 ---
+	"web.common.loading": "加载中…",
 }

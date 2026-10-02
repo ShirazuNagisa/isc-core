@@ -337,7 +337,7 @@ var consoleHardcodedLines = map[string]int{
 	// 数字是**剥掉注释之后**的（见 console_comments.go）。
 	// 剥离之前分别是 129 / 195 / 94 / 26 —— 也就是说有 90 行是注释，
 	// 而注释本来就该留着。不剥的话这个数字**永远降不到 0**。
-	"internal/console/assets/index.html": 99,
+	"internal/console/assets/index.html": 58,
 	"internal/console/assets/app.js":     163,
 	"internal/console/assets/panels.js":  76,
 	// i18n.js 只剩一行：消息表加载失败时写给开发者看的那条 warn。

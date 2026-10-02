@@ -22,7 +22,70 @@ var consoleMessagesEn = map[string]string{
 	"web.tab.raw":         "Raw API",
 
 	// --- overview ---
-	"web.ov.title": "Kernel status",
+	"web.ov.title":     "Kernel status",
+	"web.ov.cap_title": "Platform capabilities",
+
+	// --- IP and prefixes ---
+	"web.ip.title":   "Local addresses and IPv6 prefixes",
+	"web.ip.refresh": "Refresh",
+
+	// --- credentials ---
+	"web.cred.title":   "DNS provider credentials",
+	"web.cred.refresh": "Refresh",
+	"web.cred.new":     "New credential",
+
+	// --- dynamic DNS ---
+	"web.task.title":   "Dynamic DNS tasks",
+	"web.task.refresh": "Refresh",
+	"web.task.new":     "New task",
+
+	// --- DNS records ---
+	"web.rec.title": "DNS record management",
+	"web.rec.load":  "Load records",
+	"web.rec.new":   "New record",
+
+	// --- reverse proxy ---
+	"web.px.title":   "Reverse proxy",
+	"web.px.save":    "Save",
+	"web.px.status":  "Refresh status",
+	"web.px.rules":   "Forwarding rules",
+	"web.px.refresh": "Refresh",
+	"web.px.new":     "New rule",
+
+	// --- certificates ---
+	"web.cert.title":   "TLS certificates",
+	"web.cert.refresh": "Refresh",
+	"web.cert.renew":   "Check and renew now",
+
+	// --- notifications ---
+	"web.nt.title":   "Notification channels",
+	"web.nt.refresh": "Refresh",
+	"web.nt.new":     "New channel",
+	"web.nt.test":    "Send a test notification",
+	"web.nt.recent":  "Recent deliveries",
+
+	// --- system service ---
+	"web.svc.title":     "System service",
+	"web.svc.refresh":   "Refresh",
+	"web.svc.start":     "Start service",
+	"web.svc.stop":      "Stop service",
+	"web.svc.install_h": "Install the service",
+	"web.svc.install":   "Install as a system service",
+	"web.svc.uninstall": "Uninstall the service",
+
+	// --- event stream ---
+	"web.ev.title":      "Event stream",
+	"web.ev.connect":    "Connect",
+	"web.ev.disconnect": "Disconnect",
+	"web.ev.clear":      "Clear",
+
+	// --- raw API ---
+	"web.raw.title": "Raw API call",
+	"web.raw.send":  "Send",
+	"web.raw.ready": "Ready",
+
+	// --- shared ---
+	"web.common.loading": "Loading…",
 }
 
 // ConsoleMessages 返回**控制台前端**在指定语言下的全部消息。
