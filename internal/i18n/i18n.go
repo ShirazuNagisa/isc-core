@@ -62,20 +62,29 @@ type Catalog struct {
 // 基础表会让那个文件无法浏览。
 func New(lang Lang) *Catalog {
 	src := messagesZh
-	extra := []map[string]string{apiMessagesZh}
+	extra := []map[string]string{apiMessagesZh, tier1MessagesZh}
 	if lang == En {
 		src = messagesEn
-		extra = []map[string]string{apiMessagesEn}
+		extra = []map[string]string{apiMessagesEn, tier1MessagesEn}
 	}
 
 	// 没有补充层时直接用基础表，避免每次构造都复制一遍。
+	//
+	// # 累加而不是重建
+	//
+	// 每一轮必须从**上一轮的结果**（msgs）而不是从**基础表**（src）开始复制。
+	// 写成从 src 重建的话，每加一层就把前一层整个丢掉 —— 而单层时完全看不出来，
+	// 因为那时"上一轮的结果"恰好就是 src。
+	//
+	// 这个缺陷是在加入第二层（tier1）时才暴露的：api 那一层的 key **整层消失**，
+	// 表现是所有接口文案都变成 key 本身。
 	msgs := src
 	for _, layer := range extra {
 		if len(layer) == 0 {
 			continue
 		}
-		merged := make(map[string]string, len(src)+len(layer))
-		for k, v := range src {
+		merged := make(map[string]string, len(msgs)+len(layer))
+		for k, v := range msgs {
 			merged[k] = v
 		}
 		for k, v := range layer {
@@ -214,5 +223,6 @@ func layeredCatalogMaps() []map[string]string {
 	return []map[string]string{
 		messagesZh, messagesEn,
 		apiMessagesZh, apiMessagesEn,
+		tier1MessagesZh, tier1MessagesEn,
 	}
 }

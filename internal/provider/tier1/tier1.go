@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -113,7 +114,7 @@ func (c *client) doJSON(ctx context.Context, op, method, url string,
 	if body != nil {
 		byt, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("%s: 序列化请求体失败: %w", op, err)
+			return fmt.Errorf(i18n.T("tier1.http.serialize"), op, err)
 		}
 		reader = bytes.NewReader(byt)
 	}
@@ -123,7 +124,7 @@ func (c *client) doJSON(ctx context.Context, op, method, url string,
 
 	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
-		return fmt.Errorf("%s: 构造请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.build"), op, err)
 	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
@@ -137,13 +138,13 @@ func (c *client) doJSON(ctx context.Context, op, method, url string,
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: 请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.request"), op, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 只读响应，关闭失败无影响
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return fmt.Errorf("%s: 读取响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.read"), op, err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -161,7 +162,7 @@ func (c *client) doJSON(ctx context.Context, op, method, url string,
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s: 解析响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.parse"), op, err)
 	}
 	return nil
 }
@@ -337,7 +338,7 @@ func (d *dynamicDelegate) UpdateDynamic(
 	ctx context.Context, cred dns.Credential, req dns.DynamicRequest,
 ) (dns.DynamicResult, error) {
 	if d.updater == nil {
-		return dns.DynamicResult{}, errors.New("tier1: 动态解析实现未接入（装配遗漏）")
+		return dns.DynamicResult{}, errors.New(i18n.T("tier1.dynamic_unwired"))
 	}
 	return d.updater.UpdateDynamic(ctx, cred, req)
 }

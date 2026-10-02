@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"net/url"
 	"strings"
@@ -200,7 +201,7 @@ func (g *GoDaddy) ListZones(ctx context.Context, cred dns.Credential) ([]dns.Zon
 		}
 
 		var resp godaddyDomainPage
-		err := cl.doJSON(ctx, "列出域名", http.MethodGet,
+		err := cl.doJSON(ctx, i18n.T("tier1.op.list_domains"), http.MethodGet,
 			cl.URL("/v1/domains?"+params.Encode()), nil, nil, &resp)
 		if err != nil {
 			return nil, err
@@ -292,7 +293,7 @@ func (g *GoDaddy) ListRecords(ctx context.Context, cred dns.Credential,
 			Records godaddyRecords `json:"records"`
 			Next    string         `json:"next"`
 		}
-		err := cl.doJSON(ctx, "列出记录", http.MethodGet,
+		err := cl.doJSON(ctx, i18n.T("tier1.op.list_records"), http.MethodGet,
 			cl.URL(fmt.Sprintf("/v1/domains/%s/records?%s",
 				url.PathEscape(domain), params.Encode())),
 			nil, nil, &resp)
@@ -382,7 +383,7 @@ func (g *GoDaddy) CreateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	cl := g.clientFor(cred)
-	err = cl.doJSON(ctx, "新增记录", http.MethodPatch,
+	err = cl.doJSON(ctx, i18n.T("tier1.op.create_record"), http.MethodPatch,
 		cl.URL(fmt.Sprintf("/v1/domains/%s/records/%s/%s",
 			url.PathEscape(domain),
 			url.PathEscape(string(rec.Type)), url.PathEscape(body.Name))),
@@ -427,8 +428,7 @@ func (g *GoDaddy) UpdateRecord(ctx context.Context, cred dns.Credential,
 		return dns.Record{}, err
 	}
 	if strings.TrimSpace(rec.ID) == "" {
-		return dns.Record{}, errors.New("tier1: 更新记录需要记录 ID（GoDaddy 没有原生 ID，" +
-			"请使用 ListRecords 返回的 ID）")
+		return dns.Record{}, errors.New(i18n.T("tier1.gd.need_id_update"))
 	}
 
 	idType, idName, _, err := decodeRecordID(rec.ID)
@@ -449,14 +449,12 @@ func (g *GoDaddy) UpdateRecord(ctx context.Context, cred dns.Credential,
 	// 是 B，而且两边都不报错。
 	if !strings.EqualFold(idType, string(rec.Type)) || !strings.EqualFold(idName, body.Name) {
 		return dns.Record{}, fmt.Errorf(
-			"tier1: 记录 ID 与要修改的记录不一致：ID 指向 %s/%s，提交的是 %s/%s。"+
-				"GoDaddy 没有原生记录 ID，ID 由 type|name|data 合成，"+
-				"记录值被改动后原 ID 即失效，请重新列出记录后重试",
+			i18n.T("tier1.gd.id_mismatch"),
 			idType, idName, rec.Type, body.Name)
 	}
 
 	cl := g.clientFor(cred)
-	err = cl.doJSON(ctx, "修改记录", http.MethodPut,
+	err = cl.doJSON(ctx, i18n.T("tier1.op.update_record"), http.MethodPut,
 		cl.URL(fmt.Sprintf("/v1/domains/%s/records/%s/%s",
 			url.PathEscape(domain),
 			url.PathEscape(idType), url.PathEscape(idName))),
@@ -503,8 +501,7 @@ func (g *GoDaddy) DeleteRecord(ctx context.Context, cred dns.Credential,
 		return err
 	}
 	if strings.TrimSpace(recordID) == "" {
-		return errors.New("tier1: 删除记录需要记录 ID（GoDaddy 没有原生 ID，" +
-			"请使用 ListRecords 返回的 ID）")
+		return errors.New(i18n.T("tier1.gd.need_id_delete"))
 	}
 
 	idType, idName, _, err := decodeRecordID(recordID)
@@ -513,7 +510,7 @@ func (g *GoDaddy) DeleteRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	cl := g.clientFor(cred)
-	err = cl.doJSON(ctx, "删除记录", http.MethodDelete,
+	err = cl.doJSON(ctx, i18n.T("tier1.op.delete_record"), http.MethodDelete,
 		cl.URL(fmt.Sprintf("/v1/domains/%s/records/%s/%s",
 			url.PathEscape(domain),
 			url.PathEscape(idType), url.PathEscape(idName))),
@@ -527,8 +524,7 @@ func (g *GoDaddy) DeleteRecord(ctx context.Context, cred dns.Credential,
 	// 其余错误（429 限流、401 鉴权）原样上抛 —— 那些不需要额外解释。
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.IsNotFound() {
-		return fmt.Errorf("tier1: 该域名或记录在 GoDaddy 侧不存在，未执行任何删除"+
-			"（也可能记录已被删除或改名，请重新列出记录）: %w", err)
+		return fmt.Errorf(i18n.T("tier1.gd.not_found"), err)
 	}
 	return err
 }
@@ -544,10 +540,10 @@ func (g *GoDaddy) DeleteRecord(ctx context.Context, cred dns.Credential,
 // 等于把用户已有的 SRV 参数清掉。
 func godaddyRecordBody(domain string, rec dns.Record) (*godaddyRecord, error) {
 	if !supportedRecordType(rec.Type) {
-		return nil, errors.New("tier1: 记录类型不能为空")
+		return nil, errors.New(i18n.T("tier1.need_type"))
 	}
 	if strings.TrimSpace(rec.Name) == "" {
-		return nil, errors.New("tier1: 记录名不能为空")
+		return nil, errors.New(i18n.T("tier1.need_name"))
 	}
 	name, err := godaddyRelativeName(domain, rec.Name)
 	if err != nil {
@@ -642,19 +638,18 @@ func decodeRecordID(id string) (typ, name, data string, err error) {
 	parts := strings.Split(id, "|")
 	if len(parts) != 3 {
 		return "", "", "", fmt.Errorf(
-			"tier1: 无法解析记录 ID %q：GoDaddy 没有原生记录 ID，"+
-				"ID 由 type|name|data 合成，请使用 ListRecords 返回的 ID", id)
+			i18n.T("tier1.gd.bad_id"), id)
 	}
 	decoded := make([]string, 3)
 	for i, p := range parts {
 		v, err := url.PathUnescape(p)
 		if err != nil {
-			return "", "", "", fmt.Errorf("tier1: 无法解析记录 ID %q: %w", id, err)
+			return "", "", "", fmt.Errorf(i18n.T("tier1.gd.id_parse"), id, err)
 		}
 		decoded[i] = v
 	}
 	if strings.TrimSpace(decoded[0]) == "" || strings.TrimSpace(decoded[1]) == "" {
-		return "", "", "", fmt.Errorf("tier1: 记录 ID %q 缺少类型或名字段", id)
+		return "", "", "", fmt.Errorf(i18n.T("tier1.gd.id_missing"), id)
 	}
 	return decoded[0], decoded[1], decoded[2], nil
 }
@@ -675,7 +670,7 @@ func godaddyZoneName(zone dns.Zone) (string, error) {
 	// 容忍尾部点（FQDN 写法）：GoDaddy 不接受 example.com. 这种形式。
 	name = strings.TrimSuffix(name, ".")
 	if name == "" {
-		return "", errors.New("tier1: 需要域名（GoDaddy 的区域就是域名本身）")
+		return "", errors.New(i18n.T("tier1.gd.need_domain"))
 	}
 	return name, nil
 }
@@ -691,7 +686,7 @@ func godaddyRelativeName(domain, fullName string) (string, error) {
 	// 最终以 "@" 的形式写到根记录上 —— 一条静默写错位置的危险路径。
 	name = strings.TrimSuffix(name, ".")
 	if name == "" {
-		return "", errors.New("tier1: 记录名不能为空")
+		return "", errors.New(i18n.T("tier1.need_name"))
 	}
 	if name == "@" {
 		return "@", nil
@@ -710,8 +705,7 @@ func godaddyRelativeName(domain, fullName string) (string, error) {
 		return rel, nil
 	default:
 		return "", fmt.Errorf(
-			"tier1: 记录名 %q 不在域名 %q 之下 —— GoDaddy 的记录名是相对域名的"+
-				"（根记录写 @），请检查输入的域名是否写全", fullName, domain)
+			i18n.T("tier1.gd.name_outside_domain"), fullName, domain)
 	}
 }
 
@@ -735,13 +729,13 @@ func godaddyFullName(domain, rel string) string {
 func godaddyToRecord(domain string, r godaddyRecord) (dns.Record, error) {
 	typ := strings.TrimSpace(r.Type)
 	if typ == "" {
-		return dns.Record{}, errors.New("tier1: 记录缺少类型")
+		return dns.Record{}, errors.New(i18n.T("tier1.gd.record_no_type"))
 	}
 	rel := strings.TrimSpace(r.Name)
 	if rel == "" {
 		// GoDaddy 理论上总有 name，但一条没有 name 的记录如果被当成根记录
 		// 展示出来，用户会看到一个不存在的记录 —— 宁可丢掉它。
-		return dns.Record{}, errors.New("tier1: 记录缺少名字")
+		return dns.Record{}, errors.New(i18n.T("tier1.gd.record_no_name"))
 	}
 
 	rec := dns.Record{
@@ -764,7 +758,7 @@ func godaddyToRecord(domain string, r godaddyRecord) (dns.Record, error) {
 // 也在消耗配额。
 func godaddyCheckCredential(cred dns.Credential) error {
 	if cred.Field("api_key") == "" || cred.Field("api_secret") == "" {
-		return errors.New("tier1: GoDaddy 需要 API Key 与 API Secret")
+		return errors.New(i18n.T("tier1.gd.need_credentials"))
 	}
 	return nil
 }

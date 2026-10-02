@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"net/url"
@@ -80,7 +81,7 @@ const dnspodPageSize = 100
 
 // dnspodDefaultLine 是新建记录时使用的线路名。
 //
-// "默认"是 DNSPod 线路的中文名，不是本地化文案：API 的 record_line 参数
+// i18n.T("tier1.op.default")是 DNSPod 线路的中文名，不是本地化文案：API 的 record_line 参数
 // 收的就是这个中文串（免费套餐也只允许默认线路）。与移植过来的 ddns-go
 // 实现保持一致。
 const dnspodDefaultLine = "默认"
@@ -433,7 +434,7 @@ func dnspodLoginToken(cred dns.Credential) (string, error) {
 	id, token := cred.Field("id"), cred.Field("token")
 	if id == "" || token == "" {
 		// 错误信息里只说缺了什么，不带任何凭据内容。
-		return "", errors.New("tier1: DNSPod 需要 API ID 与 API Token 两个凭据字段（登录令牌由二者拼接而成）")
+		return "", errors.New(i18n.T("tier1.dnspod.need_credentials"))
 	}
 	return id + "," + token, nil
 }
@@ -470,7 +471,7 @@ func (c *client) dnspodPostForm(ctx context.Context, op, url string, form url.Va
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
 		strings.NewReader(form.Encode()))
 	if err != nil {
-		return fmt.Errorf("%s: 构造请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.build"), op, err)
 	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
@@ -479,13 +480,13 @@ func (c *client) dnspodPostForm(ctx context.Context, op, url string, form url.Va
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: 请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.request"), op, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 只读响应，关闭失败无影响
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return fmt.Errorf("%s: 读取响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.read"), op, err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -504,7 +505,7 @@ func (c *client) dnspodPostForm(ctx context.Context, op, url string, form url.Va
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s: 解析响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.parse"), op, err)
 	}
 	return nil
 }
@@ -524,7 +525,7 @@ func dnspodStatusError(op string, st dnspodStatus) error {
 	if msg == "" {
 		// 只带 HTTP 状态码的错误对用户毫无帮助，这一句至少说明
 		// "服务商没说原因"，而不是让界面显示一片空白。
-		msg = "服务商未提供错误说明"
+		msg = i18n.T("tier1.vendor_no_message")
 	}
 	return &APIError{
 		Status:  http.StatusOK,
@@ -562,12 +563,12 @@ func (d *Dnspod) ListZones(ctx context.Context, cred dns.Credential) ([]dns.Zone
 		form.Set("length", strconv.Itoa(dnspodPageSize))
 
 		var env dnspodEnvelope
-		if err := cl.dnspodPostForm(ctx, "列出区域", cl.URL("/Domain.List"), form, &env); err != nil {
+		if err := cl.dnspodPostForm(ctx, i18n.T("tier1.op.list_zones"), cl.URL("/Domain.List"), form, &env); err != nil {
 			return nil, err
 		}
 		// "没有任何域名"不是错误，见 dnspodCodeNoDomain。
 		if !env.Status.ok() && string(env.Status.Code) != dnspodCodeNoDomain {
-			return nil, dnspodStatusError("列出区域", env.Status)
+			return nil, dnspodStatusError(i18n.T("tier1.op.list_zones"), env.Status)
 		}
 
 		for _, z := range env.Domains {
@@ -629,7 +630,7 @@ func (d *Dnspod) ListRecords(ctx context.Context, cred dns.Credential,
 	var out []dns.Record
 	for page := 0; page < maxPages; page++ {
 		form := dnspodParams(loginToken)
-		if err := dnspodSetZone(form, zone, "列出记录"); err != nil {
+		if err := dnspodSetZone(form, zone, i18n.T("tier1.op.list_records")); err != nil {
 			return nil, err
 		}
 		form.Set("offset", strconv.Itoa(page*dnspodPageSize))
@@ -639,12 +640,12 @@ func (d *Dnspod) ListRecords(ctx context.Context, cred dns.Credential,
 		}
 
 		var env dnspodEnvelope
-		if err := cl.dnspodPostForm(ctx, "列出记录", cl.URL("/Record.List"), form, &env); err != nil {
+		if err := cl.dnspodPostForm(ctx, i18n.T("tier1.op.list_records"), cl.URL("/Record.List"), form, &env); err != nil {
 			return nil, err
 		}
 		// "没有记录"不是错误，见 dnspodCodeNoRecord。
 		if !env.Status.ok() && string(env.Status.Code) != dnspodCodeNoRecord {
-			return nil, dnspodStatusError("列出记录", env.Status)
+			return nil, dnspodStatusError(i18n.T("tier1.op.list_records"), env.Status)
 		}
 
 		// 区域名以调用方给的为准，缺了才用响应里的：ListZones 出来的区域
@@ -683,16 +684,16 @@ func (d *Dnspod) ListRecords(ctx context.Context, cred dns.Credential,
 //
 // DNSPod 的记录备注（remark）**不在** Record.Create / Record.Modify 的参数里，
 // 它有一个专门的 Record.Remark 接口。这里选择不额外发第二次请求：
-// 一次"新增记录"变成两个可能各成功一半的调用，失败时的语义很难向用户解释。
+// 一次i18n.T("tier1.op.create_record")变成两个可能各成功一半的调用，失败时的语义很难向用户解释。
 // 因此备注是只读的（列表里能看到），写入方向留到有明确需求时再说。
 func (d *Dnspod) CreateRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, rec dns.Record) (dns.Record, error) {
 
 	if !supportedRecordType(rec.Type) {
-		return dns.Record{}, errors.New("tier1: 记录类型不能为空")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_type"))
 	}
 	if strings.TrimSpace(rec.Name) == "" {
-		return dns.Record{}, errors.New("tier1: 记录名不能为空")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_name"))
 	}
 
 	loginToken, err := dnspodLoginToken(cred)
@@ -711,7 +712,7 @@ func (d *Dnspod) CreateRecord(ctx context.Context, cred dns.Credential,
 	cl := d.clientFor(cred, "")
 
 	form := dnspodParams(loginToken)
-	if err := dnspodSetZone(form, zone, "新增记录"); err != nil {
+	if err := dnspodSetZone(form, zone, i18n.T("tier1.op.create_record")); err != nil {
 		return dns.Record{}, err
 	}
 	// sub_domain 必须显式发送：DNSPod 把"没有这个参数"解释成 "@"，
@@ -720,7 +721,7 @@ func (d *Dnspod) CreateRecord(ctx context.Context, cred dns.Credential,
 	form.Set("record_type", string(rec.Type))
 	form.Set("value", rec.Content)
 	// 线路用默认线路。dns.Record 里没有线路这个概念，而"不传 record_line"
-	// 在不同套餐下的行为并不一致；显式写"默认"，与移植过来的 ddns-go
+	// 在不同套餐下的行为并不一致；显式写i18n.T("tier1.op.default")，与移植过来的 ddns-go
 	// 实现（以及它的海量线上验证）保持一致。
 	form.Set("record_line", dnspodDefaultLine)
 	// 新记录默认启用。dns.Record 里没有"启用/暂停"的位置，
@@ -736,20 +737,20 @@ func (d *Dnspod) CreateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var env dnspodEnvelope
-	if err := cl.dnspodPostForm(ctx, "新增记录", cl.URL("/Record.Create"), form, &env); err != nil {
+	if err := cl.dnspodPostForm(ctx, i18n.T("tier1.op.create_record"), cl.URL("/Record.Create"), form, &env); err != nil {
 		return dns.Record{}, err
 	}
 	if !env.Status.ok() {
-		return dns.Record{}, dnspodStatusError("新增记录", env.Status)
+		return dns.Record{}, dnspodStatusError(i18n.T("tier1.op.create_record"), env.Status)
 	}
 	if env.Record == nil {
-		return dns.Record{}, errors.New("tier1: DNSPod 的记录新增响应结构不符合预期（缺少 record 字段）")
+		return dns.Record{}, errors.New(i18n.T("tier1.dnspod.create_bad_shape"))
 	}
 
 	out := rec
 	out.ID = string(env.Record.ID)
 	if out.ID == "" {
-		return dns.Record{}, errors.New("tier1: DNSPod 未返回新记录的 ID，无法定位刚创建的记录")
+		return dns.Record{}, errors.New(i18n.T("tier1.dnspod.no_record_id"))
 	}
 	// TTL 按"实际提交的值"回显：调用方传 0 时我们没提交 ttl，
 	// 服务商实际用了多少我们并不知道，如实返回 0（= 服务商默认）。
@@ -775,7 +776,7 @@ func (d *Dnspod) CreateRecord(ctx context.Context, cred dns.Credential,
 // 第 3 条决定了这里必须先调一次 Record.Info 把当前记录读回来：
 //
 //   - 只有读回来才知道这条记录在哪条线路上，才能把 record_line_id 原样带回。
-//     不读就只能写死"默认"，那会把用户的联通/电信线路记录悄悄搬到默认线路 ——
+//     不读就只能写死i18n.T("tier1.op.default")，那会把用户的联通/电信线路记录悄悄搬到默认线路 ——
 //     一个用户极难察觉、后果却很严重的破坏；
 //   - 顺带拿到 ttl / mx / enabled 的当前值。既然文档没说清"不传"的语义，
 //     我们就把当前值**显式回填**，不去赌未文档化的行为 ——
@@ -792,10 +793,10 @@ func (d *Dnspod) UpdateRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, rec dns.Record) (dns.Record, error) {
 
 	if strings.TrimSpace(rec.ID) == "" {
-		return dns.Record{}, errors.New("tier1: 更新记录需要记录 ID")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_record_id"))
 	}
 	if !supportedRecordType(rec.Type) {
-		return dns.Record{}, errors.New("tier1: 记录类型不能为空")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_type"))
 	}
 
 	loginToken, err := dnspodLoginToken(cred)
@@ -815,12 +816,11 @@ func (d *Dnspod) UpdateRecord(ctx context.Context, cred dns.Credential,
 		// 把"为什么还要多读一次"写进错误里：用户看到的是
 		// "读取记录失败"，而不是一个看起来多余的动作。
 		return dns.Record{}, fmt.Errorf(
-			"tier1: 修改记录前需要先读取记录 %s 的当前内容（DNSPod 要求带上记录线路，"+
-				"且未提供字段的语义没有文档化）：%w", rec.ID, err)
+			i18n.T("tier1.dnspod.need_current"), rec.ID, err)
 	}
 
 	form := dnspodParams(loginToken)
-	if err := dnspodSetZone(form, zone, "修改记录"); err != nil {
+	if err := dnspodSetZone(form, zone, i18n.T("tier1.op.update_record")); err != nil {
 		return dns.Record{}, err
 	}
 	form.Set("record_id", rec.ID)
@@ -877,11 +877,11 @@ func (d *Dnspod) UpdateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var env dnspodEnvelope
-	if err := cl.dnspodPostForm(ctx, "修改记录", cl.URL("/Record.Modify"), form, &env); err != nil {
+	if err := cl.dnspodPostForm(ctx, i18n.T("tier1.op.update_record"), cl.URL("/Record.Modify"), form, &env); err != nil {
 		return dns.Record{}, err
 	}
 	if !env.Status.ok() {
-		return dns.Record{}, dnspodStatusError("修改记录", env.Status)
+		return dns.Record{}, dnspodStatusError(i18n.T("tier1.op.update_record"), env.Status)
 	}
 
 	// Record.Modify 的响应同样只有 id / name / value / status，
@@ -907,7 +907,7 @@ func (d *Dnspod) DeleteRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, recordID string) error {
 
 	if strings.TrimSpace(recordID) == "" {
-		return errors.New("tier1: 删除记录需要记录 ID")
+		return errors.New(i18n.T("tier1.need_id_delete"))
 	}
 
 	loginToken, err := dnspodLoginToken(cred)
@@ -918,17 +918,17 @@ func (d *Dnspod) DeleteRecord(ctx context.Context, cred dns.Credential,
 	cl := d.clientFor(cred, "")
 
 	form := dnspodParams(loginToken)
-	if err := dnspodSetZone(form, zone, "删除记录"); err != nil {
+	if err := dnspodSetZone(form, zone, i18n.T("tier1.op.delete_record")); err != nil {
 		return err
 	}
 	form.Set("record_id", recordID)
 
 	var env dnspodEnvelope
-	if err := cl.dnspodPostForm(ctx, "删除记录", cl.URL("/Record.Remove"), form, &env); err != nil {
+	if err := cl.dnspodPostForm(ctx, i18n.T("tier1.op.delete_record"), cl.URL("/Record.Remove"), form, &env); err != nil {
 		return err
 	}
 	if !env.Status.ok() {
-		return dnspodStatusError("删除记录", env.Status)
+		return dnspodStatusError(i18n.T("tier1.op.delete_record"), env.Status)
 	}
 	return nil
 }
@@ -941,20 +941,20 @@ func dnspodRecordInfo(ctx context.Context, cl *client,
 	loginToken string, zone dns.Zone, recordID string) (*dnspodRecord, error) {
 
 	form := dnspodParams(loginToken)
-	if err := dnspodSetZone(form, zone, "读取记录"); err != nil {
+	if err := dnspodSetZone(form, zone, i18n.T("tier1.op.get_record")); err != nil {
 		return nil, err
 	}
 	form.Set("record_id", recordID)
 
 	var env dnspodEnvelope
-	if err := cl.dnspodPostForm(ctx, "读取记录", cl.URL("/Record.Info"), form, &env); err != nil {
+	if err := cl.dnspodPostForm(ctx, i18n.T("tier1.op.get_record"), cl.URL("/Record.Info"), form, &env); err != nil {
 		return nil, err
 	}
 	if !env.Status.ok() {
-		return nil, dnspodStatusError("读取记录", env.Status)
+		return nil, dnspodStatusError(i18n.T("tier1.op.get_record"), env.Status)
 	}
 	if env.Record == nil {
-		return nil, errors.New("tier1: DNSPod 的记录信息响应结构不符合预期（缺少 record 字段）")
+		return nil, errors.New(i18n.T("tier1.dnspod.record_bad_shape"))
 	}
 	return env.Record, nil
 }
@@ -977,7 +977,7 @@ func dnspodSetZone(form url.Values, zone dns.Zone, op string) error {
 		form.Set("domain", name)
 		return nil
 	}
-	return fmt.Errorf("tier1: %s需要区域 ID 或区域名（DNSPod 的接口以 domain_id 或 domain 定位域名）", op)
+	return fmt.Errorf(i18n.T("tier1.dnspod.need_zone"), op)
 }
 
 // dnspodSubDomain 把完整记录名翻译成 DNSPod 的主机记录（子域名）。
@@ -1013,12 +1013,11 @@ func dnspodSubDomain(fullName, zoneName string) string {
 // 比直接报错危险得多。所以这里宁可让调用失败，也不退化成空值。
 func dnspodHostRecord(fullName, zoneName string) (string, error) {
 	if strings.TrimSpace(zoneName) == "" {
-		return "", fmt.Errorf("tier1: 需要区域名才能把记录名 %q 翻译成 DNSPod 的主机记录"+
-			"（缺少区域名会被 DNSPod 当成根域名 @，因此不能猜）", fullName)
+		return "", fmt.Errorf(i18n.T("tier1.dnspod.need_zone_for_host"), fullName)
 	}
 	host := dnspodSubDomain(fullName, zoneName)
 	if host == "" {
-		return "", fmt.Errorf("tier1: 记录名 %q 不在区域 %q 之下，无法算出 DNSPod 的主机记录",
+		return "", fmt.Errorf(i18n.T("tier1.dnspod.name_outside_zone"),
 			fullName, zoneName)
 	}
 	return host, nil
@@ -1067,8 +1066,7 @@ func dnspodTTL(ttl int) (int, error) {
 	}
 	if t < dnspodMinTTL || t > dnspodMaxTTL {
 		return 0, fmt.Errorf(
-			"tier1: TTL %d 超出 DNSPod 允许的范围（%d-%d 秒）；"+
-				"另外不同套餐的最低值不同：免费版 600 秒、专业版 60 秒、企业版 1 秒",
+			i18n.T("tier1.dnspod.ttl_out_of_range"),
 			t, dnspodMinTTL, dnspodMaxTTL)
 	}
 	return t, nil

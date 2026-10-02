@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"net/url"
 	"strings"
@@ -136,17 +137,17 @@ type cfRecord struct {
 // 权限，会让只有 DNS 编辑权限的最小权限 token 被误判为无效。
 func (c *Cloudflare) Verify(ctx context.Context, cred dns.Credential) error {
 	if cred.Field("token") == "" {
-		return errors.New("tier1: Cloudflare 需要 API 令牌")
+		return errors.New(i18n.T("tier1.cf.need_token"))
 	}
 
 	cl := c.clientFor(cred, "")
 	var env cfEnvelope
-	if err := cl.doJSON(ctx, "校验凭据", http.MethodGet,
+	if err := cl.doJSON(ctx, i18n.T("tier1.op.verify"), http.MethodGet,
 		cl.URL("/user/tokens/verify"), nil, nil, &env); err != nil {
 		return err
 	}
 	if !env.Success {
-		return fmt.Errorf("tier1: Cloudflare 拒绝了该凭据：%s", cfErrorText(env))
+		return fmt.Errorf(i18n.T("tier1.cf.rejected"), cfErrorText(env))
 	}
 
 	// 还要看令牌状态。
@@ -163,7 +164,7 @@ func (c *Cloudflare) Verify(ctx context.Context, cred dns.Credential) error {
 		}
 	}
 	if result.Status != "" && result.Status != "active" {
-		return fmt.Errorf("tier1: Cloudflare 令牌状态为 %q，不是 active", result.Status)
+		return fmt.Errorf(i18n.T("tier1.cf.token_not_active"), result.Status)
 	}
 	return nil
 }
@@ -186,13 +187,13 @@ func (c *Cloudflare) ListZones(ctx context.Context, cred dns.Credential) ([]dns.
 		params.Set("per_page", fmt.Sprint(zonesPerPage))
 
 		var env cfEnvelope
-		err := cl.doJSON(ctx, "列出区域", http.MethodGet,
+		err := cl.doJSON(ctx, i18n.T("tier1.op.list_zones"), http.MethodGet,
 			cl.URL("/zones?"+params.Encode()), nil, nil, &env)
 		if err != nil {
 			return nil, err
 		}
 		if !env.Success {
-			return nil, fmt.Errorf("tier1: 列出区域失败：%s", cfErrorText(env))
+			return nil, fmt.Errorf(i18n.T("tier1.cf.list_zones_failed"), cfErrorText(env))
 		}
 
 		zones, err := decodeZones(env.Result)
@@ -218,7 +219,7 @@ func decodeZones(result any) ([]dns.Zone, error) {
 	}
 	items, ok := result.([]any)
 	if !ok {
-		return nil, errors.New("tier1: 区域列表的响应结构不符合预期")
+		return nil, errors.New(i18n.T("tier1.cf.zones_bad_shape"))
 	}
 
 	out := make([]dns.Zone, 0, len(items))
@@ -265,14 +266,14 @@ func (c *Cloudflare) ListRecords(ctx context.Context, cred dns.Credential,
 		}
 
 		var env cfEnvelope
-		err := cl.doJSON(ctx, "列出记录", http.MethodGet,
+		err := cl.doJSON(ctx, i18n.T("tier1.op.list_records"), http.MethodGet,
 			cl.URL(fmt.Sprintf("/zones/%s/dns_records?%s", zone.ID, params.Encode())),
 			nil, nil, &env)
 		if err != nil {
 			return nil, err
 		}
 		if !env.Success {
-			return nil, fmt.Errorf("tier1: 列出记录失败：%s", cfErrorText(env))
+			return nil, fmt.Errorf(i18n.T("tier1.cf.list_records_failed"), cfErrorText(env))
 		}
 
 		records, err := decodeRecords(env.Result)
@@ -294,7 +295,7 @@ func decodeRecords(result any) ([]dns.Record, error) {
 	}
 	items, ok := result.([]any)
 	if !ok {
-		return nil, errors.New("tier1: 记录列表的响应结构不符合预期")
+		return nil, errors.New(i18n.T("tier1.cf.records_bad_shape"))
 	}
 
 	out := make([]dns.Record, 0, len(items))
@@ -336,13 +337,13 @@ func (c *Cloudflare) CreateRecord(ctx context.Context, cred dns.Credential,
 
 	cl := c.clientFor(cred, "")
 	var env cfEnvelope
-	err = cl.doJSON(ctx, "新增记录", http.MethodPost,
+	err = cl.doJSON(ctx, i18n.T("tier1.op.create_record"), http.MethodPost,
 		cl.URL(fmt.Sprintf("/zones/%s/dns_records", zone.ID)), nil, body, &env)
 	if err != nil {
 		return dns.Record{}, err
 	}
 	if !env.Success {
-		return dns.Record{}, fmt.Errorf("tier1: 新增记录失败：%s", cfErrorText(env))
+		return dns.Record{}, fmt.Errorf(i18n.T("tier1.cf.create_failed"), cfErrorText(env))
 	}
 	return decodeOneRecord(env.Result)
 }
@@ -356,7 +357,7 @@ func (c *Cloudflare) UpdateRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, rec dns.Record) (dns.Record, error) {
 
 	if strings.TrimSpace(rec.ID) == "" {
-		return dns.Record{}, errors.New("tier1: 更新记录需要记录 ID")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_record_id"))
 	}
 	body, err := cloudflareRecordBody(rec)
 	if err != nil {
@@ -365,14 +366,14 @@ func (c *Cloudflare) UpdateRecord(ctx context.Context, cred dns.Credential,
 
 	cl := c.clientFor(cred, "")
 	var env cfEnvelope
-	err = cl.doJSON(ctx, "修改记录", http.MethodPut,
+	err = cl.doJSON(ctx, i18n.T("tier1.op.update_record"), http.MethodPut,
 		cl.URL(fmt.Sprintf("/zones/%s/dns_records/%s", zone.ID, rec.ID)),
 		nil, body, &env)
 	if err != nil {
 		return dns.Record{}, err
 	}
 	if !env.Success {
-		return dns.Record{}, fmt.Errorf("tier1: 修改记录失败：%s", cfErrorText(env))
+		return dns.Record{}, fmt.Errorf(i18n.T("tier1.cf.update_failed"), cfErrorText(env))
 	}
 	return decodeOneRecord(env.Result)
 }
@@ -382,19 +383,19 @@ func (c *Cloudflare) DeleteRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, recordID string) error {
 
 	if strings.TrimSpace(recordID) == "" {
-		return errors.New("tier1: 删除记录需要记录 ID")
+		return errors.New(i18n.T("tier1.need_id_delete"))
 	}
 
 	cl := c.clientFor(cred, "")
 	var env cfEnvelope
-	err := cl.doJSON(ctx, "删除记录", http.MethodDelete,
+	err := cl.doJSON(ctx, i18n.T("tier1.op.delete_record"), http.MethodDelete,
 		cl.URL(fmt.Sprintf("/zones/%s/dns_records/%s", zone.ID, recordID)),
 		nil, nil, &env)
 	if err != nil {
 		return err
 	}
 	if !env.Success {
-		return fmt.Errorf("tier1: 删除记录失败：%s", cfErrorText(env))
+		return fmt.Errorf(i18n.T("tier1.cf.delete_failed"), cfErrorText(env))
 	}
 	return nil
 }
@@ -419,10 +420,10 @@ type cfRecordBody struct {
 
 func cloudflareRecordBody(rec dns.Record) (*cfRecordBody, error) {
 	if !supportedRecordType(rec.Type) {
-		return nil, errors.New("tier1: 记录类型不能为空")
+		return nil, errors.New(i18n.T("tier1.need_type"))
 	}
 	if strings.TrimSpace(rec.Name) == "" {
-		return nil, errors.New("tier1: 记录名不能为空")
+		return nil, errors.New(i18n.T("tier1.need_name"))
 	}
 
 	body := &cfRecordBody{
@@ -489,7 +490,7 @@ func cfErrorText(env cfEnvelope) string {
 		if len(env.Messages) > 0 {
 			return strings.Join(env.Messages, "; ")
 		}
-		return "未提供错误详情"
+		return i18n.T("tier1.no_error_detail")
 	}
 	parts := make([]string, 0, len(env.Errors))
 	for _, e := range env.Errors {
@@ -501,11 +502,11 @@ func cfErrorText(env cfEnvelope) string {
 func decodeOneRecord(result any) (dns.Record, error) {
 	obj, ok := result.(map[string]any)
 	if !ok {
-		return dns.Record{}, errors.New("tier1: 记录响应结构不符合预期")
+		return dns.Record{}, errors.New(i18n.T("tier1.cf.record_bad_shape"))
 	}
 	var r cfRecord
 	if err := remarshal(obj, &r); err != nil {
-		return dns.Record{}, fmt.Errorf("tier1: 解析记录响应失败: %w", err)
+		return dns.Record{}, fmt.Errorf(i18n.T("tier1.cf.record_parse"), err)
 	}
 	rec := dns.Record{
 		ID: r.ID, Name: r.Name, Type: dns.RecordType(r.Type),

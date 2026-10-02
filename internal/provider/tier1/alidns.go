@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -74,7 +75,7 @@ func NewAlidns(baseURL string) *Alidns {
 	return &Alidns{
 		meta: dns.Meta{
 			Name:        "alidns",
-			DisplayName: "阿里云 DNS",
+			DisplayName: i18n.T("tier1.ali.display_name"),
 			Tier:        1,
 		},
 		baseURL: baseURL,
@@ -106,7 +107,7 @@ func (a *Alidns) call(ctx context.Context, cred dns.Credential,
 	accessKeyID := cred.Field("access_key_id")
 	accessKeySecret := cred.Field("access_key_secret")
 	if accessKeyID == "" || accessKeySecret == "" {
-		return errors.New("tier1: 阿里云需要 AccessKey ID 与 AccessKey Secret")
+		return errors.New(i18n.T("tier1.ali.need_credentials"))
 	}
 
 	// 复用移植代码里那份经过海量用户验证的签名实现，不重写第二遍。
@@ -198,7 +199,7 @@ func (a *Alidns) ListZones(ctx context.Context, cred dns.Credential) ([]dns.Zone
 		params.Set("PageSize", strconv.Itoa(alidnsDomainsPerPage))
 
 		var resp alidnsDomainsResp
-		if err := a.call(ctx, cred, "列出区域", params, &resp); err != nil {
+		if err := a.call(ctx, cred, i18n.T("tier1.op.list_zones"), params, &resp); err != nil {
 			return nil, err
 		}
 
@@ -247,7 +248,7 @@ func (a *Alidns) ListRecords(ctx context.Context, cred dns.Credential,
 	zoneName := alidnsTrimName(zone.Name)
 	if zoneName == "" {
 		// 阿里云按域名而不是 ID 定位记录，没有域名就无从查起。
-		return nil, errors.New("tier1: 列出记录需要区域名（阿里云按域名定位记录）")
+		return nil, errors.New(i18n.T("tier1.ali.need_zone_name"))
 	}
 
 	var nameFilter, rrKeyword string
@@ -295,7 +296,7 @@ func (a *Alidns) ListRecords(ctx context.Context, cred dns.Credential,
 		}
 
 		var resp alidnsRecordsResp
-		if err := a.call(ctx, cred, "列出记录", params, &resp); err != nil {
+		if err := a.call(ctx, cred, i18n.T("tier1.op.list_records"), params, &resp); err != nil {
 			return nil, err
 		}
 
@@ -327,7 +328,7 @@ func (a *Alidns) CreateRecord(ctx context.Context, cred dns.Credential,
 		return dns.Record{}, err
 	}
 	if !supportedRecordType(rec.Type) {
-		return dns.Record{}, errors.New("tier1: 记录类型不能为空")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_type"))
 	}
 
 	params := url.Values{}
@@ -349,7 +350,7 @@ func (a *Alidns) CreateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var resp alidnsRecordIDResp
-	if err := a.call(ctx, cred, "新增记录", params, &resp); err != nil {
+	if err := a.call(ctx, cred, i18n.T("tier1.op.create_record"), params, &resp); err != nil {
 		return dns.Record{}, err
 	}
 	// AddDomainRecord 只返回 RecordId，不返回记录本身；拿不到它就等于
@@ -357,7 +358,7 @@ func (a *Alidns) CreateRecord(ctx context.Context, cred dns.Credential,
 	// 所以这里必须当成失败，而不是假装成功。
 	recordID := strings.TrimSpace(resp.RecordID)
 	if recordID == "" {
-		return dns.Record{}, errors.New("tier1: 阿里云未返回新记录的 ID，无法确认写入结果")
+		return dns.Record{}, errors.New(i18n.T("tier1.ali.no_record_id"))
 	}
 
 	out := rec
@@ -382,7 +383,7 @@ func (a *Alidns) UpdateRecord(ctx context.Context, cred dns.Credential,
 
 	recordID := strings.TrimSpace(rec.ID)
 	if recordID == "" {
-		return dns.Record{}, errors.New("tier1: 修改记录需要记录 ID")
+		return dns.Record{}, errors.New(i18n.T("tier1.ali.need_id_update"))
 	}
 	zoneName := alidnsTrimName(zone.Name)
 	rr, err := alidnsRR(zoneName, rec.Name)
@@ -390,7 +391,7 @@ func (a *Alidns) UpdateRecord(ctx context.Context, cred dns.Credential,
 		return dns.Record{}, err
 	}
 	if !supportedRecordType(rec.Type) {
-		return dns.Record{}, errors.New("tier1: 记录类型不能为空")
+		return dns.Record{}, errors.New(i18n.T("tier1.need_type"))
 	}
 
 	// 先读回这条记录，只为了拿到它的解析线路。
@@ -422,7 +423,7 @@ func (a *Alidns) UpdateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var resp alidnsRecordIDResp
-	if err := a.call(ctx, cred, "修改记录", params, &resp); err != nil {
+	if err := a.call(ctx, cred, i18n.T("tier1.op.update_record"), params, &resp); err != nil {
 		return dns.Record{}, err
 	}
 
@@ -445,7 +446,7 @@ func (a *Alidns) DeleteRecord(ctx context.Context, cred dns.Credential,
 
 	recordID = strings.TrimSpace(recordID)
 	if recordID == "" {
-		return errors.New("tier1: 删除记录需要记录 ID")
+		return errors.New(i18n.T("tier1.need_id_delete"))
 	}
 
 	params := url.Values{}
@@ -453,7 +454,7 @@ func (a *Alidns) DeleteRecord(ctx context.Context, cred dns.Credential,
 	params.Set("RecordId", recordID)
 
 	var resp alidnsRecordIDResp
-	return a.call(ctx, cred, "删除记录", params, &resp)
+	return a.call(ctx, cred, i18n.T("tier1.op.delete_record"), params, &resp)
 }
 
 // recordLine 读回一条记录当前的解析线路。
@@ -467,7 +468,7 @@ func (a *Alidns) recordLine(ctx context.Context, cred dns.Credential, recordID s
 	params.Set("RecordId", recordID)
 
 	var resp alidnsRecord
-	if err := a.call(ctx, cred, "读取记录", params, &resp); err != nil {
+	if err := a.call(ctx, cred, i18n.T("tier1.op.get_record"), params, &resp); err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(resp.Line), nil
@@ -496,10 +497,10 @@ func alidnsRR(zoneName, recordName string) (string, error) {
 	name := alidnsTrimName(recordName)
 
 	if zone == "" {
-		return "", errors.New("tier1: 需要区域名才能把记录名拆成主机记录")
+		return "", errors.New(i18n.T("tier1.ali.need_zone_for_host"))
 	}
 	if name == "" {
-		return "", errors.New("tier1: 记录名不能为空")
+		return "", errors.New(i18n.T("tier1.need_name"))
 	}
 	// 调用方直接给了 RR 形式的根记录。dns.Record.Name 的约定是完整域名，
 	// 但 "@" 是阿里云/腾讯云/ddns-go 都在用的写法，认它比报错有用。
@@ -535,7 +536,7 @@ func alidnsRR(zoneName, recordName string) (string, error) {
 
 // alidnsNameError 拼一条能告诉用户"该写成什么样"的错误。
 func alidnsNameError(recordName, zoneName string) error {
-	return fmt.Errorf("tier1: 记录名 %q 不属于区域 %q（记录名要写完整域名，例如 www.%s）",
+	return fmt.Errorf(i18n.T("tier1.ali.name_outside_zone"),
 		strings.TrimSpace(recordName), zoneName, zoneName)
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"strconv"
@@ -113,7 +114,7 @@ func NewTencentCloud(baseURL string) *TencentCloud {
 	return &TencentCloud{
 		meta: dns.Meta{
 			Name:        "tencentcloud",
-			DisplayName: "腾讯云 DNS",
+			DisplayName: i18n.T("tier1.tc.display_name"),
 			Tier:        1,
 		},
 		baseURL: baseURL,
@@ -249,7 +250,7 @@ type tcRecordListRequest struct {
 	// ErrorOnEmpty 固定为 "no"。
 	//
 	// 这个参数的默认值是 "yes"：查不到记录时**报错**而不是返回空列表。
-	// 对"列出记录"来说那是错的语义 —— 一个还没有任何记录（或过滤条件
+	// 对i18n.T("tier1.op.list_records")来说那是错的语义 —— 一个还没有任何记录（或过滤条件
 	// 暂时没命中）的区域应当得到空列表；顺带也让分页的"多看一页"不会
 	// 在末页之后炸掉。
 	ErrorOnEmpty string `json:"ErrorOnEmpty"`
@@ -306,7 +307,7 @@ func (t *TencentCloud) ListZones(ctx context.Context, cred dns.Credential) ([]dn
 	// 死循环与是哪家服务商无关。
 	for page := 0; page < maxPages; page++ {
 		var env tcEnvelope
-		err := tcCall(ctx, cl, cred, tcActionDescribeDomainList, "列出区域",
+		err := tcCall(ctx, cl, cred, tcActionDescribeDomainList, i18n.T("tier1.op.list_zones"),
 			tcDomainListRequest{Offset: offset, Limit: tcZonesPerPage}, &env)
 		if err != nil {
 			return nil, err
@@ -385,7 +386,7 @@ func (t *TencentCloud) ListRecords(ctx context.Context, cred dns.Credential,
 		}
 
 		var env tcEnvelope
-		if err := tcCall(ctx, cl, cred, tcActionDescribeRecordList, "列出记录", req, &env); err != nil {
+		if err := tcCall(ctx, cl, cred, tcActionDescribeRecordList, i18n.T("tier1.op.list_records"), req, &env); err != nil {
 			return nil, err
 		}
 
@@ -441,13 +442,13 @@ func (t *TencentCloud) CreateRecord(ctx context.Context, cred dns.Credential,
 
 	cl := t.clientFor(cred)
 	var env tcEnvelope
-	if err := tcCall(ctx, cl, cred, tcActionCreateRecord, "新增记录", body, &env); err != nil {
+	if err := tcCall(ctx, cl, cred, tcActionCreateRecord, i18n.T("tier1.op.create_record"), body, &env); err != nil {
 		return dns.Record{}, err
 	}
 	if env.Response.RecordID == nil {
 		// 没有编号就没法再改或删这条记录。返回一条 ID 为空的记录会让
 		// 失败延后到下一次操作，且那时已经完全看不出问题出在哪。
-		return dns.Record{}, errors.New("tier1: 新增记录成功但服务商未返回记录编号")
+		return dns.Record{}, errors.New(i18n.T("tier1.tc.no_record_id"))
 	}
 
 	return tcApplyServerTruth(rec, domain, *env.Response.RecordID), nil
@@ -459,7 +460,7 @@ func (t *TencentCloud) CreateRecord(ctx context.Context, cred dns.Credential,
 //
 // 腾讯云的 ModifyRecord 把 RecordLine（线路）与 Value、RecordType 等一起
 // 定为必填，而 dns.Record 里**没有**线路字段 —— 调用方根本无从表达
-// "这条记录挂在电信线路上"。如果固定填"默认"，一条多线路（负载均衡）的
+// "这条记录挂在电信线路上"。如果固定填i18n.T("tier1.op.default")，一条多线路（负载均衡）的
 // 记录会被连线路一起改掉，而用户在界面上看不到任何异常。
 //
 // 所以先读一次原记录的线路，再原样带回。这是**尽力而为**：读失败就退回
@@ -486,14 +487,14 @@ func (t *TencentCloud) UpdateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var env tcEnvelope
-	if err := tcCall(ctx, cl, cred, tcActionModifyRecord, "修改记录", body, &env); err != nil {
+	if err := tcCall(ctx, cl, cred, tcActionModifyRecord, i18n.T("tier1.op.update_record"), body, &env); err != nil {
 		return dns.Record{}, err
 	}
 	// 响应里的编号必须与请求的一致。不一致意味着改错了记录，
 	// 那是绝不能当成成功的。
 	if env.Response.RecordID != nil && *env.Response.RecordID != id {
 		return dns.Record{}, fmt.Errorf(
-			"tier1: 修改记录返回的编号 %d 与请求的 %d 不一致，请到控制台确认记录状态",
+			i18n.T("tier1.tc.id_mismatch"),
 			*env.Response.RecordID, id)
 	}
 
@@ -505,7 +506,7 @@ func (t *TencentCloud) existingRecordLine(ctx context.Context, cl *client,
 	cred dns.Credential, domain string, id uint64) string {
 
 	var env tcEnvelope
-	err := tcCall(ctx, cl, cred, tcActionDescribeRecord, "读取记录",
+	err := tcCall(ctx, cl, cred, tcActionDescribeRecord, i18n.T("tier1.op.get_record"),
 		tcRecordIDRequest{Domain: domain, RecordID: id}, &env)
 	if err != nil || env.Response.RecordInfo == nil {
 		return tcDefaultLine
@@ -531,7 +532,7 @@ func (t *TencentCloud) DeleteRecord(ctx context.Context, cred dns.Credential,
 
 	cl := t.clientFor(cred)
 	var env tcEnvelope
-	return tcCall(ctx, cl, cred, tcActionDeleteRecord, "删除记录",
+	return tcCall(ctx, cl, cred, tcActionDeleteRecord, i18n.T("tier1.op.delete_record"),
 		tcRecordIDRequest{Domain: domain, RecordID: id}, &env)
 }
 
@@ -557,7 +558,7 @@ func tcCall(ctx context.Context, cl *client, cred dns.Credential,
 	secretID, secretKey := cred.Field("secret_id"), cred.Field("secret_key")
 	if secretID == "" || secretKey == "" {
 		// 只说明缺了哪个字段，绝不回显它们的值。
-		return errors.New("tier1: 腾讯云需要 SecretId 与 SecretKey（凭据字段 secret_id / secret_key）")
+		return errors.New(i18n.T("tier1.tc.need_credentials"))
 	}
 
 	payload := []byte("{}")
@@ -565,7 +566,7 @@ func tcCall(ctx context.Context, cl *client, cred dns.Credential,
 		var err error
 		payload, err = json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("%s: 序列化请求体失败: %w", op, err)
+			return fmt.Errorf(i18n.T("tier1.http.serialize"), op, err)
 		}
 	}
 
@@ -577,7 +578,7 @@ func tcCall(ctx context.Context, cl *client, cred dns.Credential,
 	// 因此 baseURL 里不能带路径前缀。
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cl.URL("/"), bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("%s: 构造请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.build"), op, err)
 	}
 	for k, v := range cl.headers {
 		req.Header.Set(k, v)
@@ -596,13 +597,13 @@ func tcCall(ctx context.Context, cl *client, cred dns.Credential,
 
 	resp, err := cl.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: 请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.request"), op, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 只读响应，关闭失败无影响
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return fmt.Errorf("%s: 读取响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.read"), op, err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -617,12 +618,12 @@ func tcCall(ctx context.Context, cl *client, cred dns.Credential,
 	}
 
 	if err := json.Unmarshal(raw, env); err != nil {
-		return fmt.Errorf("%s: 解析响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.parse"), op, err)
 	}
 	// 业务错误同样走 HTTP 200，错误在 Response.Error 里。只看状态码会把
 	// "记录编号错误"当成成功 —— 那是最危险的一类误报。
 	if e := env.Response.Error; e != nil && (e.Code != "" || e.Message != "") {
-		return fmt.Errorf("tier1: %s失败：%s", op, tcErrorText(env.Response))
+		return fmt.Errorf(i18n.T("tier1.http.op_failed"), op, tcErrorText(env.Response))
 	}
 	return nil
 }
@@ -632,7 +633,7 @@ func tcCall(ctx context.Context, cl *client, cred dns.Credential,
 // RequestId 一并带上：腾讯云的文档明确要求报障时提供它，
 // 让用户能直接复制这一句话，比让他去翻日志有用得多。
 func tcErrorText(r tcResponse) string {
-	text := "未提供错误详情"
+	text := i18n.T("tier1.no_error_detail")
 	switch e := r.Error; {
 	case e == nil:
 	case e.Code != "" && e.Message != "":
@@ -651,10 +652,10 @@ func tcErrorText(r tcResponse) string {
 // tcRecordBodyFor 组装新增 / 修改记录的请求体。
 func tcRecordBodyFor(domain, line string, rec dns.Record, recordID uint64) (*tcRecordBody, error) {
 	if !supportedRecordType(rec.Type) {
-		return nil, errors.New("tier1: 记录类型不能为空")
+		return nil, errors.New(i18n.T("tier1.need_type"))
 	}
 	if strings.TrimSpace(rec.Name) == "" {
-		return nil, errors.New("tier1: 记录名不能为空")
+		return nil, errors.New(i18n.T("tier1.need_name"))
 	}
 	if strings.TrimSpace(line) == "" {
 		line = tcDefaultLine
@@ -693,7 +694,7 @@ func tcRecordBodyFor(domain, line string, rec dns.Record, recordID uint64) (*tcR
 func tcDomainOf(zone dns.Zone) (string, error) {
 	name := strings.TrimSpace(zone.Name)
 	if name == "" {
-		return "", errors.New("tier1: 腾讯云需要区域名（域名），只给区域 ID 无法定位记录")
+		return "", errors.New(i18n.T("tier1.tc.need_zone_name"))
 	}
 	return name, nil
 }
@@ -754,11 +755,11 @@ func tcSubDomain(zoneName, recordName string) string {
 func tcParseRecordID(id string) (uint64, error) {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
-		return 0, errors.New("tier1: 腾讯云需要记录 ID")
+		return 0, errors.New(i18n.T("tier1.tc.need_record_id"))
 	}
 	v, err := strconv.ParseUint(trimmed, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("tier1: 记录 ID %q 不是腾讯云的记录编号（应为十进制数字）", trimmed)
+		return 0, fmt.Errorf(i18n.T("tier1.tc.bad_record_id"), trimmed)
 	}
 	return v, nil
 }

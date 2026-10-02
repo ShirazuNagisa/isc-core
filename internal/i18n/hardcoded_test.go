@@ -73,7 +73,17 @@ var convertedFiles = []string{
 var hardcodedBaseline = map[string]int{
 	"internal/ddnsgo":         318,
 	"internal/platform":       4,
-	"internal/provider/tier1": 158,
+	// 只剩两个 API 数据值，不是文案：
+	//
+	//	dnspod.go     const dnspodDefaultLine = "默认"
+	//	tencentcloud.go const tcDefaultLine  = "默认"
+	//
+	// 它们是 DNSPod / 腾讯云 `record_line` 参数**收的中文串**（免费套餐也只
+	// 允许默认线路）。翻译成英文会让英文系统上的请求直接失败。
+	//
+	// 迁移时它们被误换成了 i18n.T(...)，是**编译器**拦下的（const 不能是
+	// 函数调用）—— 这是第四次遇到"把数据当成文案"。
+	"internal/provider/tier1": 2,
 	"internal/reach":          90,
 	"internal/store":          70,
 	"internal/acme":           67,

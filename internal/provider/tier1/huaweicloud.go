@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"net/url"
@@ -32,7 +33,7 @@ const huaweicloudPerPage = 500
 //
 // 华为云没有 Cloudflare 那种表示 auto 的哨兵值：它的 ttl 就是
 // 1~2147483647 的秒数，文档里的默认值是 300。既然总要发一个值，
-// 就发文档写明的那个 —— 把"默认"留给服务商，意味着我们无法预料
+// 就发文档写明的那个 —— 把i18n.T("tier1.op.default")留给服务商，意味着我们无法预料
 // 它以后变成多少。
 const huaweicloudDefaultTTL = 300
 
@@ -114,7 +115,7 @@ func NewHuaweicloud(baseURL string) *Huaweicloud {
 			Name: "huaweicloud",
 			// 与 internal/provider/builtin.go 里登记的显示名一致：
 			// 凭据字段是按 Name 找的，名字对不上就会取不到凭据。
-			DisplayName: "华为云 DNS",
+			DisplayName: i18n.T("tier1.hw.display_name"),
 			Tier:        1,
 		},
 		baseURL: baseURL,
@@ -144,7 +145,7 @@ func (h *Huaweicloud) clientFor(cred dns.Credential, httpInterface string) (*cli
 	if ak == "" || sk == "" {
 		// 错误信息里只提字段名，绝不回显凭据内容。
 		return nil, ddnsgo.Signer{}, errors.New(
-			"tier1: 华为云需要 access_key_id 与 access_key_secret 两个凭据字段")
+			i18n.T("tier1.hw.need_credentials"))
 	}
 	return newClient(h.baseURL, httpInterface), ddnsgo.Signer{Key: ak, Secret: sk}, nil
 }
@@ -177,7 +178,7 @@ func (h *Huaweicloud) doSignedJSON(ctx context.Context, cl *client, op, method, 
 	if body != nil {
 		byt, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("%s: 序列化请求体失败: %w", op, err)
+			return fmt.Errorf(i18n.T("tier1.http.serialize"), op, err)
 		}
 		reader = bytes.NewReader(byt)
 	}
@@ -187,7 +188,7 @@ func (h *Huaweicloud) doSignedJSON(ctx context.Context, cl *client, op, method, 
 
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, reader)
 	if err != nil {
-		return fmt.Errorf("%s: 构造请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.build"), op, err)
 	}
 	// 这些头在签名**之前**设置，因此会被算进 SignedHeaders
 	//（Accept、host、X-Sdk-Date）。再晚设置的头不会进签名，
@@ -201,7 +202,7 @@ func (h *Huaweicloud) doSignedJSON(ctx context.Context, cl *client, op, method, 
 	if err := signer.Sign(req); err != nil {
 		// 不要把 req.Header 带进错误信息：签名头里含有由 SK 派生出来的
 		// 信息，凭据不该出现在任何日志或错误里。
-		return fmt.Errorf("%s: 计算请求签名失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.sign"), op, err)
 	}
 	// Content-Type 放在签名**之后**设置，因此它不在 SignedHeaders 里。
 	//
@@ -215,13 +216,13 @@ func (h *Huaweicloud) doSignedJSON(ctx context.Context, cl *client, op, method, 
 
 	resp, err := cl.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: 请求失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.request"), op, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 只读响应，关闭失败无影响
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return fmt.Errorf("%s: 读取响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.read"), op, err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -242,7 +243,7 @@ func (h *Huaweicloud) doSignedJSON(ctx context.Context, cl *client, op, method, 
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s: 解析响应失败: %w", op, err)
+		return fmt.Errorf(i18n.T("tier1.http.parse"), op, err)
 	}
 	return nil
 }
@@ -357,7 +358,7 @@ func (h *Huaweicloud) ListZones(ctx context.Context, cred dns.Credential) ([]dns
 		query.Set("offset", strconv.Itoa(offset))
 
 		var resp hwZonesResp
-		err := h.doSignedJSON(ctx, cl, "列出区域", http.MethodGet,
+		err := h.doSignedJSON(ctx, cl, i18n.T("tier1.op.list_zones"), http.MethodGet,
 			"/v2/zones", query, signer, nil, &resp)
 		if err != nil {
 			return nil, err
@@ -432,7 +433,7 @@ func (h *Huaweicloud) ListRecords(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, filter dns.RecordFilter) ([]dns.Record, error) {
 
 	if strings.TrimSpace(zone.ID) == "" {
-		return nil, errors.New("tier1: 列出记录需要区域 ID")
+		return nil, errors.New(i18n.T("tier1.hw.need_zone_list"))
 	}
 	cl, signer, err := h.clientFor(cred, "")
 	if err != nil {
@@ -465,7 +466,7 @@ func (h *Huaweicloud) ListRecords(ctx context.Context, cred dns.Credential,
 		}
 
 		var resp hwRecordsetsResp
-		err := h.doSignedJSON(ctx, cl, "列出记录", http.MethodGet,
+		err := h.doSignedJSON(ctx, cl, i18n.T("tier1.op.list_records"), http.MethodGet,
 			fmt.Sprintf("/v2.1/zones/%s/recordsets", url.PathEscape(zone.ID)),
 			query, signer, nil, &resp)
 		if err != nil {
@@ -570,7 +571,7 @@ func (h *Huaweicloud) CreateRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, rec dns.Record) (dns.Record, error) {
 
 	if strings.TrimSpace(zone.ID) == "" {
-		return dns.Record{}, errors.New("tier1: 新增记录需要区域 ID")
+		return dns.Record{}, errors.New(i18n.T("tier1.hw.need_zone_create"))
 	}
 	body, err := huaweicloudBody(rec, zone, true)
 	if err != nil {
@@ -582,7 +583,7 @@ func (h *Huaweicloud) CreateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var resp hwRecordset
-	err = h.doSignedJSON(ctx, cl, "新增记录", http.MethodPost,
+	err = h.doSignedJSON(ctx, cl, i18n.T("tier1.op.create_record"), http.MethodPost,
 		fmt.Sprintf("/v2.1/zones/%s/recordsets", url.PathEscape(zone.ID)),
 		nil, signer, body, &resp)
 	if err != nil {
@@ -605,12 +606,12 @@ func (h *Huaweicloud) UpdateRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, rec dns.Record) (dns.Record, error) {
 
 	if strings.TrimSpace(zone.ID) == "" {
-		return dns.Record{}, errors.New("tier1: 修改记录需要区域 ID")
+		return dns.Record{}, errors.New(i18n.T("tier1.hw.need_zone_update"))
 	}
 	if strings.TrimSpace(rec.ID) == "" {
 		// 这个 ID 是记录集 ID。展开出来的多条记录共用它，
 		// 所以拿到哪一条的 ID 都一样。
-		return dns.Record{}, errors.New("tier1: 修改记录需要记录 ID（华为云为记录集 ID）")
+		return dns.Record{}, errors.New(i18n.T("tier1.hw.need_id_update"))
 	}
 	body, err := huaweicloudBody(rec, zone, false)
 	if err != nil {
@@ -622,7 +623,7 @@ func (h *Huaweicloud) UpdateRecord(ctx context.Context, cred dns.Credential,
 	}
 
 	var resp hwRecordset
-	err = h.doSignedJSON(ctx, cl, "修改记录", http.MethodPut,
+	err = h.doSignedJSON(ctx, cl, i18n.T("tier1.op.update_record"), http.MethodPut,
 		fmt.Sprintf("/v2.1/zones/%s/recordsets/%s",
 			url.PathEscape(zone.ID), url.PathEscape(rec.ID)),
 		nil, signer, body, &resp)
@@ -646,17 +647,17 @@ func (h *Huaweicloud) DeleteRecord(ctx context.Context, cred dns.Credential,
 	zone dns.Zone, recordID string) error {
 
 	if strings.TrimSpace(zone.ID) == "" {
-		return errors.New("tier1: 删除记录需要区域 ID")
+		return errors.New(i18n.T("tier1.hw.need_zone_delete"))
 	}
 	if strings.TrimSpace(recordID) == "" {
-		return errors.New("tier1: 删除记录需要记录 ID（华为云为记录集 ID）")
+		return errors.New(i18n.T("tier1.hw.need_id_delete"))
 	}
 	cl, signer, err := h.clientFor(cred, "")
 	if err != nil {
 		return err
 	}
 
-	return h.doSignedJSON(ctx, cl, "删除记录", http.MethodDelete,
+	return h.doSignedJSON(ctx, cl, i18n.T("tier1.op.delete_record"), http.MethodDelete,
 		fmt.Sprintf("/v2.1/zones/%s/recordsets/%s",
 			url.PathEscape(zone.ID), url.PathEscape(recordID)),
 		nil, signer, nil, nil)
@@ -692,14 +693,14 @@ type hwRecordsetBody struct {
 // 且要带上 weight。
 func huaweicloudBody(rec dns.Record, zone dns.Zone, create bool) (*hwRecordsetBody, error) {
 	if !supportedRecordType(rec.Type) {
-		return nil, errors.New("tier1: 记录类型不能为空")
+		return nil, errors.New(i18n.T("tier1.need_type"))
 	}
 	fqdn := huaweicloudFQDN(rec.Name, zone)
 	if fqdn == "" {
-		return nil, errors.New("tier1: 记录名不能为空")
+		return nil, errors.New(i18n.T("tier1.need_name"))
 	}
 	if strings.TrimSpace(rec.Content) == "" {
-		return nil, errors.New("tier1: 记录值不能为空")
+		return nil, errors.New(i18n.T("tier1.need_content"))
 	}
 
 	body := &hwRecordsetBody{

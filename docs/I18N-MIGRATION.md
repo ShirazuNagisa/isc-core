@@ -32,7 +32,7 @@
 | 包 | 处数 | 用户可见度 |
 |---|---|---|
 | `internal/ddnsgo` | 318 | 移植代码。它的错误文本会转给用户 |
-| `internal/provider/tier1` | 158 | **凭据报错时用户看到的第一手信息** |
+| `internal/provider/tier1` | ✅ **2** | 已完成；剩 2 处是 API 数据值（DNSPod 的 `record_line`） |
 | `internal/reach` | 90 | 可达性诊断，`isc doctor` 直接展示 |
 | `internal/store` | 73 | 数据库错误 |
 | `internal/acme` | 67 | 证书签发失败的原因 |
