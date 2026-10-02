@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
 )
@@ -25,21 +26,14 @@ func newConsoleCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "console",
-		Short: "显示（或打开）验证控制台地址",
-		Long: `显示验证控制台的本机地址。
-
-控制台监听回环 TCP，端口由内核启动时随机分配，因此每次启动都不同。
-用本命令取得当前地址，或加 --open 直接用浏览器打开。
-
-注意：浏览器访问控制台必须使用 127.0.0.1（或 localhost）。
-内核会拒绝 Host 头不是本机地址的请求 —— 那是为了防 DNS rebinding，
-用局域网 IP 或自定义主机名都会得到 403。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.console.short"),
+		Long:  i18n.T("cli.console.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			info, err := runtimeinfo.Read(app.paths.RuntimeFile())
 			if err != nil {
 				return app.fail(cmd, fmt.Errorf(
-					"%w（提示：先运行 'isc daemon run' 启动内核）", err))
+					i18n.T("cli.console.not_running"), err))
 			}
 
 			// 控制台必须走回环 TCP：浏览器无法访问命名管道。
@@ -47,13 +41,13 @@ func newConsoleCmd(app *App) *cobra.Command {
 			// 内核始终同时监听管道与 TCP（见 docs/DECISIONS.md D08），
 			// 因此正常情况下 fallback 一定存在；缺失时说明内核版本不对。
 			if info.FallbackEndpoint == "" {
-				return app.fail(cmd, fmt.Errorf(
-					"内核没有提供回环 TCP 通道，浏览器无法访问控制台"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.console.no_tcp")))
 			}
 			ep := platform.Endpoint(info.FallbackEndpoint)
 			if ep.Scheme() != platform.SchemeTCP {
-				return app.fail(cmd, fmt.Errorf(
-					"备用通道不是 TCP（%s），浏览器无法访问控制台", ep))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.console.not_tcp", ep)))
 			}
 
 			url := ep.HTTPBaseURL() + "/console/"
@@ -68,17 +62,14 @@ func newConsoleCmd(app *App) *cobra.Command {
 
 			_, _ = fmt.Fprintln(app.out, url)
 			if !open {
-				_, _ = fmt.Fprintf(app.out,
-					"\n提示：加 --open 可直接用浏览器打开。\n"+
-						"      控制台必须通过 127.0.0.1 访问 —— 用其它主机名会被内核\n"+
-						"      以 403 拒绝（DNS rebinding 防护）。\n")
+				_, _ = fmt.Fprint(app.out, i18n.T("cli.console.open_hint"))
 				return nil
 			}
 			return openBrowser(url)
 		},
 	}
 
-	cmd.Flags().BoolVar(&open, "open", false, "用默认浏览器打开控制台")
+	cmd.Flags().BoolVar(&open, "open", false, i18n.T("cli.console.open_flag"))
 	return cmd
 }
 
@@ -101,7 +92,7 @@ func openBrowser(url string) error {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("无法打开浏览器：%w", err)
+		return fmt.Errorf(i18n.T("cli.console.open_failed"), err)
 	}
 	// 回收子进程，避免留下僵尸。
 	go func() { _ = cmd.Wait() }()

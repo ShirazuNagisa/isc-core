@@ -341,6 +341,26 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### 迁移的第四步：ddns_add / notify / console
+
+**internal/cli 的基线：287 → 235。** 四轮累计 **443 → 235（约 47%）**。
+
+已完成 9 个文件：`credential.go`、`records.go`、`root.go`、`ddns.go`、
+`cert.go`、`client.go`、`ddns_add.go`、`notify.go`、`console.go`。
+
+剩余 7 个文件，最大的三个：`init.go`（54）、`expose.go`（45）、
+`service.go`（39）。
+
+##### 一处值得记下的细节
+
+`console.go` 的 `Long` 在我第一次转储时被工具截断了（超过 95 个字符
+就加省略号），因此目录里的译文与源码并不一致。**替换时才发现。**
+
+这不是工具的问题 —— 截断是为了让清单可读。但它提醒了一件事：
+**按"看起来的样子"写译文会在这种地方出错**，因此每一次替换都必须以
+`未匹配: 0` 收尾，而不是"大致改完了"。这一轮就出现了两次未匹配
+（一次是 `notify.go` 里另一处相同的字符串，一次是这里），都靠那个
+计数抓了出来。
 ##### 迁移的第三步：ddns / cert / ip / client 四个文件
 
 新增完全转换的文件：`ddns.go`、`cert.go`、`client.go`（错误格式化），

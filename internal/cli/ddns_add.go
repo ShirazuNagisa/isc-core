@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 本文件补齐**动态解析任务的创建与删除**。
@@ -39,43 +40,27 @@ func newDdnsAddCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "创建一条动态解析任务",
-		Long: `创建一条动态解析任务。
-
-一条任务 = 一组凭据 + 一组域名 + 一组地址来源。
-
-例（IPv6，从网卡读取）：
-
-  isc ddns add --label 家里的IPv6 --credential <凭据ID> \
-      --domain home.example.com --type AAAA --source ipv6
-
-例（IPv4，通过外部接口查询）：
-
-  isc ddns add --label 家里的IPv4 --credential <凭据ID> \
-      --domain home.example.com --type A --source ipv4 \
-      --get-type url --value https://api.ipify.org
-
---source ipv6 时可以用 --selector 在多地址中挑一个：
-
-  --selector "@2"        取第 2 个（从 1 开始）
-  --selector "^240e:.*"  正则筛选，取第一个匹配的`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.ddns.add_short"),
+		Long:  i18n.T("cli.ddns.add_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(label) == "" {
-				return app.fail(cmd, fmt.Errorf("必须用 --label 给任务起一个名字"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.ddns.need_label")))
 			}
 			if strings.TrimSpace(credential) == "" {
-				return app.fail(cmd, fmt.Errorf(
-					"必须用 --credential 指定凭据 ID（用 isc credential list 查看）"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.ddns.need_credential")))
 			}
 			if len(domains) == 0 {
-				return app.fail(cmd, fmt.Errorf("至少要用 --domain 指定一个域名"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.ddns.need_domain")))
 			}
 
 			recType = strings.ToUpper(strings.TrimSpace(recType))
 			if recType != "A" && recType != "AAAA" {
-				return app.fail(cmd, fmt.Errorf(
-					"--type 只能是 A 或 AAAA，收到 %q", recType))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.ddns.bad_type", recType)))
 			}
 
 			// 地址来源：默认从网卡读取。
@@ -89,16 +74,15 @@ func newDdnsAddCmd(app *App) *cobra.Command {
 			switch getType {
 			case "netInterface", "url", "cmd":
 			default:
-				return app.fail(cmd, fmt.Errorf(
-					"--get-type 只能是 netInterface / url / cmd，收到 %q", getType))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.ddns.bad_get_type", getType)))
 			}
 			if getType != "netInterface" && strings.TrimSpace(source) == "" {
-				return app.fail(cmd, fmt.Errorf(
-					"--get-type %s 时必须用 --value 给出%s",
-					getType, map[string]string{
-						"url": "接口地址",
-						"cmd": "要执行的命令",
-					}[getType]))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.ddns.need_value", getType, map[string]string{
+						"url": i18n.T("cli.ddns.value_url"),
+						"cmd": i18n.T("cli.ddns.value_cmd"),
+					}[getType])))
 			}
 
 			// 只有被选中的那一类记录参与解析，另一类显式关闭。
@@ -151,28 +135,27 @@ func newDdnsAddCmd(app *App) *cobra.Command {
 				return writeJSONOut(app.out, created)
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 任务已创建（%s）\n", created.Id)
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.ddns.created"), created.Id)
 			_, _ = fmt.Fprintf(app.out, "   %s：%s → %s\n",
 				created.Label, recType, strings.Join(domains, ", "))
 			_, _ = fmt.Fprintln(app.out,
-				"\n立即跑一次看看：isc ddns run "+created.Id)
+				i18n.T("cli.ddns.created_hint", created.Id))
 			return nil
 		},
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&label, "label", "", "任务名称（必填）—— 会出现在通知与日志里")
-	f.StringVar(&credential, "credential", "", "凭据 ID（必填）")
-	f.StringArrayVar(&domains, "domain", nil,
-		"要更新的域名，可重复；支持 www:example.com 显式指定根域名")
-	f.StringVar(&recType, "type", "AAAA", "记录类型：A 或 AAAA")
-	f.StringVar(&source, "source", "", "地址来源：ipv6 或 ipv4（用于默认的取值方式）")
+	f.StringVar(&label, "label", "", i18n.T("cli.ddns.flag_label"))
+	f.StringVar(&credential, "credential", "",
+		i18n.T("cli.ddns.flag_credential"))
+	f.StringArrayVar(&domains, "domain", nil, i18n.T("cli.ddns.flag_domain"))
+	f.StringVar(&recType, "type", "AAAA", i18n.T("cli.ddns.flag_type"))
+	f.StringVar(&source, "source", "", i18n.T("cli.ddns.flag_source"))
 	f.StringVar(&getType, "get-type", "netInterface",
-		"取值方式：netInterface（从网卡读，推荐）/ url / cmd")
-	f.StringVar(&selector, "selector", "",
-		"仅 IPv6：地址选择器，如 @2 或 ^240e:.*")
-	f.StringVar(&ttl, "ttl", "", "记录 TTL 秒数；留空用服务商默认值")
-	f.BoolVar(&disabled, "disabled", false, "创建后先停用")
+		i18n.T("cli.ddns.flag_get_type"))
+	f.StringVar(&selector, "selector", "", i18n.T("cli.ddns.flag_selector"))
+	f.StringVar(&ttl, "ttl", "", i18n.T("cli.ddns.flag_ttl"))
+	f.BoolVar(&disabled, "disabled", false, i18n.T("cli.ddns.flag_disabled"))
 	return cmd
 }
 
@@ -180,20 +163,14 @@ func newDdnsRemoveCmd(app *App) *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:     "rm <任务ID>",
+		Use:     i18n.T("cli.ddns.rm_use"),
 		Aliases: []string{"remove", "delete"},
-		Short:   "删除一条动态解析任务",
-		Long: `删除一条动态解析任务。
-
-它只删除**任务**，不会动 DNS 里已有的记录 —— 记录会保持最后一次
-解析出来的值。`,
-		Args: cobra.ExactArgs(1),
+		Short:   i18n.T("cli.ddns.rm_short"),
+		Long:    i18n.T("cli.ddns.rm_long"),
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				_, _ = fmt.Fprintf(app.out,
-					"将删除任务 %s。确认请加 --yes。\n"+
-						"（DNS 里的记录会保持最后一次解析出来的值，不会被删掉。）\n",
-					args[0])
+				_, _ = fmt.Fprintf(app.out, i18n.T("cli.ddns.rm_confirm"), args[0])
 				return nil
 			}
 
@@ -209,11 +186,11 @@ func newDdnsRemoveCmd(app *App) *cobra.Command {
 				return app.fail(cmd, err)
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 任务 %s 已删除\n", args[0])
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.ddns.removed"), args[0])
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&force, "yes", false, "跳过确认")
+	cmd.Flags().BoolVar(&force, "yes", false, i18n.T("cli.ddns.yes_flag"))
 	return cmd
 }

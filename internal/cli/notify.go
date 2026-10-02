@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // newNotifyCmd 提供通知通道的查看与测试。
@@ -15,14 +16,8 @@ import (
 func newNotifyCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "notify",
-		Short: "查看与测试通知通道",
-		Long: `查看通知通道与最近的投递结果，或发一条测试通知。
-
-配置通道用接口（PUT /v1/notify/channels）—— 通道的字段较多
-（地址、请求头、请求体模板），命令行不适合编辑它们。
-
-通道的去重与静默期由内核统一处理：同一个去重键在 5 分钟内只发一条，
-静默期过后若期间有被抑制的消息，会补发一条汇总。`,
+		Short: i18n.T("cli.notify.short"),
+		Long:  i18n.T("cli.notify.long"),
 	}
 
 	cmd.AddCommand(
@@ -36,7 +31,7 @@ func newNotifyCmd(app *App) *cobra.Command {
 func newNotifyListCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "列出通知通道",
+		Short: i18n.T("cli.notify.list_short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
@@ -57,16 +52,15 @@ func newNotifyListCmd(app *App) *cobra.Command {
 			}
 
 			if len(list.Items) == 0 {
-				_, _ = fmt.Fprintln(app.out, "还没有配置任何通知通道。")
-				_, _ = fmt.Fprintln(app.out,
-					"（日志通道始终可用，通知会出现在 isc daemon 的日志里。）")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.notify.list_empty"))
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.notify.log_always"))
 				return nil
 			}
 
 			for _, c := range list.Items {
-				state := "启用"
+				state := i18n.T("cli.notify.enabled")
 				if c.Enabled != nil && !*c.Enabled {
-					state = "停用"
+					state = i18n.T("cli.notify.disabled")
 				}
 				_, _ = fmt.Fprintf(app.out, "[%s] %s（%s）\n", state, c.Name, c.Kind)
 				if c.Url != nil && *c.Url != "" {
@@ -74,10 +68,11 @@ func newNotifyListCmd(app *App) *cobra.Command {
 						derefOr(c.Method, "POST"), *c.Url)
 				}
 				if c.MinSeverity != nil && *c.MinSeverity != "info" {
-					_, _ = fmt.Fprintf(app.out, "    仅在 %s 及以上时发送\n", *c.MinSeverity)
+					_, _ = fmt.Fprintf(app.out,
+						i18n.T("cli.notify.min_severity"), *c.MinSeverity)
 				}
 				if c.BodyTemplate != nil && *c.BodyTemplate != "" {
-					_, _ = fmt.Fprintln(app.out, "    （使用自定义请求体模板）")
+					_, _ = fmt.Fprintln(app.out, i18n.T("cli.notify.custom_body"))
 				}
 			}
 			return nil
@@ -88,7 +83,7 @@ func newNotifyListCmd(app *App) *cobra.Command {
 func newNotifyDeliveriesCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "deliveries",
-		Short: "列出最近的通知投递结果",
+		Short: i18n.T("cli.notify.deliveries_short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
@@ -116,12 +111,9 @@ func newNotifyDeliveriesCmd(app *App) *cobra.Command {
 func newNotifyTestCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "test",
-		Short: "向全部通道发送一条测试通知",
-		Long: `立刻向全部通道发一条测试消息。
-
-它**绕过去重与队列**：你点了之后应当立刻看到结果，
-而不是等下一个投递循环。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.notify.test_short"),
+		Long:  i18n.T("cli.notify.test_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -140,7 +132,7 @@ func newNotifyTestCmd(app *App) *cobra.Command {
 				return writeJSONOut(app.out, list)
 			}
 
-			_, _ = fmt.Fprintln(app.out, "测试通知已发送：")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.notify.sent"))
 			renderDeliveries(app, list.Items)
 			return nil
 		},
@@ -149,7 +141,7 @@ func newNotifyTestCmd(app *App) *cobra.Command {
 
 func renderDeliveries(app *App, items []gen.NotifyDelivery) {
 	if len(items) == 0 {
-		_, _ = fmt.Fprintln(app.out, "还没有任何投递记录。")
+		_, _ = fmt.Fprintln(app.out, i18n.T("cli.notify.no_deliveries"))
 		return
 	}
 

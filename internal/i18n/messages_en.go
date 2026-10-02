@@ -326,6 +326,87 @@ var messagesEn = map[string]string{
 
 	"cli.error.with_detail_short": "%s (%s)",
 
+	"cli.ddns.add_short": "Create a dynamic DNS task",
+	"cli.ddns.add_long": "Create a dynamic DNS task.\n\n" +
+		"A task = one credential + a set of domains + a set of address sources.\n\n" +
+		"Example (IPv6, read from an interface):\n\n" +
+		"  isc ddns add --label home-ipv6 --credential <id> \\\n" +
+		"      --domain home.example.com --type AAAA --source ipv6\n\n" +
+		"Example (IPv4, queried from an external endpoint):\n\n" +
+		"  isc ddns add --label home-ipv4 --credential <id> \\\n" +
+		"      --domain home.example.com --type A --source ipv4 \\\n" +
+		"      --get-type url --value https://api.ipify.org\n\n" +
+		"With --source ipv6, --selector picks one of several addresses:\n\n" +
+		"  --selector \"@2\"        the 2nd one (1-based)\n" +
+		"  --selector \"^240e:.*\"  the first one matching a regex",
+	"cli.ddns.need_label":      "--label is required to name the task",
+	"cli.ddns.need_credential": "--credential is required to give the credential ID (see isc credential list)",
+	"cli.ddns.need_domain":     "at least one --domain is required",
+	"cli.ddns.bad_type":        "--type must be A or AAAA, got %q",
+	"cli.ddns.bad_get_type":    "--get-type must be netInterface / url / cmd, got %q",
+	"cli.ddns.need_value":      "--get-type %s requires --value to give the %s",
+	"cli.ddns.value_url":       "endpoint URL",
+	"cli.ddns.value_cmd":       "command to run",
+	"cli.ddns.created":         "✅ Task created (%s)\n",
+	"cli.ddns.created_hint":    "\nRun it once now: isc ddns run %s",
+	"cli.ddns.rm_use":          "rm <task-id>",
+	"cli.ddns.rm_short":        "Delete a dynamic DNS task",
+	"cli.ddns.rm_long": "Delete a dynamic DNS task.\n\n" +
+		"It deletes the **task** only; existing DNS records are left alone and\n" +
+		"keep the last value that was resolved.",
+	"cli.ddns.rm_confirm": "This will delete task %s. Add --yes to confirm.\n" +
+		"(DNS records keep the last resolved value; they are not deleted.)\n",
+	"cli.ddns.removed":  "✅ Task %s deleted\n",
+	"cli.ddns.yes_flag": "skip confirmation",
+
+	"cli.ddns.flag_label":      "task name (required) — it shows up in notifications and logs",
+	"cli.ddns.flag_credential": "credential ID (required)",
+	"cli.ddns.flag_domain": "domain to update, repeatable; " +
+		"www:example.com names the root domain explicitly",
+	"cli.ddns.flag_type":     "record type: A or AAAA",
+	"cli.ddns.flag_source":   "address source: ipv6 or ipv4 (used for the default get-type)",
+	"cli.ddns.flag_get_type": "how to obtain the value: netInterface (recommended) / url / cmd",
+	"cli.ddns.flag_selector": "IPv6 only: address selector, e.g. @2 or ^240e:.*",
+	"cli.ddns.flag_ttl":      "record TTL in seconds; empty uses the provider default",
+	"cli.ddns.flag_disabled": "create it disabled",
+
+	"cli.notify.short": "View and test notification channels",
+	"cli.notify.long": "View notification channels and recent delivery results, or send a test.\n\n" +
+		"Channels are configured through the API (PUT /v1/notify/channels) —\n" +
+		"they carry many fields (URL, headers, body template) that a command\n" +
+		"line is a poor fit for. The web console has a full form.",
+	"cli.notify.list_short":       "List notification channels",
+	"cli.notify.list_empty":       "No notification channel configured yet.",
+	"cli.notify.log_always":       "(The log channel is always available; notifications appear in the isc daemon log.)",
+	"cli.notify.enabled":          "enabled",
+	"cli.notify.disabled":         "disabled",
+	"cli.notify.min_severity":     "    only send at %s and above\n",
+	"cli.notify.custom_body":      "    (custom request body template)",
+	"cli.notify.deliveries_short": "List recent notification deliveries",
+	"cli.notify.test_short":       "Send a test notification to every channel",
+	"cli.notify.test_long": "Send a test message to every channel right away.\n\n" +
+		"It **bypasses deduplication and the queue**: you should see the result\n" +
+		"immediately rather than waiting for the next delivery cycle.",
+	"cli.notify.sent":          "Test notification sent:",
+	"cli.notify.no_deliveries": "No delivery record yet.",
+
+	"cli.console.short": "Show (or open) the verification console address",
+	"cli.console.long": "Show the local address of the verification console.\n\n" +
+		"The console listens on loopback TCP with a port the kernel picks at\n" +
+		"startup, so it differs on every run. Use this command to get the\n" +
+		"current address, or add --open to launch a browser.\n\n" +
+		"Note: the browser must use 127.0.0.1 (or localhost). The kernel rejects\n" +
+		"requests whose Host header is not a local address — that defends against\n" +
+		"DNS rebinding, so a LAN IP or a custom host name gets a 403.",
+	"cli.console.not_running": "%w (hint: start the kernel first with 'isc daemon run')",
+	"cli.console.no_tcp":      "the kernel offers no loopback TCP channel, so a browser cannot reach the console",
+	"cli.console.not_tcp":     "the fallback channel is not TCP (%s), so a browser cannot reach the console",
+	"cli.console.open_hint": "\nHint: add --open to launch a browser directly.\n" +
+		"      The console must be reached via 127.0.0.1 — any other host name\n" +
+		"      is rejected by the kernel with 403 (DNS rebinding defence).\n",
+	"cli.console.open_flag":   "open the console in the default browser",
+	"cli.console.open_failed": "cannot open a browser: %w",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",

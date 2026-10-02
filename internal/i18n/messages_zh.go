@@ -315,6 +315,86 @@ var messagesZh = map[string]string{
 
 	"cli.error.with_detail_short": "%s（%s）",
 
+	"cli.ddns.add_short": "创建一条动态解析任务",
+	"cli.ddns.add_long": "创建一条动态解析任务。\n\n" +
+		"一条任务 = 一组凭据 + 一组域名 + 一组地址来源。\n\n" +
+		"例（IPv6，从网卡读取）：\n\n" +
+		"  isc ddns add --label 家里的IPv6 --credential <凭据ID> \\\n" +
+		"      --domain home.example.com --type AAAA --source ipv6\n\n" +
+		"例（IPv4，通过外部接口查询）：\n\n" +
+		"  isc ddns add --label 家里的IPv4 --credential <凭据ID> \\\n" +
+		"      --domain home.example.com --type A --source ipv4 \\\n" +
+		"      --get-type url --value https://api.ipify.org\n\n" +
+		"--source ipv6 时可以用 --selector 在多地址中挑一个：\n\n" +
+		"  --selector \"@2\"        取第 2 个（从 1 开始）\n" +
+		"  --selector \"^240e:.*\"  正则筛选，取第一个匹配的",
+	"cli.ddns.need_label":      "必须用 --label 给任务起一个名字",
+	"cli.ddns.need_credential": "必须用 --credential 指定凭据 ID（用 isc credential list 查看）",
+	"cli.ddns.need_domain":     "至少要用 --domain 指定一个域名",
+	"cli.ddns.bad_type":        "--type 只能是 A 或 AAAA，收到 %q",
+	"cli.ddns.bad_get_type":    "--get-type 只能是 netInterface / url / cmd，收到 %q",
+	"cli.ddns.need_value":      "--get-type %s 时必须用 --value 给出%s",
+	"cli.ddns.value_url":       "接口地址",
+	"cli.ddns.value_cmd":       "要执行的命令",
+	"cli.ddns.created":         "✅ 任务已创建（%s）\n",
+	"cli.ddns.created_hint":    "\n立即跑一次看看：isc ddns run %s",
+	"cli.ddns.rm_use":          "rm <任务ID>",
+	"cli.ddns.rm_short":        "删除一条动态解析任务",
+	"cli.ddns.rm_long": "删除一条动态解析任务。\n\n" +
+		"它只删除**任务**，不会动 DNS 里已有的记录 —— 记录会保持最后一次\n" +
+		"解析出来的值。",
+	"cli.ddns.rm_confirm": "将删除任务 %s。确认请加 --yes。\n" +
+		"（DNS 里的记录会保持最后一次解析出来的值，不会被删掉。）\n",
+	"cli.ddns.removed":  "✅ 任务 %s 已删除\n",
+	"cli.ddns.yes_flag": "跳过确认",
+
+	"cli.ddns.flag_label":      "任务名称（必填）—— 会出现在通知与日志里",
+	"cli.ddns.flag_credential": "凭据 ID（必填）",
+	"cli.ddns.flag_domain": "要更新的域名，可重复；" +
+		"支持 www:example.com 显式指定根域名",
+	"cli.ddns.flag_type":     "记录类型：A 或 AAAA",
+	"cli.ddns.flag_source":   "地址来源：ipv6 或 ipv4（用于默认的取值方式）",
+	"cli.ddns.flag_get_type": "取值方式：netInterface（从网卡读，推荐）/ url / cmd",
+	"cli.ddns.flag_selector": "仅 IPv6：地址选择器，如 @2 或 ^240e:.*",
+	"cli.ddns.flag_ttl":      "记录 TTL 秒数；留空用服务商默认值",
+	"cli.ddns.flag_disabled": "创建后先停用",
+
+	"cli.notify.short": "查看与测试通知通道",
+	"cli.notify.long": "查看通知通道与最近的投递结果，或发一条测试通知。\n\n" +
+		"配置通道用接口（PUT /v1/notify/channels）—— 通道的字段较多\n" +
+		"（地址、请求头、请求体模板），命令行不适合编辑它们。\n" +
+		"Web 控制台里有完整的表单。",
+	"cli.notify.list_short":       "列出通知通道",
+	"cli.notify.list_empty":       "还没有配置任何通知通道。",
+	"cli.notify.log_always":       "（日志通道始终可用，通知会出现在 isc daemon 的日志里。）",
+	"cli.notify.enabled":          "启用",
+	"cli.notify.disabled":         "停用",
+	"cli.notify.min_severity":     "    仅在 %s 及以上时发送\n",
+	"cli.notify.custom_body":      "    （使用自定义请求体模板）",
+	"cli.notify.deliveries_short": "列出最近的通知投递结果",
+	"cli.notify.test_short":       "向全部通道发送一条测试通知",
+	"cli.notify.test_long": "立刻向全部通道发一条测试消息。\n\n" +
+		"它**绕过去重与队列**：你点了之后应当立刻看到结果，\n" +
+		"而不是等下一个投递循环。",
+	"cli.notify.sent":          "测试通知已发送：",
+	"cli.notify.no_deliveries": "还没有任何投递记录。",
+
+	"cli.console.short": "显示（或打开）验证控制台地址",
+	"cli.console.long": "显示验证控制台的本机地址。\n\n" +
+		"控制台监听回环 TCP，端口由内核启动时随机分配，因此每次启动都不同。\n" +
+		"用本命令取得当前地址，或加 --open 直接用浏览器打开。\n\n" +
+		"注意：浏览器访问控制台必须使用 127.0.0.1（或 localhost）。\n" +
+		"内核会拒绝 Host 头不是本机地址的请求 —— 那是为了防 DNS rebinding，\n" +
+		"用局域网 IP 或自定义主机名都会得到 403。",
+	"cli.console.not_running": "%w（提示：先运行 'isc daemon run' 启动内核）",
+	"cli.console.no_tcp":      "内核没有提供回环 TCP 通道，浏览器无法访问控制台",
+	"cli.console.not_tcp":     "备用通道不是 TCP（%s），浏览器无法访问控制台",
+	"cli.console.open_hint": "\n提示：加 --open 可直接用浏览器打开。\n" +
+		"      控制台必须通过 127.0.0.1 访问 —— 用其它主机名会被内核\n" +
+		"      以 403 拒绝（DNS rebinding 防护）。\n",
+	"cli.console.open_flag":   "用默认浏览器打开控制台",
+	"cli.console.open_failed": "无法打开浏览器：%w",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",
