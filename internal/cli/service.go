@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 )
 
@@ -19,22 +20,8 @@ import (
 func newServiceCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
-		Short: "把内核注册为系统服务（开机自启、崩溃重启）",
-		Long: `把内核注册为系统服务。
-
-注册之后内核会：
-  · 开机自动启动（Windows 使用延迟自启，等网络就绪后再启动）
-  · 崩溃后自动重启（5 秒 / 30 秒 / 60 秒三档递增延迟）
-
-**安装与卸载需要管理员权限**：
-  Windows  右键终端 → 以管理员身份运行
-  Linux    sudo isc service install
-  macOS    sudo isc service install
-
-各平台的服务机制不同：
-  Windows  服务控制管理器（SCM），可在 services.msc 里看到
-  Linux    systemd（/etc/systemd/system/isc-core.service）
-  macOS    launchd（/Library/LaunchDaemons/com.isc.core.plist）`,
+		Short: i18n.T("cli.service.short"),
+		Long:  i18n.T("cli.service.long"),
 	}
 
 	cmd.AddCommand(
@@ -56,12 +43,9 @@ func newServiceInstallCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "安装系统服务",
-		Long: `安装并注册系统服务。
-
-已经安装过时会**更新配置**而不是报错 —— 重新运行安装命令是常态
-（换了路径、想改自启设置），而报"服务已存在"只会让你去手工卸载。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.service.install_short"),
+		Long:  i18n.T("cli.service.install_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			exe, err := resolveExecutable(exePath)
 			if err != nil {
@@ -111,29 +95,28 @@ func newServiceInstallCmd(app *App) *cobra.Command {
 				})
 			}
 
-			_, _ = fmt.Fprintf(app.out, "✅ 服务已安装（%s）\n", st.Backend)
-			_, _ = fmt.Fprintf(app.out, "   可执行文件: %s\n", exe)
-			_, _ = fmt.Fprintf(app.out, "   数据目录:   %s\n", dataDir)
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.service.installed"), st.Backend)
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.service.exe_path"), exe)
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.service.data_dir"), dataDir)
 			if autoStart {
-				_, _ = fmt.Fprintln(app.out, "   开机自启:   是（延迟自启，等网络就绪）")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.autostart_yes"))
 			} else {
-				_, _ = fmt.Fprintln(app.out, "   开机自启:   否（手动启动）")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.autostart_no"))
 			}
 			if !noRestart {
-				_, _ = fmt.Fprintln(app.out, "   崩溃重启:   是（5s / 30s / 60s 递增延迟）")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.restart_yes"))
 			}
-			_, _ = fmt.Fprintln(app.out,
-				"\n用 isc service start 启动它，或用 isc service status 查看状态。")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.next_steps"))
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&autoStart, "auto-start", true,
-		"开机自动启动（Windows 上使用延迟自启，等网络就绪后再启动）")
+		i18n.T("cli.service.flag_autostart"))
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false,
-		"不在崩溃后自动重启")
+		i18n.T("cli.service.flag_no_restart"))
 	cmd.Flags().StringVar(&exePath, "exe", "",
-		"要注册的可执行文件路径（默认用当前运行的这一个）")
+		i18n.T("cli.service.flag_exe"))
 	return cmd
 }
 
@@ -142,14 +125,9 @@ func newServiceUninstallCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "停止并删除系统服务",
-		Long: `停止并删除系统服务。
-
-它是**幂等**的：服务本来就不存在时返回成功。报错会让"先卸再装"
-这类部署脚本失败，而那是最常见的写法。
-
-数据目录**不会**被删除 —— 里面有你的凭据与配置。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.service.uninstall_short"),
+		Long:  i18n.T("cli.service.uninstall_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			bundle := platform.Current(app.paths.Root())
 
@@ -159,43 +137,32 @@ func newServiceUninstallCmd(app *App) *cobra.Command {
 			if keepRunning {
 				// 用户明确要求保留运行中的进程时，只删服务注册。
 				// 平台后端不支持这种拆分，因此直接说明。
-				return app.fail(cmd, fmt.Errorf(
-					"暂不支持「只删服务、不停进程」；请先 isc service stop"))
+				return app.fail(cmd, fmt.Errorf("%s",
+					i18n.T("cli.service.uninstall_busy")))
 			}
 
 			if err := bundle.ServiceManager.Uninstall(ctx); err != nil {
 				return app.fail(cmd, err)
 			}
 
-			_, _ = fmt.Fprintln(app.out, "✅ 服务已卸载")
-			_, _ = fmt.Fprintf(app.out,
-				"   数据目录仍然保留：%s\n", app.paths.Root())
-			_, _ = fmt.Fprintln(app.out, "   如需彻底清除，请手工删除它。")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.uninstalled"))
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.service.data_kept")+"\n",
+				app.paths.Root())
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&keepRunning, "keep-running", false,
-		"只删除服务注册，不停掉正在运行的进程（当前平台可能不支持）")
+		i18n.T("cli.service.keep_running"))
 	return cmd
 }
 
 func newServiceStatusCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "查看系统服务状态",
-		Long: `查看系统服务状态。
-
-它同时报出两件事：
-
-	操作系统里的服务   是否已安装、是否在运行（**需要管理员权限**）
-	内核本身           现在是否真的能连通（不需要任何权限）
-
-两者分开报是有原因的。真机上确认过：Windows 上**查询**服务状态同样
-需要管理员（打开服务控制管理器要完全访问权），因此普通用户跑这条
-命令会失败。但他真正想知道的往往是"内核在跑吗"—— 而那个问题看
-一眼运行时文件就能回答。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.service.status_short"),
+		Long:  i18n.T("cli.service.status_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			bundle := platform.Current(app.paths.Root())
 
@@ -223,25 +190,25 @@ func newServiceStatusCmd(app *App) *cobra.Command {
 
 			// 先报"内核在不在跑"：那是用户最关心的，而且它总是有答案。
 			if running {
-				_, _ = fmt.Fprintln(app.out, "▶  内核：运行中（本地接口可连通）")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.kernel_running"))
 			} else {
-				_, _ = fmt.Fprintln(app.out, "⏹  内核：未运行")
+				_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.kernel_stopped"))
 			}
 
 			if svcErr != nil {
 				// 服务查询失败**不让整条命令失败** —— 上面那一行
 				// 已经回答了用户最可能想问的问题。
-				_, _ = fmt.Fprintf(app.out, "   系统服务：无法查询（%s）\n",
+				_, _ = fmt.Fprintf(app.out, i18n.T("cli.service.query_failed"),
 					bundle.ServiceManager.Describe().Backend)
 				_, _ = fmt.Fprintf(app.out, "   %s\n", svcErr.Error())
 				return nil
 			}
 
-			icon, label := "⏹ ", "未运行"
+			icon, label := "⏹ ", i18n.T("cli.service.state_stopped")
 			if st == platform.ServiceRunning {
-				icon, label = "▶ ", "运行中"
+				icon, label = "▶ ", i18n.T("cli.service.state_running")
 			}
-			_, _ = fmt.Fprintf(app.out, "%s 系统服务：%s（%s）\n",
+			_, _ = fmt.Fprintf(app.out, i18n.T("cli.service.state_line"),
 				icon, label, bundle.ServiceManager.Describe().Backend)
 			return nil
 		},
@@ -251,12 +218,9 @@ func newServiceStatusCmd(app *App) *cobra.Command {
 func newServiceStartCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "start",
-		Short: "启动系统服务",
-		Long: `启动系统服务。
-
-服务**已经在运行**时返回成功 —— 报错会让"确保它在跑"这类脚本失败，
-而那正是最常见的用法。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.service.start_short"),
+		Long:  i18n.T("cli.service.start_long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			bundle := platform.Current(app.paths.Root())
 
@@ -267,7 +231,7 @@ func newServiceStartCmd(app *App) *cobra.Command {
 				return app.fail(cmd, err)
 			}
 
-			_, _ = fmt.Fprintln(app.out, "✅ 服务已启动")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.started"))
 			return nil
 		},
 	}
@@ -276,7 +240,7 @@ func newServiceStartCmd(app *App) *cobra.Command {
 func newServiceStopCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
-		Short: "停止系统服务",
+		Short: i18n.T("cli.service.stop_short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			bundle := platform.Current(app.paths.Root())
@@ -288,7 +252,7 @@ func newServiceStopCmd(app *App) *cobra.Command {
 				return app.fail(cmd, err)
 			}
 
-			_, _ = fmt.Fprintln(app.out, "✅ 服务已停止")
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.service.stopped"))
 			return nil
 		},
 	}
@@ -303,9 +267,7 @@ func resolveExecutable(override string) (string, error) {
 	if path == "" {
 		self, err := os.Executable()
 		if err != nil {
-			return "", fmt.Errorf(
-				"无法确定当前可执行文件的路径：%w。"+
-					"请用 --exe 显式指定", err)
+			return "", fmt.Errorf(i18n.T("cli.service.no_self_path"), err)
 		}
 		path = self
 	}
@@ -321,17 +283,17 @@ func resolveExecutable(override string) (string, error) {
 
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("无法解析为绝对路径 %q：%w", path, err)
+		return "", fmt.Errorf(i18n.T("cli.service.not_abs"), path, err)
 	}
 
 	// 服务要求绝对路径且文件必须存在 —— 一个打不开的路径会让服务
 	// 装好之后启动即失败，而错误信息里只有一句含糊的失败。
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", fmt.Errorf("可执行文件不存在或无法访问：%s：%w", abs, err)
+		return "", fmt.Errorf(i18n.T("cli.service.not_found"), abs, err)
 	}
 	if info.IsDir() {
-		return "", fmt.Errorf("可执行文件路径指向一个目录：%s", abs)
+		return "", fmt.Errorf(i18n.T("cli.service.is_dir"), abs)
 	}
 
 	return abs, nil

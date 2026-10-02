@@ -395,6 +395,69 @@ var messagesZh = map[string]string{
 	"cli.console.open_flag":   "用默认浏览器打开控制台",
 	"cli.console.open_failed": "无法打开浏览器：%w",
 
+	"cli.service.short": "把内核注册为系统服务（开机自启、崩溃重启）",
+	"cli.service.long": "把内核注册为系统服务。\n\n注册之后内核会：\n" +
+		"  · 开机自动启动（Windows 使用延迟自启，等网络就绪后再启动）\n" +
+		"  · 崩溃后自动重启（5 秒 / 30 秒 / 60 秒三档递增延迟）\n\n" +
+		"**安装与卸载需要管理员权限**：\n" +
+		"  Windows  右键终端 → 以管理员身份运行\n" +
+		"  Linux    用 sudo\n" +
+		"  macOS    用 sudo\n\n" +
+		"没有管理员权限时它不会失败得很含糊，而是明确告诉你缺什么。\n\n" +
+		"各平台的服务机制不同：\n" +
+		"  Windows  服务控制管理器（SCM），可在 services.msc 里看到\n" +
+		"  Linux    systemd（/etc/systemd/system/isc-core.service）\n" +
+		"  macOS    launchd（/Library/LaunchDaemons/com.isc.core.plist）",
+	"cli.service.install_short": "安装系统服务",
+	"cli.service.install_long": "安装并注册系统服务。\n\n" +
+		"已经安装过时会**更新配置**而不是报错 —— 重新运行安装命令是常态\n" +
+		"（换了路径、想改自启设置），而报「服务已存在」只会让你去手工卸载。",
+	"cli.service.installed":       "✅ 服务已安装（%s）\n",
+	"cli.service.exe_path":        "   可执行文件: %s\n",
+	"cli.service.data_dir":        "   数据目录:   %s\n",
+	"cli.service.autostart_yes":   "   开机自启:   是（延迟自启，等网络就绪）",
+	"cli.service.autostart_no":    "   开机自启:   否（手动启动）",
+	"cli.service.restart_yes":     "   崩溃重启:   是（5s / 30s / 60s 递增延迟）",
+	"cli.service.next_steps":      "\n用 isc service start 启动它，或用 isc service status 查看状态。",
+	"cli.service.flag_autostart":  "开机自动启动（Windows 上使用延迟自启，等网络就绪后再启动）",
+	"cli.service.flag_no_restart": "不在崩溃后自动重启",
+	"cli.service.flag_exe":        "要注册的可执行文件路径（默认用当前运行的这一个）",
+	"cli.service.uninstall_short": "停止并删除系统服务",
+	"cli.service.uninstall_long": "停止并删除系统服务。\n\n" +
+		"它是**幂等**的：服务本来就不存在时返回成功。报错会让「先卸再装」\n" +
+		"这类部署脚本失败，而那是最常见的写法。\n\n" +
+		"数据目录**不会**被删除 —— 里面有你的凭据与配置。",
+	"cli.service.uninstall_busy": "暂不支持「只删服务、不停进程」；请先 isc service stop",
+	"cli.service.uninstalled":    "✅ 服务已卸载",
+	"cli.service.data_kept": "   数据目录仍然保留：%s\n" +
+		"   如需彻底清除，请手工删除它。",
+	"cli.service.keep_running": "只删除服务注册，不停掉正在运行的进程（当前平台可能不支持）",
+	"cli.service.status_short": "查看系统服务状态",
+	"cli.service.status_long": "查看系统服务状态。\n\n它同时报出两件事：\n\n" +
+		"\t操作系统里的服务   是否已安装、是否在运行（**需要管理员权限**）\n" +
+		"\t内核本身           现在是否真的能连通（不需要任何权限）\n\n" +
+		"两者分开报是有原因的。真机上确认过：Windows 上**查询**服务状态同样\n" +
+		"需要管理员（打开服务控制管理器要完全访问权），因此普通用户跑这条\n" +
+		"命令会失败。但他真正想知道的往往是「内核在跑吗」—— 而那个问题看\n" +
+		"一眼运行时文件就能回答。",
+	"cli.service.kernel_running": "▶  内核：运行中（本地接口可连通）",
+	"cli.service.kernel_stopped": "⏹  内核：未运行",
+	"cli.service.query_failed":   "   系统服务：无法查询（%s）\n",
+	"cli.service.state_stopped":  "未运行",
+	"cli.service.state_running":  "运行中",
+	"cli.service.state_line":     "%s 系统服务：%s（%s）\n",
+	"cli.service.start_short":    "启动系统服务",
+	"cli.service.start_long": "启动系统服务。\n\n" +
+		"服务**已经在运行**时返回成功 —— 报错会让「确保它在跑」这类脚本失败，\n" +
+		"而那正是最常见的用法。",
+	"cli.service.started":      "✅ 服务已启动",
+	"cli.service.stop_short":   "停止系统服务",
+	"cli.service.stopped":      "✅ 服务已停止",
+	"cli.service.no_self_path": "无法确定当前可执行文件的路径：%w。请用 --exe 显式指定",
+	"cli.service.not_abs":      "无法解析为绝对路径 %q：%w",
+	"cli.service.not_found":    "可执行文件不存在或无法访问：%s：%w",
+	"cli.service.is_dir":       "可执行文件路径指向一个目录：%s",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

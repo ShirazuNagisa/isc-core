@@ -341,6 +341,28 @@ $ isc --lang en credential list
 **并验证过棘轮真的会拦住**：往 `internal/audit` 里加一条中文串之后它立刻
 失败，报"从 1 涨到了 2"。
 
+##### 迁移的第五步：service.go
+
+**internal/cli 的基线：235 → 196。** 五轮累计 **443 → 196（约 56%）**。
+
+已完成 10 个文件。剩余 6 个，最大的是 `init.go`（54）与 `expose.go`（45）。
+
+##### 观察：CLI 本地化之后，下一层的问题就露出来了
+
+真机上跑 `isc service status`：
+
+```
+⏹  Kernel: not running                                  ← CLI 的串，英文了
+   Service: cannot query (windows-scm)                  ← CLI 的串，英文了
+   platform: 查询服务状态需要管理员权限（Windows 要求…）  ← 平台后端的串，仍是中文
+```
+
+CLI 那一层已经干净了，于是**它下面的那一层**就显出来了。`internal/platform`
+有 204 处，是 `internal/cli` 之后的下一站 —— 而这个顺序是对的：用户先看到
+CLI 的输出，再看到底层穿透上来的错误。
+
+这也说明棘轮的价值：它把"还剩多少"变成了一个可比较的数字，因此可以
+按**用户可见度**排队，而不是凭感觉挑文件。
 ##### 迁移的第四步：ddns_add / notify / console
 
 **internal/cli 的基线：287 → 235。** 四轮累计 **443 → 235（约 47%）**。

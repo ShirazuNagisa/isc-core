@@ -407,6 +407,74 @@ var messagesEn = map[string]string{
 	"cli.console.open_flag":   "open the console in the default browser",
 	"cli.console.open_failed": "cannot open a browser: %w",
 
+	"cli.service.short": "Register the kernel as a system service (start on boot, restart on crash)",
+	"cli.service.long": "Register the kernel as a system service. Once registered it will:\n\n" +
+		"  · start automatically on boot (Windows uses delayed start, waiting for\n" +
+		"    the network to come up)\n" +
+		"  · restart after a crash (5s / 30s / 60s backoff)\n\n" +
+		"**Installing and uninstalling need administrator rights**:\n" +
+		"  Windows  right-click the terminal → Run as administrator\n" +
+		"  Linux    use sudo\n" +
+		"  macOS    use sudo\n\n" +
+		"Without those rights it does not fail vaguely — it says exactly what is missing.\n\n" +
+		"The service mechanism differs per platform:\n" +
+		"  Windows  Service Control Manager (SCM), visible in services.msc\n" +
+		"  Linux    systemd (/etc/systemd/system/isc-core.service)\n" +
+		"  macOS    launchd (/Library/LaunchDaemons/com.isc.core.plist)",
+	"cli.service.install_short": "Install the system service",
+	"cli.service.install_long": "Install and register the system service.\n\n" +
+		"If it is already installed the configuration is **updated** rather than\n" +
+		"rejected — re-running the install command is normal (the path changed, or\n" +
+		"the autostart setting did), and \"service already exists\" would only send\n" +
+		"you off to uninstall it by hand.",
+	"cli.service.installed":       "✅ Service installed (%s)\n",
+	"cli.service.exe_path":        "   Executable: %s\n",
+	"cli.service.data_dir":        "   Data dir:   %s\n",
+	"cli.service.autostart_yes":   "   Autostart:  yes (delayed start, waits for the network)",
+	"cli.service.autostart_no":    "   Autostart:  no (manual start)",
+	"cli.service.restart_yes":     "   Restart:    yes (5s / 30s / 60s backoff)",
+	"cli.service.next_steps":      "\nStart it with isc service start, or check it with isc service status.",
+	"cli.service.flag_autostart":  "start automatically on boot (Windows uses delayed start, waiting for the network)",
+	"cli.service.flag_no_restart": "do not restart after a crash",
+	"cli.service.flag_exe":        "path of the executable to register (defaults to the running one)",
+	"cli.service.uninstall_short": "Stop and delete the system service",
+	"cli.service.uninstall_long": "Stop and delete the system service.\n\n" +
+		"It is **idempotent**: a service that does not exist yields success.\n" +
+		"Erroring would break \"uninstall then install\" deployment scripts, which\n" +
+		"are the most common way this is written.\n\n" +
+		"The data directory is **not** deleted — it holds your credentials and config.",
+	"cli.service.uninstall_busy": "Removing the registration while leaving the process running is not supported yet; run isc service stop first",
+	"cli.service.uninstalled":    "✅ Service uninstalled",
+	"cli.service.data_kept": "   The data directory is kept: %s\n" +
+		"   Delete it by hand if you want it gone.",
+	"cli.service.keep_running": "remove only the registration, leaving the running process alone (not supported on every platform)",
+	"cli.service.status_short": "Show system service status",
+	"cli.service.status_long": "Show system service status. It reports two separate things:\n\n" +
+		"\tthe OS service   installed? running? (**needs administrator rights**)\n" +
+		"\tthe kernel       can it actually be reached right now? (needs no rights)\n\n" +
+		"They are reported separately for a reason. On real hardware, *querying*\n" +
+		"service status on Windows also needs administrator rights (opening the\n" +
+		"service control manager needs full access), so an ordinary user simply\n" +
+		"cannot run it. But what they usually want to know is \"is the kernel\n" +
+		"running?\" — and one look at the runtime file answers that.",
+	"cli.service.kernel_running": "▶  Kernel: running (the local API is reachable)",
+	"cli.service.kernel_stopped": "⏹  Kernel: not running",
+	"cli.service.query_failed":   "   Service: cannot query (%s)\n",
+	"cli.service.state_stopped":  "not running",
+	"cli.service.state_running":  "running",
+	"cli.service.state_line":     "%s service: %s (%s)\n",
+	"cli.service.start_short":    "Start the system service",
+	"cli.service.start_long": "Start the system service.\n\n" +
+		"It succeeds when the service is **already running** — erroring would\n" +
+		"break \"make sure it is up\" scripts, which is the most common use.",
+	"cli.service.started":      "✅ Service started",
+	"cli.service.stop_short":   "Stop the system service",
+	"cli.service.stopped":      "✅ Service stopped",
+	"cli.service.no_self_path": "cannot determine the path of the running executable: %w. Pass it explicitly with --exe",
+	"cli.service.not_abs":      "cannot resolve %q to an absolute path: %w",
+	"cli.service.not_found":    "the executable does not exist or cannot be read: %s: %w",
+	"cli.service.is_dir":       "the executable path points at a directory: %s",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
