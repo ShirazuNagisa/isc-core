@@ -177,6 +177,73 @@ func TestUserFacingPackagesHaveI18n(t *testing.T) {
 // 内部
 // ---------------------------------------------------------------------------
 
+// 控制台前端的文案**不在 Go 源码里**，因此早先的统计完全看不见它。
+//
+// 这是 D21 明确列出的四个面之一（API 错误、CLI 输出、通知模板、控制台），
+// 而一个"只数 Go 文件"的棘轮会给出**虚假的安心**：数字在降，而四个面里
+// 有一个根本没被数过。
+//
+// 这里把前端资源也纳入统计。粒度按"文件"而不是"包" —— 前端只有四个
+// 文件，而它们的体积差异很大。
+var consoleAssets = []string{
+	"internal/console/assets/index.html",
+	"internal/console/assets/app.js",
+	"internal/console/assets/panels.js",
+}
+
+// TestConsoleAssetsAreCounted 记录控制台前端的硬编码文案数。
+//
+// 它现在是**报告**而非失败项：前端本地化需要一套与 Go 侧不同的机制
+// （静态资源在浏览器里运行，拿不到 i18n 目录），而那是一件独立的工作。
+//
+// 但数字必须被看见。在这之前它连数字都没有 —— 而"没有被测量的东西
+// 不会被改进"。
+func TestConsoleAssetsAreCounted(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	var lines, chars int
+	broken := map[string]int{}
+
+	for _, rel := range consoleAssets {
+		byt, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Errorf("读不到 %s: %v", rel, err)
+			continue
+		}
+		n := 0
+		for _, line := range strings.Split(string(byt), "\n") {
+			if containsHan(line) {
+				n++
+				chars += len([]rune(line))
+			}
+		}
+		if n > consoleHardcodedLines[rel] {
+			broken[rel] = n
+		}
+		lines += n
+	}
+
+	t.Logf("控制台前端：%d 行含中文（%d 个字符）—— 尚未迁移到消息目录",
+		lines, chars)
+
+	for rel, n := range broken {
+		t.Errorf("%s 的含中文行数从 %d 涨到了 %d。\n"+
+			"控制台是 D21 列出的四个面之一。前端本地化尚未开始，"+
+			"因此这里只拦住**新增**。",
+			rel, consoleHardcodedLines[rel], n)
+	}
+}
+
+// consoleHardcodedLines 是前端各文件当前的含中文行数。
+//
+// 与 Go 侧的基线同理：它是一张进度表，只降不升。
+var consoleHardcodedLines = map[string]int{
+	"internal/console/assets/index.html": 129,
+	"internal/console/assets/app.js":     191,
+	"internal/console/assets/panels.js":  94,
+}
+
 // countHardcodedCJK 统计各包里的中文字符串字面量。
 //
 // 只统计**字符串字面量**，不统计注释 —— 注释里的中文是好的
