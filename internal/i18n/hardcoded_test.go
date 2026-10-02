@@ -71,7 +71,14 @@ var convertedFiles = []string{
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	"internal/ddnsgo":   318,
+	// 318 → 48：移植代码里 62 个去重消息 key 的 ~270 个调用点由
+	// isLogCall 排除了（`Log(key, ...)` / `LogStr(key, ...)` 的第一个参数
+	// 是**消息 key 兼格式串**，不是待翻译的文案）。
+	//
+	// 剩下的 48 处不是 Log 调用，需要单独判断 —— 其中已知有 API 数据值
+	// （provider_namesilo.go 的 "新增"/"更新"、provider_dnspod.go 的
+	// "默认"），那些**不能翻译**。
+	"internal/ddnsgo":   48,
 	"internal/platform": 4,
 	// 只剩两个 API 数据值，不是文案：
 	//
@@ -332,7 +339,17 @@ var logLevels = map[string]bool{
 // 判据是"接收者的名字里含 log"（不区分大小写）+ 方法名是日志级别。
 // 这个判断刻意保守：宁可漏掉一条日志（那它会被当成文案要求迁移），
 // 也不要把一条用户可见的错误当成日志而放过。
+// 另有一类**裸标识符**的日志调用：移植过来的 ddns-go 代码用的是包级
+// `Log(...)` / `LogStr(...)`（见 internal/ddnsgo/log.go）。它们的第一个
+// 参数是**消息 key 兼格式串**，因此那些中文字符串不是"硬编码文案"，
+// 而是消息标识符 —— 把它们算进来会让 ddnsgo 的基线停在 318 而永远降不到 0。
+//
+// 覆盖情况由 TestDdnsGoKeysAreTranslated 守着：每个 key 都必须有译文，
+// 否则英文界面上会显示中文，而机制不会报错。
 func isLogCall(call *ast.CallExpr) bool {
+	if id, ok := call.Fun.(*ast.Ident); ok && ddnsGoCallNames[id.Name] {
+		return true
+	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || !logLevels[sel.Sel.Name] {
 		return false

@@ -112,6 +112,10 @@ func (c *Catalog) T(key string, args ...any) string {
 	if !ok && c.lang == En {
 		tmpl, ok = messagesEnDdnsGo[key]
 	}
+	// 上游没有提供译文的那部分（见 messages_ddnsgo_extra.go）。
+	if !ok && c.lang == En {
+		tmpl, ok = messagesEnDdnsGoExtra[key]
+	}
 	if !ok {
 		return key
 	}
@@ -127,7 +131,10 @@ func (c *Catalog) Has(key string) bool {
 		return true
 	}
 	if c.lang == En {
-		_, ok := messagesEnDdnsGo[key]
+		if _, ok := messagesEnDdnsGo[key]; ok {
+			return true
+		}
+		_, ok := messagesEnDdnsGoExtra[key]
 		return ok
 	}
 	// 中文侧：移植代码的 key 就是中文原文本身，因此"存在"等价于
@@ -194,7 +201,7 @@ func T(key string, args ...any) string {
 // 登记"这件事只有一个地方可犯。
 func Keys() []string {
 	maps := layeredCatalogMaps()
-	n := len(messagesEnDdnsGo)
+	n := len(messagesEnDdnsGo) + len(messagesEnDdnsGoExtra)
 	for _, m := range maps {
 		n += len(m)
 	}
