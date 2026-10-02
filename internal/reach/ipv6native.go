@@ -38,6 +38,19 @@ type IPv6Native struct {
 
 	// firewallState 是防火墙后端的就绪状态（含"未实现"的情形）。
 	firewallState platform.ImplState
+
+	// lowPort 用于判断本机能否绑定特权端口。
+	//
+	// 允许为 nil：那就跳过这一项检测。做成可选而不是构造参数，
+	// 是因为它与防火墙无关 —— 未来接别的可达方式时不必都带上它。
+	lowPort platform.LowPortBinder
+}
+
+// SetLowPortBinder 设置低端口权限检测器。
+//
+// 单独一步而不是构造参数：它只影响**诊断**，不影响计划本身能否生成。
+func (p *IPv6Native) SetLowPortBinder(b platform.LowPortBinder) {
+	p.lowPort = b
 }
 
 // NewIPv6Native 构造 IPv6 原生插件。
@@ -267,6 +280,12 @@ func (p *IPv6Native) Plan(ctx context.Context, req Request) (change.Plan, error)
 			p.firewallState.Backend, req.Port, proto)
 	}
 
+	// 端口层诊断。
+	//
+	// 它在这里（而不是 Probe）做，是因为只有 Plan 拿得到端口号 ——
+	// 而"那个端口上有没有服务"正是最值得在动手之前说清楚的事。
+	portChecks := DiagnosePort(ctx, req, p.lowPort)
+
 	rule := platform.Rule{
 		Name:        ruleName(req.Label, proto, req.Port),
 		Protocol:    proto,
@@ -296,6 +315,26 @@ func (p *IPv6Native) Plan(ctx context.Context, req Request) (change.Plan, error)
 	if !ch.Reversible {
 		plan.Warnings = append(plan.Warnings,
 			"该后端报告此变更不可撤销；应用后需要手动清理。")
+	}
+
+	// 把诊断结果分成"拦住"与"提醒"两类。
+	//
+	// 失败项**直接拒绝生成计划**：没有权限绑低端口这种事，
+	// 重试、等一会儿、改配置都不会让它变好 —— 让用户先应用再看它失败
+	// 只是浪费一次系统变更。
+	//
+	// 警告项放进 Warnings：它们描述的是"你可能不想继续"的情形，
+	// 而不是"一定不行"。端口上没有服务就是典型 —— 用户可能正要启动它。
+	for _, c := range portChecks {
+		switch c.Status {
+		case CheckFail:
+			return change.Plan{}, fmt.Errorf("reach: %s",
+				joinCheckText(c.Detail, c.Hint))
+
+		case CheckWarn:
+			plan.Warnings = append(plan.Warnings,
+				joinCheckText(c.Detail, c.Hint))
+		}
 	}
 
 	// 平台后端没算出差异 = 规则已存在。
@@ -392,6 +431,35 @@ func (p *IPv6Native) Kind() string { return KindFirewallExpose }
 // ---------------------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------------------
+
+// joinCheckText 把"观察到的事实"与"该怎么办"拼成一段可读的话。
+//
+// 直接用一个空格拼接会读成连体句：事实那句通常不以标点结尾，
+// 而提示那句是一个完整句子 —— 拼出来就是
+// "…没有服务在监听 开放这个端口之前…"。
+//
+// 标点也要补：事实句没有句号时补一个，否则两句会粘在一起。
+//
+// 这是真机上跑出来才看出来的 —— 两条文案各自都通顺，
+// 拼在一起才发现重复又拗口。
+func joinCheckText(detail, hint string) string {
+	detail = strings.TrimSpace(detail)
+	hint = strings.TrimSpace(hint)
+
+	if hint == "" {
+		return detail
+	}
+	if detail == "" {
+		return hint
+	}
+
+	runes := []rune(detail)
+	// 结尾已经是标点时不重复添加。
+	if !strings.ContainsRune("。！？.!?", runes[len(runes)-1]) {
+		detail += "。"
+	}
+	return detail + " " + hint
+}
 
 // rulePrefix 是 ISC 创建的防火墙规则的统一前缀。
 //

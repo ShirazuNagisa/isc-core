@@ -271,8 +271,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 回滚 → 事后撤销"这套保证只有一份实现，而不是每个后端各写一遍。
 	d.changeRunner = change.NewRunner(st.Changes(), nil, d.log) // bus 稍后设置
 	d.reach = reach.NewRegistry()
-	d.reach.Register(reach.NewIPv6Native(
-		d.bundle.IPMonitor, d.bundle.Firewall, d.bundle.Capabilities().Firewall))
+	ipv6Native := reach.NewIPv6Native(
+		d.bundle.IPMonitor, d.bundle.Firewall, d.bundle.Capabilities().Firewall)
+	// 低端口权限检测器：让"生成计划"能在用户动手之前就告诉他
+	// 443 这类端口在本机绑不绑得上。
+	ipv6Native.SetLowPortBinder(d.bundle.LowPortBinder)
+	d.reach.Register(ipv6Native)
 
 	// 反向代理与证书。
 	//
