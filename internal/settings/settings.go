@@ -149,6 +149,23 @@ type Service struct {
 
 	mu      sync.RWMutex
 	current Settings
+
+	// onChange 在更新成功后按**新设置**回调。
+	//
+	// 它存在的理由是：有些设置项的生效方式不在本包能力范围内 ——
+	// 例如语言要调 i18n.SetDefault，而那会让本包依赖 i18n。
+	// 与其把那条依赖硬塞进来，不如留一个回调点，由装配方接上。
+	onChange func(Settings)
+}
+
+// SetOnChange 设置更新回调。
+//
+// 它会被**同步**调用（在 Update 返回之前）—— 调用方应当只做轻量的
+// 内存操作。异步化会让"改完设置立刻发一个请求"看到旧值。
+func (s *Service) SetOnChange(fn func(Settings)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onChange = fn
 }
 
 // Load 从存储读取设置并与默认值合并。
@@ -227,7 +244,20 @@ func (s *Service) Update(ctx context.Context, p Patch) (Settings, error) {
 
 	s.mu.Lock()
 	s.current = next
+	// 取回调时**已经持有锁**，因此直接读即可。
+	cb := s.onChange
 	s.mu.Unlock()
+
+	// 回调放在**落库与生效之后、返回之前**。
+	//
+	// 顺序有讲究：
+	//   · 在落库之前回调，会让一次失败的保存留下已经生效的副作用；
+	//   · 在返回之后（异步）回调，会让"改完设置立刻发一个请求"看到旧值
+	//     —— 而那正是用户会做的事（改语言，然后跑一条命令）。
+	if cb != nil {
+		cb(next)
+	}
+
 	return next, nil
 }
 

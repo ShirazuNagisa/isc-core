@@ -232,6 +232,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	i18n.SetDefault(i18n.Parse(settingsSvc.Get().Lang))
 
+	// 语言设置**在运行期改了也要立刻生效**。
+	//
+	// 早先只在启动时应用过一次，于是用户在界面上把语言改成 English 之后：
+	// 命令行立刻变了（CLI 每次都重新读设置），而**服务端生成的内容仍是
+	// 中文** —— 例如 /v1/providers 里的凭据字段标签与说明。两端不一致，
+	// 而用户唯一的办法是重启内核。
+	//
+	// 这是真机上对照出来的：把守护进程的语言改成 en 之后，
+	// `isc credential fields cloudflare` 里 CLI 自己的串变成了英文
+	//（(required) [secret]），而服务端解析的字段说明仍是中文。
+	settingsSvc.SetOnChange(func(s settings.Settings) {
+		i18n.SetDefault(i18n.Parse(s.Lang))
+	})
+
 	d.log.Info(i18n.T("daemon.starting"),
 		"version", version.Version,
 		"os", d.bundle.OS, "arch", d.bundle.Arch,
