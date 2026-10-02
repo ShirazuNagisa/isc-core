@@ -110,7 +110,6 @@ var hardcodedBaseline = map[string]int{
 	// 迁移时它们被误换成了 i18n.T(...)，是**编译器**拦下的（const 不能是
 	// 函数调用）—— 这是第四次遇到"把数据当成文案"。
 	"internal/provider/tier1": 2,
-	"scripts/release":         64,
 	"internal/proxy":          41,
 	"internal/verify":         43,
 }
@@ -124,8 +123,8 @@ func TestNoNewHardcodedStrings(t *testing.T) {
 	root := repoRoot(t)
 	counts := countHardcodedCJK(t, root)
 
-	// 日志包不参与：它们的理由写在 logOnlyPackages 里。
-	for pkg := range logOnlyPackages {
+	// 豁免的包不参与：它们的理由写在 exemptPackages 里。
+	for pkg := range exemptPackages {
 		delete(counts, pkg)
 	}
 
@@ -178,7 +177,7 @@ var i18nComplete = []string{
 
 	// 设置项的校验错误。它们会作为 API 的 detail 返回给调用方，
 	// 因此是面向用户的 —— 与 event/console/audit 那三个纯日志包不同，
-	// 后者的理由见 logOnlyPackages。
+	// 后者的理由见 exemptPackages。
 	"internal/settings",
 
 	// 可达性检查。它的文案就是 `isc doctor` 的正文，而每条检查刻意保留了
@@ -319,11 +318,14 @@ var consoleHardcodedLines = map[string]int{
 	"internal/console/assets/panels.js":  94,
 }
 
-// logOnlyPackages 是**只剩下日志文案**的包，不再要求迁移。
+// exemptPackages 是**不要求迁移**的包，每条都写明理由。
 //
-// # 为什么"把日志也翻译了"不是目标
+// # 为什么"把这里的中文也翻译了"不是目标
 //
-// D21 要求的是"面向用户的文案"。而日志行是**给运维看的**，不是给用户看的。
+// D21 要求的是"面向用户的文案"。有两类中文**不满足这个定义**，理由不同：
+//
+// ## 一、日志行是给运维看的
+//
 // 把它们翻译了反而有害：
 //
 //   - 运维靠 grep 稳定的字符串来定位问题。日志随语言设置变来变去，
@@ -331,18 +333,32 @@ var consoleHardcodedLines = map[string]int{
 //   - 报错时用户贴出来的日志，会与文档、issue 里的英文/中文原文对不上；
 //   - 而这些行本来就带 `pkg: ` 前缀（如 `event: `），是明确的内部信号。
 //
-// 所以这里的做法是：**显式地**把这类包列出来并写明理由，而不是机械地
-// 一条条翻译过去。棘轮因此仍然有意义 —— 它挡住的是"新加了一条面向用户的
-// 中文文案"，而不是"日志里出现了中文"。
+// ## 二、构建工具跑在维护者的机器上，拿不到用户的语言设置
 //
-// 判定标准：该包剩余的中文串**全部**出现在 slog / errors.New 的内部错误里，
-// 且不会作为 API 的 detail 返回给调用方。
-var logOnlyPackages = map[string]string{
+// `scripts/release` 是发布构建脚本。给它接 i18n 只会让**构建机的 locale**
+// 决定输出语言 —— 那没有意义，因为读它的人不是最终用户。
+//
+// 它里面确实有一处**装在 .deb 里发给用户**的文本（版权声明），但那正是
+// **不该**机器翻译的东西：GPL 自己就写明译本不具法律效力，而许可证原文
+// 是唯一权威的版本。
+//
+// # 所以这里的做法
+//
+// **显式地**把这类包列出来并写明理由，而不是机械地一条条翻译过去。
+// 棘轮因此仍然有意义 —— 它挡住的是"新加了一条面向用户的中文文案"，
+// 而不是"日志或构建工具里出现了中文"。
+//
+// 判定标准：该包剩余的中文串**全部**是日志、内部错误、或工具输出，
+// 且不会作为 API 的 detail 返回给调用方、也不会出现在最终用户读的界面上。
+var exemptPackages = map[string]string{
 	"internal/event": "仅剩总线自身的日志（订阅者过慢、总线已关闭）",
 	"internal/console": "仅剩内嵌资源结构异常这一条开发者错误，" +
 		"它表示二进制被破坏，用户看到的会是 500",
 	"internal/audit": "仅剩写入审计失败这一条日志 —— 它是**刻意**只记日志的：" +
 		"审计写不进去不该让业务操作失败",
+	"scripts/release": "发布构建工具，跑在维护者的机器上、拿不到用户的语言设置。" +
+		"其中装在 .deb 里的版权声明**不该**被机器翻译 ——" +
+		"GPL 自己就写明译本不具法律效力，许可证原文是唯一权威的版本",
 }
 
 // logLevels 是日志级别的方法名。
@@ -401,7 +417,7 @@ func receiverLooksLikeLogger(x ast.Expr) bool {
 // D21 要求的是"面向用户的文案"，而日志行是给运维看的。把它们翻译了反而
 // 有害（运维靠 grep 稳定字符串定位问题，而用户贴出来的日志会与文档对不上）。
 //
-// 这一点此前是靠 logOnlyPackages **逐个包**手工豁免的 —— 那对"整包只剩日志"
+// 这一点此前是靠 exemptPackages **逐个包**手工豁免的 —— 那对"整包只剩日志"
 // 的情形够用，但对 internal/change 这种**用户可见错误与日志混在一起**的包
 // 就失效了：棘轮会把日志行也算进去，于是它在测量一个 D21 不关心的东西，
 // 而那个数字永远降不到 0。

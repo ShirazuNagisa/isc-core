@@ -16,7 +16,7 @@
 | API 错误 | ✅ **0** | 105 → 0，文案在分层文件 `api_zh.go` / `api_en.go` |
 | 设置校验 | ✅ **0** | 6 条校验错误，会经 API 的 `detail` 返回给调用方 |
 | `internal/platform` | ✅ **4** | 204 → 4，剩的 4 处**有意保留**（见下） |
-| 日志包（event / console / audit） | ✅ 豁免 | 见 `logOnlyPackages` |
+| 日志包 + 构建工具（event / console / audit / scripts/release） | ✅ 豁免 | 见 `exemptPackages` |
 | **控制台前端** | ⚠️ **未开始** | 414 行，见第五节 |
 
 `internal/cli` 与 `internal/api` 现在受"**完全不许有**"的约束
@@ -36,7 +36,7 @@
 | `internal/reach` | ✅ **0** | 已完成；它就是 `isc doctor` 的正文 |
 | `internal/store` | ✅ **0** | 已完成；仓储层数据库错误 |
 | `internal/acme` | ✅ **0** | 已完成；DNS-01 失败那条把四种成因逐条列出 |
-| `scripts/release` | 64 | 构建工具输出，**不是产品**，优先级最低 |
+| `scripts/release` | ✅ 豁免 | 构建工具，跑在维护者机器上，拿不到用户的语言设置 |
 | `internal/proxy` | 55 | 反代启动与路由错误 |
 | `internal/verify` | 43 | 外部验证会话的说明 |
 | `internal/change` | ✅ **0** | 已完成；计划/执行/失败/回滚整条路径 |
@@ -46,7 +46,7 @@
 **建议顺序按用户可见度**，而不是按包大小：
 `provider/tier1` → `reach` → `acme` → `proxy` → `verify` → `change` →
 `daemon` → `notify` → 其余 → `ddnsgo`（最后，因为要标注与上游的差异）
-→ `scripts/release`（不是产品）。
+。
 
 ---
 
@@ -68,7 +68,7 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 
 ##### 棘轮本身因此改过一次
 
-一开始的做法是 `logOnlyPackages`：把"整包只剩日志"的包列出来豁免。
+一开始的做法是 `exemptPackages`：把"整包只剩日志"的包列出来豁免。
 那对 `internal/event` / `internal/console` / `internal/audit` 够用 ——
 但 `internal/change` 与 `internal/daemon` 是**用户可见错误与日志混在同一个
 包里**，逐个包豁免对它们失效：棘轮把日志行也算进去，于是它在**测量一个 D21
