@@ -203,3 +203,104 @@ func TestVerdictTTLIsBounded(t *testing.T) {
 		t.Errorf("结论有效期 %v 太长 —— 过期的结论会误导人", VerdictTTL)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 死锁回归
+// ---------------------------------------------------------------------------
+
+// TestVerdictSinkCanCallBackIntoManager 钉住一个真机上才暴露的死锁。
+//
+// # 它抓的是什么
+//
+// expire 曾经在**持有 m.mu** 的情况下 defer 了一个 publishVerdict。
+// 而落点回调到管理器自己（这正是守护进程里的装配方式：
+// SetVerdictSink(func(v){ mgr.SetLastVerdict(v) })）时要拿同一把锁 ——
+// Go 的 sync.Mutex 不可重入，于是**整个守护进程死锁**。
+//
+// 症状出现得很晚：验证会话**到期的那一刻**（默认五分钟后）。
+// 在那之前一切正常，而到点之后内核既不写日志也不响应任何请求。
+//
+// 这个测试用一把带超时的锁来检测它 —— 死锁时它会失败而不是挂住
+// 整个测试进程。
+func TestVerdictSinkCanCallBackIntoManager(t *testing.T) {
+	t.Parallel()
+
+	m := NewManager(func(context.Context) string { return "" }, nil)
+
+	// 与守护进程里完全一样的装配方式：落点回调到管理器自己。
+	m.SetVerdictSink(func(v Verdict) {
+		m.SetLastVerdict(v)
+	})
+
+	m.mu.Lock()
+	m.sessions["s1"] = &Session{
+		ID: "s1", Port: 8443, Status: StatusWaiting,
+	}
+	m.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		m.expire("s1")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// 正常返回。
+	case <-time.After(3 * time.Second):
+		t.Fatal("expire 死锁了 —— 落点在持锁时被调用。" +
+			"守护进程会因此整个卡住，且不写任何日志")
+	}
+
+	// 结论应当已经落到管理器上。
+	v, ok := m.LastVerdict()
+	if !ok {
+		t.Fatal("到期后应当产生结论")
+	}
+	if !v.Blocked {
+		t.Errorf("到期且无访问应当判定为被上游挡住: %+v", v)
+	}
+}
+
+// TestSweepDoesNotDeadlock 验证清理路径上的同一类问题。
+//
+// sweepLocked 是在 Start 的**开头**、持有锁时被调用的，因此它同样
+// 不能在持锁时发布结论。
+func TestSweepDoesNotDeadlock(t *testing.T) {
+	t.Parallel()
+
+	m := NewManager(func(context.Context) string { return "" }, nil)
+	m.SetVerdictSink(func(v Verdict) { m.SetLastVerdict(v) })
+
+	// 造一个已经过期的等待中会话。
+	m.mu.Lock()
+	m.sessions["old"] = &Session{
+		ID: "old", Port: 8443, Status: StatusWaiting,
+		ExpiresAt: time.Now().Add(-time.Minute),
+	}
+	m.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		m.sweepLocked()
+		m.mu.Unlock()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("sweepLocked 死锁了")
+	}
+
+	// 结论是通过 goroutine 发布的，给它一点时间。
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := m.LastVerdict(); ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("清理过期会话时应当产生结论")
+}

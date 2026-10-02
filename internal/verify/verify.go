@@ -456,17 +456,32 @@ func hairpinMessage(kind SourceKind) string {
 // expire 把一个等待中的会话标成超时。
 func (m *Manager) expire(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	sess, ok := m.sessions[id]
 	if !ok || sess.Status != StatusWaiting {
+		m.mu.Unlock()
 		return
 	}
 	sess.Status = StatusUnreachable
-	defer m.publishVerdict(sess)
 	sess.Message = "在有效期内没有收到任何外部访问。若本机检测全部通过，" +
 		"这一条指向**上游封禁**（运营商或路由器防火墙）—— " +
 		"本机已经没得改了。"
+
+	// 取一份快照，然后**先解锁再发布**。
+	//
+	// # 为什么必须这样
+	//
+	// 落点（verdictSink）会回调到管理器自己（SetLastVerdict 要拿同一把锁），
+	// 而 Go 的 sync.Mutex **不可重入** —— 在持锁时调用它会让守护进程
+	// 直接死锁。
+	//
+	// 这个缺陷只在会话**到期的那一刻**（默认五分钟后）才发作，而症状是
+	// 整个内核卡死、没有任何日志。它是真机上跑完整流程才发现的：
+	// 定时器到点后守护进程既不写日志也不响应请求。
+	snapshot := *sess
+	m.mu.Unlock()
+
+	m.publishVerdict(&snapshot)
 }
 
 // Get 取出一个会话。
@@ -527,11 +542,14 @@ func (m *Manager) Stop(id string) error {
 func (m *Manager) sweepLocked() {
 	now := time.Now().UTC()
 	active := 0
+	// expired 收集本次清理中进入终态的会话，**出了锁再发布**它们的结论。
+	var expired []Session
 	for _, sess := range m.sessions {
 		if sess.Status == StatusWaiting && now.After(sess.ExpiresAt) {
 			sess.Status = StatusUnreachable
-			defer m.publishVerdict(sess)
 			sess.Message = "在有效期内没有收到任何外部访问。"
+			// 收集起来，出了锁再发布 —— 理由见 expire 的说明。
+			expired = append(expired, *sess)
 		}
 		if sess.Status == StatusWaiting {
 			active++
@@ -546,6 +564,20 @@ func (m *Manager) sweepLocked() {
 		delete(m.sessions, oldest)
 	}
 	_ = active
+
+	// 出了锁再发布 —— 见 expire 的说明。
+	//
+	// 用 go 而不是同步调用：sweepLocked 是在**持有锁**时被调用的
+	// （Start 的最开头），因此即使这里是函数尾部，锁仍然held。
+	// 交给一个新的 goroutine 是最省事也最不容易再错的做法。
+	if len(expired) > 0 {
+		batch := expired
+		go func() {
+			for i := range batch {
+				m.publishVerdict(&batch[i])
+			}
+		}()
+	}
 }
 
 // ErrNotFound 表示会话不存在。
