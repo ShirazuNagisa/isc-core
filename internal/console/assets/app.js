@@ -591,7 +591,7 @@ function renderRecordCredPicker() {
   });
 
   if (!managed.length) {
-    sel.innerHTML = '<option value="">（没有支持记录管理的凭据）</option>';
+    sel.innerHTML = '<option value="">' + t('web.rec.no_cred', '（没有支持记录管理的凭据）') + '</option>';
     $('recCapNote').textContent =
       '记录管理仅对 Tier-1 服务商可用（Cloudflare / 阿里云 / 腾讯云 / ' +
       'DNSPod / 华为云 / GoDaddy）。Tier-2 服务商只提供动态解析。';
@@ -609,19 +609,19 @@ async function loadZones() {
   if (!credId) return;
 
   zoneSel.disabled = true;
-  zoneSel.innerHTML = '<option>加载中…</option>';
+  zoneSel.innerHTML = '<option>' + t('web.common.loading') + '</option>';
 
   const r = await api('GET', '/v1/credentials/' + encodeURIComponent(credId) + '/zones');
   if (!r.ok) {
-    zoneSel.innerHTML = '<option>读取失败</option>';
-    $('recList').innerHTML = '<div class="empty">读取区域失败：' +
+    zoneSel.innerHTML = '<option>' + t('web.common.read_failed') + '</option>';
+    $('recList').innerHTML = '<div class="empty">' + t('web.rec.zones_failed', '读取区域失败：') +
       esc(explain(r)) + '</div>';
     return;
   }
 
   state.zones = (r.body && r.body.items) || [];
   if (!state.zones.length) {
-    zoneSel.innerHTML = '<option value="">（该账号下没有活跃域名）</option>';
+    zoneSel.innerHTML = '<option value="">' + t('web.rec.no_zones', '（该账号下没有活跃域名）') + '</option>';
     return;
   }
   zoneSel.disabled = false;
@@ -641,21 +641,21 @@ async function loadRecords() {
 
   const r = await api('GET', path);
   if (!r.ok) {
-    $('recList').innerHTML = '<div class="empty">读取记录失败：' +
+    $('recList').innerHTML = '<div class="empty">' + t('web.rec.records_failed', '读取记录失败：') +
       esc(explain(r)) + '</div>';
     return;
   }
 
   const items = (r.body && r.body.items) || [];
   if (!items.length) {
-    $('recList').innerHTML = '<div class="empty">该区域下没有记录。</div>';
+    $('recList').innerHTML = '<div class="empty">' + t('web.rec.empty', '该区域下没有记录。') + '</div>';
     return;
   }
 
   const rows = items.map((rec) => {
     const tags = [];
-    if (rec.proxied) tags.push('<span class="badge accent">代理</span>');
-    if (rec.priority) tags.push('<span class="badge">优先级 ' + esc(rec.priority) + '</span>');
+    if (rec.proxied) tags.push('<span class="badge accent">' + t('web.rec.proxied', '代理') + '</span>');
+    if (rec.priority) tags.push('<span class="badge">' + t('web.rec.priority', '优先级') + ' ' + esc(rec.priority) + '</span>');
 
     return '<tr>' +
       '<td><span class="badge accent">' + esc(rec.type) + '</span></td>' +
@@ -665,15 +665,15 @@ async function loadRecords() {
       '<td>' + tags.join(' ') + '</td>' +
       '<td class="mono">' + esc(rec.id) + '</td>' +
       '<td class="actions">' +
-        '<button class="tiny" data-editrec="' + esc(rec.id) + '">编辑</button> ' +
+        '<button class="tiny" data-editrec="' + esc(rec.id) + '">' + t('web.common.edit') + '</button> ' +
         '<button class="tiny danger" data-delrec="' + esc(rec.id) + '" ' +
-          'data-name="' + esc(rec.name) + '" data-type="' + esc(rec.type) + '">删除</button>' +
+          'data-name="' + esc(rec.name) + '" data-type="' + esc(rec.type) + '">' + t('web.common.delete') + '</button>' +
       '</td></tr>';
   }).join('');
 
   $('recList').innerHTML =
-    '<p class="hint">共 ' + items.length + ' 条记录。</p>' +
-    '<table class="data"><thead><tr><th>类型</th><th>名称</th><th>内容</th>' +
+    '<p class="hint">' + t('web.rec.count_pre', '共') + ' ' + items.length + ' 条记录。</p>' +
+    '<table class="data"><thead><tr><th>' + t('web.th.kind') + '</th><th>' + t('web.th.name') + '</th><th>' + t('web.rec.th_content', '内容') + '</th>' +
     '<th>TTL</th><th></th><th>ID</th><th></th></tr></thead><tbody>' +
     rows + '</tbody></table>';
 
@@ -686,26 +686,26 @@ function renderRecordForm(existing) {
   const rec = existing || {};
 
   el.innerHTML =
-    '<h3>' + (existing ? '编辑记录' : '新增记录') + '</h3>' +
+    '<h3>' + (existing ? t('web.rec.edit', '编辑记录') : t('web.rec.new')) + '</h3>' +
     '<div class="form-grid">' +
-      '<label class="field"><span>类型</span>' +
+      '<label class="field"><span>' + t('web.th.kind') + '</span>' +
         '<input id="rfType" value="' + esc(rec.type || 'A') + '" ' +
           (existing ? 'readonly' : '') + '></label>' +
-      '<label class="field"><span>名称（完整域名）</span>' +
+      '<label class="field"><span>' + t('web.rec.l_name', '名称（完整域名）') + '</span>' +
         '<input id="rfName" value="' + esc(rec.name || '') + '" spellcheck="false"></label>' +
-      '<label class="field full"><span>内容</span>' +
+      '<label class="field full"><span>' + t('web.rec.th_content', '内容') + '</span>' +
         '<input id="rfContent" value="' + esc(rec.content || '') + '" spellcheck="false"></label>' +
-      '<label class="field"><span>TTL（秒，0 = 服务商默认）</span>' +
+      '<label class="field"><span>' + t('web.rec.l_ttl', 'TTL（秒，0 = 服务商默认）') + '</span>' +
         '<input id="rfTTL" type="number" min="0" value="' + esc(rec.ttl || 0) + '"></label>' +
-      '<label class="field"><span>优先级（MX / SRV）</span>' +
+      '<label class="field"><span>' + t('web.rec.l_prio', '优先级（MX / SRV）') + '</span>' +
         '<input id="rfPrio" type="number" min="0" value="' + esc(rec.priority || 0) + '"></label>' +
-      '<label class="field"><span>CDN 代理</span>' +
+      '<label class="field"><span>' + t('web.rec.l_cdn', 'CDN 代理') + '</span>' +
         '<input type="checkbox" id="rfProxied" ' + (rec.proxied ? 'checked' : '') + '></label>' +
-      '<label class="field full"><span>备注</span>' +
+      '<label class="field full"><span>' + t('web.rec.l_note', '备注') + '</span>' +
         '<input id="rfComment" value="' + esc(rec.comment || '') + '"></label>' +
     '</div>' +
-    '<div class="row"><button id="rfSave" class="primary">保存</button>' +
-      '<button id="rfCancel">取消</button></div>';
+    '<div class="row"><button id="rfSave" class="primary">' + t('web.common.save') + '</button>' +
+      '<button id="rfCancel">' + t('web.common.cancel') + '</button></div>';
 
   $('rfCancel').onclick = () => { el.hidden = true; };
   $('rfSave').onclick = () => saveRecord(existing ? rec.id : null);
@@ -724,7 +724,7 @@ async function saveRecord(recordId) {
     proxied: $('rfProxied').checked,
     comment: $('rfComment').value.trim(),
   };
-  if (!body.name) { toast('请填写记录名', 'err'); return; }
+  if (!body.name) { toast(t('web.rec.need_name', '请填写记录名'), 'err'); return; }
 
   const base = '/v1/credentials/' + encodeURIComponent(credId) +
     '/zones/' + encodeURIComponent(zoneId) + '/records';
@@ -738,7 +738,7 @@ async function saveRecord(recordId) {
 
   if (!r.ok) { toast(t('web.common.save_failed', '保存失败：') + explain(r), 'err'); return; }
 
-  toast(recordId ? '记录已更新' : '记录已创建', 'ok');
+  toast(recordId ? t('web.rec.updated', '记录已更新') : t('web.rec.created', '记录已创建'), 'ok');
   $('recForm').hidden = true;
   await loadRecords();
 }
@@ -755,8 +755,8 @@ async function deleteRecord(recordId, name, type) {
   const r = await api('DELETE', '/v1/credentials/' + encodeURIComponent(credId) +
     '/zones/' + encodeURIComponent(zoneId) + '/records/' + encodeURIComponent(recordId));
 
-  if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
-  toast('记录已删除', 'ok');
+  if (!r.ok) { toast(t('web.common.delete_failed', '删除失败：') + explain(r), 'err'); return; }
+  toast(t('web.rec.deleted', '记录已删除'), 'ok');
   await loadRecords();
 }
 
@@ -960,7 +960,7 @@ function initActions() {
       if (confirm('确定删除凭据「' + btn.dataset.label + '」？')) {
         api('DELETE', '/v1/credentials/' + encodeURIComponent(btn.dataset.delcred))
           .then((r) => {
-            if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
+            if (!r.ok) { toast(t('web.common.delete_failed', '删除失败：') + explain(r), 'err'); return; }
             toast('凭据已删除', 'ok');
             loadCredentials();
           });
@@ -973,7 +973,7 @@ function initActions() {
       if (confirm('确定删除任务「' + btn.dataset.label + '」？')) {
         api('DELETE', '/v1/ddns-tasks/' + encodeURIComponent(btn.dataset.deltask))
           .then((r) => {
-            if (!r.ok) { toast('删除失败：' + explain(r), 'err'); return; }
+            if (!r.ok) { toast(t('web.common.delete_failed', '删除失败：') + explain(r), 'err'); return; }
             toast('任务已删除', 'ok');
             loadTasks();
           });

@@ -300,6 +300,27 @@ var consoleMessagesEn = map[string]string{
 	"web.task.trigger_failed": "Trigger failed: ",
 	"web.task.accepted":       "Accepted; running…",
 
+	"web.rec.no_cred":          "(no credential supports record management)",
+	"web.rec.zones_failed":     "Could not read zones: ",
+	"web.rec.no_zones":         "(no active domains on this account)",
+	"web.rec.records_failed":   "Could not read records: ",
+	"web.rec.empty":            "No records in this zone.",
+	"web.rec.proxied":          "Proxied",
+	"web.rec.priority":         "Priority",
+	"web.rec.count_pre":        "Total",
+	"web.rec.th_content":       "Content",
+	"web.rec.edit":             "Edit record",
+	"web.rec.l_name":           "Name (full domain)",
+	"web.rec.l_ttl":            "TTL (seconds, 0 = provider default)",
+	"web.rec.l_prio":           "Priority (MX / SRV)",
+	"web.rec.l_cdn":            "CDN proxy",
+	"web.rec.l_note":           "Comment",
+	"web.rec.need_name":        "Enter the record name",
+	"web.rec.updated":          "Record updated",
+	"web.rec.created":          "Record created",
+	"web.rec.deleted":          "Record deleted",
+	"web.common.delete_failed": "Delete failed: ",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

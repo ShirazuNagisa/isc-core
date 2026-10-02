@@ -281,6 +281,27 @@ var consoleMessagesZh = map[string]string{
 	"web.task.trigger_failed": "触发失败：",
 	"web.task.accepted":       "已受理，正在执行…",
 
+	"web.rec.no_cred":          "（没有支持记录管理的凭据）",
+	"web.rec.zones_failed":     "读取区域失败：",
+	"web.rec.no_zones":         "（该账号下没有活跃域名）",
+	"web.rec.records_failed":   "读取记录失败：",
+	"web.rec.empty":            "该区域下没有记录。",
+	"web.rec.proxied":          "代理",
+	"web.rec.priority":         "优先级",
+	"web.rec.count_pre":        "共",
+	"web.rec.th_content":       "内容",
+	"web.rec.edit":             "编辑记录",
+	"web.rec.l_name":           "名称（完整域名）",
+	"web.rec.l_ttl":            "TTL（秒，0 = 服务商默认）",
+	"web.rec.l_prio":           "优先级（MX / SRV）",
+	"web.rec.l_cdn":            "CDN 代理",
+	"web.rec.l_note":           "备注",
+	"web.rec.need_name":        "请填写记录名",
+	"web.rec.updated":          "记录已更新",
+	"web.rec.created":          "记录已创建",
+	"web.rec.deleted":          "记录已删除",
+	"web.common.delete_failed": "删除失败：",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }
