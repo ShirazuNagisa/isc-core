@@ -62,10 +62,10 @@ type Catalog struct {
 // 基础表会让那个文件无法浏览。
 func New(lang Lang) *Catalog {
 	src := messagesZh
-	extra := []map[string]string{apiMessagesZh, tier1MessagesZh, reachMessagesZh, opsMessagesZh, acmeMessagesZh, notifyMessagesZh, storeMessagesZh, credentialMessagesZh, infraMessagesZh, ddnsMessagesZh, proxyMessagesZh, verifyMessagesZh}
+	extra := []map[string]string{apiMessagesZh, tier1MessagesZh, reachMessagesZh, opsMessagesZh, acmeMessagesZh, notifyMessagesZh, storeMessagesZh, credentialMessagesZh, infraMessagesZh, ddnsMessagesZh, proxyMessagesZh, verifyMessagesZh, consoleMessagesZh}
 	if lang == En {
 		src = messagesEn
-		extra = []map[string]string{apiMessagesEn, tier1MessagesEn, reachMessagesEn, opsMessagesEn, acmeMessagesEn, notifyMessagesEn, storeMessagesEn, credentialMessagesEn, infraMessagesEn, ddnsMessagesEn, proxyMessagesEn, verifyMessagesEn}
+		extra = []map[string]string{apiMessagesEn, tier1MessagesEn, reachMessagesEn, opsMessagesEn, acmeMessagesEn, notifyMessagesEn, storeMessagesEn, credentialMessagesEn, infraMessagesEn, ddnsMessagesEn, proxyMessagesEn, verifyMessagesEn, consoleMessagesEn}
 	}
 
 	// 没有补充层时直接用基础表，避免每次构造都复制一遍。
@@ -173,6 +173,13 @@ func SetDefault(lang Lang) {
 	defaultCatalog.Store(New(lang))
 }
 
+// DefaultLang 返回进程当前的默认语言。
+//
+// 需要它的是**不经过请求中间件的调用方**：控制台的静态资源与消息表都是
+// 浏览器直接取的，而那条路径上没有语言中间件。控制台是本机单用户的，
+// 因此进程默认语言就是正确的那一个。
+func DefaultLang() Lang { return defaultOrInit().lang }
+
 // DefaultLangTag 返回当前默认语言在 HTML 里用的标签（"zh-CN" / "en"）。
 //
 // 需要它的是**发给外部设备的页面**：`<html lang="…">` 让浏览器知道该用
@@ -256,5 +263,6 @@ func layeredCatalogMaps() []map[string]string {
 		ddnsMessagesZh, ddnsMessagesEn,
 		proxyMessagesZh, proxyMessagesEn,
 		verifyMessagesZh, verifyMessagesEn,
+		consoleMessagesZh, consoleMessagesEn,
 	}
 }

@@ -55,6 +55,32 @@ func (s *Server) MountConsole(mux *http.ServeMux) {
 
 	mux.Handle("GET "+consoleAssets, s.consoleFileServer(assets))
 	mux.HandleFunc("GET /v1/console/bootstrap", s.handleConsoleBootstrap)
+	mux.HandleFunc("GET "+consoleAssets+"i18n.json", s.handleConsoleI18n)
+}
+
+// handleConsoleI18n 把**控制台前端**的消息表交给页面。
+//
+// # 为什么前端需要它
+//
+// 页面跑在浏览器里，拿不到 Go 的目录。而控制台的句子被 `<strong>` / `<code>`
+// 切开，无法逐文本节点抽取（试过：抽出 128 条，大半是"前缀，该前缀下的"
+// 这种碎片）。因此消息表整份取过去，前端按 `data-i18n` / `data-i18n-html`
+// 替换。
+//
+// # 与静态资源同等对待
+//
+// 它不含任何秘密 —— 里面只有界面文案，而静态资源本来就不需要令牌
+// （浏览器加载页面时无法携带 Authorization 头）。放在 `/console/` 下
+// 也让它自动继承了那条路径已有的处理。
+//
+// 语言取内核的设置：打开控制台的是这台机器的用户，他已经在 ISC 里
+// 选过语言了。
+func (s *Server) handleConsoleI18n(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	writeJSON(w, s.Log, http.StatusOK, "application/json",
+		i18n.ConsoleMessages(i18n.DefaultLang()))
 }
 
 // consoleFileServer 提供静态资源。
