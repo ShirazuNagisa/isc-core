@@ -835,6 +835,48 @@ var messagesZh = map[string]string{
 	"platform.fw_rollback":      "platform: 撤销防火墙规则失败（需要以管理员身份运行）: %w",
 	"platform.fw_rule_desc":     "由 ISC 管理 —— 可在 ISC 中一键撤销",
 
+	// --- 防火墙：跨平台的规则渲染与校验 ---
+	"platform.fw_add":      "  + 新增    %s（入站 %s %s）\n",
+	"platform.fw_remove":   "  - 移除    %s（入站 %s %s）\n",
+	"platform.fw_nochange": "（无变化）",
+	"platform.rule_bad_name": "platform: 规则名 %q 不合法。" +
+		"要求形如 isc-<服务名>-<tcp|udp>-<端口>",
+	"platform.rule_bad_name_nft": "platform: 规则名 %q 不合法。" +
+		"要求形如 isc-<服务名>-<tcp|udp>-<端口>，" +
+		"服务名只能用小写字母、数字与连字符",
+	"platform.rule_bad_name_b":  "要求形如 isc-<服务名>-<tcp|udp>-<端口>",
+	"platform.rule_bad_port":    "platform: 规则 %s 的端口区间不合法（%s）",
+	"platform.rule_zero_port":   "platform: 规则 %s 的端口不能为 0",
+	"platform.rule_reversed":    "platform: 规则 %s 的端口区间是反的（%d > %d）",
+	"platform.rule_src_newline": "platform: 规则 %s 的来源地址含有换行符",
+	"platform.rule_src_brace":   "platform: 规则 %s 的来源地址含有花括号（pf 用它们做列表与宏）: %q",
+	"platform.rule_src_illegal": "platform: 规则 %s 的来源地址含有非法字符: %q",
+	"platform.rule_src_space":   "platform: 规则 %s 的来源地址含有空白: %q",
+	"platform.nft_parse":        "platform: 解析 nftables 输出失败: %w",
+
+	// --- pf（macOS）规则文件 ---
+	"platform.pf_header": "# 本文件由 ISC 生成，请勿手工编辑。\n" +
+		"# 手工改动会在下一次应用变更时被覆盖。\n" +
+		"# 要撤销这些规则，请在 ISC 中执行撤销，或删除 /etc/pf.conf 里的\n" +
+		"# %q 那一行。\n",
+	"platform.pf_empty":    "# （当前没有任何 ISC 规则）\n",
+	"platform.pf_anchor":   "\n# 由 ISC 添加 —— 删除以下几行即可卸载 ISC 的防火墙规则。\n",
+	"platform.pf_anchor_k": "# 由 ISC 添加",
+
+	// --- 服务单元渲染 ---
+	"platform.unit_description": "ISC 接入编排器内核",
+	"platform.unit_no_exe":      "platform: 服务配置缺少可执行文件路径",
+	"platform.unit_exe_abs":     "platform: 服务的可执行文件路径必须是绝对路径，得到 %q",
+	"platform.unit_arg_newline": "platform: 服务参数含有换行符：%q",
+	"platform.unit_arg_quote":   "platform: 服务参数含有引号：%q",
+	"platform.unit_dir_abs":     "platform: 工作目录必须是绝对路径，得到 %q",
+	"platform.unit_dir_newline": "platform: 工作目录含有换行符",
+
+	// --- 网卡轮询 ---
+	"platform.ipmon_note": "通过标准库轮询（每 %s 一次）读取网卡地址与前缀；" +
+		"该方式在三平台行为一致，代价是地址变化的感知有最多一个轮询周期的延迟",
+	"platform.ipmon_enum": "platform: 枚举网卡失败: %w",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

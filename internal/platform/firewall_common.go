@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"sort"
 	"strings"
 	"time"
@@ -68,13 +69,13 @@ func diffRuleNames(a, b []Rule) []Rule {
 func renderRuleDiff(added, removed []Rule) string {
 	var b strings.Builder
 	for _, r := range added {
-		fmt.Fprintf(&b, "  + 新增    %s（入站 %s %s）\n", r.Name, r.Protocol, r.Port)
+		fmt.Fprintf(&b, i18n.T("platform.fw_add"), r.Name, r.Protocol, r.Port)
 	}
 	for _, r := range removed {
-		fmt.Fprintf(&b, "  - 移除    %s（入站 %s %s）\n", r.Name, r.Protocol, r.Port)
+		fmt.Fprintf(&b, i18n.T("platform.fw_remove"), r.Name, r.Protocol, r.Port)
 	}
 	if b.Len() == 0 {
-		return "（无变化）"
+		return i18n.T("platform.fw_nochange")
 	}
 	return b.String()
 }

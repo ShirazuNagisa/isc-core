@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"path"
 	"path/filepath"
 	"strings"
@@ -204,7 +205,7 @@ func serviceDescription(cfg ServiceConfig) string {
 	if cfg.Description != "" {
 		return cfg.Description
 	}
-	return "ISC 接入编排器内核"
+	return i18n.T("platform.unit_description")
 }
 
 // ValidateServiceConfig 在动手之前检查配置。
@@ -221,7 +222,7 @@ func serviceDescription(cfg ServiceConfig) string {
 // 要挡的几件事在三个平台上都成立：绝对路径、不含引号、不含换行。
 func ValidateServiceConfig(cfg ServiceConfig) error {
 	if strings.TrimSpace(cfg.Executable) == "" {
-		return errors.New("platform: 服务配置缺少可执行文件路径")
+		return errors.New(i18n.T("platform.unit_no_exe"))
 	}
 	// 服务要求**绝对路径**。
 	//
@@ -230,7 +231,7 @@ func ValidateServiceConfig(cfg ServiceConfig) error {
 	// 症状是"服务装好了但一启动就退出"，错误信息还很含糊。
 	if !filepath.IsAbs(cfg.Executable) {
 		return fmt.Errorf(
-			"platform: 服务的可执行文件路径必须是绝对路径，得到 %q",
+			i18n.T("platform.unit_exe_abs"),
 			cfg.Executable)
 	}
 
@@ -238,21 +239,21 @@ func ValidateServiceConfig(cfg ServiceConfig) error {
 		// 换行符会**越出那一行配置**，把后面的内容变成新的指令 ——
 		// 对 unit 文件与 plist 都是一个改写文件其余部分的注入点。
 		if strings.ContainsAny(s, "\n\r") {
-			return fmt.Errorf("platform: 服务参数含有换行符：%q", s)
+			return fmt.Errorf(i18n.T("platform.unit_arg_newline"), s)
 		}
 		// 引号会破坏命令行解析。
 		if strings.Contains(s, `"`) {
-			return fmt.Errorf("platform: 服务参数含有引号：%q", s)
+			return fmt.Errorf(i18n.T("platform.unit_arg_quote"), s)
 		}
 	}
 
 	if cfg.WorkingDirectory != "" {
 		if !filepath.IsAbs(cfg.WorkingDirectory) {
 			return fmt.Errorf(
-				"platform: 工作目录必须是绝对路径，得到 %q", cfg.WorkingDirectory)
+				i18n.T("platform.unit_dir_abs"), cfg.WorkingDirectory)
 		}
 		if strings.ContainsAny(cfg.WorkingDirectory, "\n\r") {
-			return errors.New("platform: 工作目录含有换行符")
+			return errors.New(i18n.T("platform.unit_dir_newline"))
 		}
 	}
 

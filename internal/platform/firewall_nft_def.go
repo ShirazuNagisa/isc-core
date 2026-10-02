@@ -3,6 +3,7 @@ package platform
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"regexp"
 	"sort"
 	"strconv"
@@ -87,7 +88,7 @@ func ParseNftRuleset(data []byte) ([]nftRule, error) {
 		Nftables []map[string]json.RawMessage `json:"nftables"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("platform: 解析 nftables 输出失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("platform.nft_parse"), err)
 	}
 
 	var out []nftRule
@@ -344,27 +345,24 @@ func nftProtoOf(r Rule) Protocol {
 // 变成一条额外的 nft 指令 —— 那是一个能改写整张防火墙表的注入点。
 func ValidateNftRule(r Rule) error {
 	if !nftRuleNamePattern.MatchString(r.Name) {
-		return fmt.Errorf(
-			"platform: 规则名 %q 不合法。"+
-				"要求形如 isc-<服务名>-<tcp|udp>-<端口>，"+
-				"服务名只能用小写字母、数字与连字符", r.Name)
+		return fmt.Errorf(i18n.T("platform.rule_bad_name_nft"), r.Name)
 	}
 	if r.Port.From == 0 {
-		return fmt.Errorf("platform: 规则 %s 的端口不能为 0", r.Name)
+		return fmt.Errorf(i18n.T("platform.rule_zero_port"), r.Name)
 	}
 	if r.Port.To != 0 && r.Port.To < r.Port.From {
-		return fmt.Errorf("platform: 规则 %s 的端口区间是反的（%d > %d）",
+		return fmt.Errorf(i18n.T("platform.rule_reversed"),
 			r.Name, r.Port.From, r.Port.To)
 	}
 
 	if s := strings.TrimSpace(r.Source); s != "" {
 		// 换行与分号会越出命令串；空格会改变参数结构。
 		if strings.ContainsAny(s, "\n\r;\"'`$&|") {
-			return fmt.Errorf("platform: 规则 %s 的来源地址含有非法字符: %q",
+			return fmt.Errorf(i18n.T("platform.rule_src_illegal"),
 				r.Name, s)
 		}
 		if strings.ContainsAny(s, " \t") {
-			return fmt.Errorf("platform: 规则 %s 的来源地址含有空白: %q",
+			return fmt.Errorf(i18n.T("platform.rule_src_space"),
 				r.Name, s)
 		}
 	}

@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"net/netip"
 	"strings"
@@ -75,10 +76,7 @@ func (m *pollingIPMonitor) Describe() ImplState {
 	return ImplState{
 		Available: true,
 		Backend:   "polling",
-		Note: fmt.Sprintf(
-			"通过标准库轮询（每 %s 一次）读取网卡地址与前缀；"+
-				"该方式在三平台行为一致，代价是地址变化的感知有最多一个轮询周期的延迟",
-			m.interval),
+		Note:      fmt.Sprintf(i18n.T("platform.ipmon_note"), m.interval),
 	}
 }
 
@@ -86,7 +84,7 @@ func (m *pollingIPMonitor) Describe() ImplState {
 func (m *pollingIPMonitor) Snapshot(context.Context) ([]InterfaceAddrs, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return nil, fmt.Errorf("platform: 枚举网卡失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("platform.ipmon_enum"), err)
 	}
 
 	out := make([]InterfaceAddrs, 0, len(ifaces))
@@ -401,7 +399,16 @@ var virtualInterfacePrefixes = []string{
 	"docker", "veth", "br-", "virbr", "vmnet", "tun", "tap", "wg", "zt",
 	// Windows（英文）
 	"loopback", "bluetooth", "vethernet", "hyper-v", "wi-fi direct",
-	// Windows（中文）—— 名称随系统语言变化，只能逐个列出
+	// Windows（中文）—— 名称随系统语言变化，只能逐个列出。
+	//
+	// ⚠️ 这四条**不能**走消息目录。
+	//
+	// 它们不是给用户看的文案，而是**匹配系统网卡名的模式**：中文 Windows 上
+	// 网卡就叫「蓝牙网络连接」「本地连接* 12」。把它们翻译成英文，匹配就会
+	// 在中文系统上全部失效 —— 而症状是"虚拟网卡没有被过滤掉"，
+	// 界面上多出一堆用不了的地址。
+	//
+	// 迁移时把它们也换成了 i18n.T，被 TestIsVirtualInterface 拦住。
 	"蓝牙", "本地连接*", "虚拟", "回环",
 	// 虚拟化软件
 	"vmware", "virtualbox", "host-only", "vbox",

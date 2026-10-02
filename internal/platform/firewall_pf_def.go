@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,15 +66,12 @@ func PfAnchorContent(desired []Rule) string {
 	sort.Slice(rules, func(i, j int) bool { return rules[i].Name < rules[j].Name })
 
 	var b strings.Builder
-	b.WriteString("# 本文件由 ISC 生成，请勿手工编辑。\n")
-	b.WriteString("# 手工改动会在下一次应用变更时被覆盖。\n")
-	b.WriteString("# 要撤销这些规则，请在 ISC 中执行撤销，或删除 /etc/pf.conf 里的\n")
-	b.WriteString("# anchor \"" + pfAnchorName + "\" 那一行。\n")
+	b.WriteString(i18n.T("platform.pf_header", pfAnchorName))
 	b.WriteString("\n")
 
 	if len(rules) == 0 {
 		// 空 anchor 是合法的，而它正是"撤销全部规则"的结果。
-		b.WriteString("# （当前没有任何 ISC 规则）\n")
+		b.WriteString(i18n.T("platform.pf_empty"))
 		return b.String()
 	}
 
@@ -179,7 +177,7 @@ func AppendPfAnchor(conf string) string {
 	if !strings.HasSuffix(conf, "\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString("\n# 由 ISC 添加 —— 删除以下几行即可卸载 ISC 的防火墙规则。\n")
+	b.WriteString(i18n.T("platform.pf_anchor"))
 	if needsDeclare {
 		b.WriteString(`anchor "` + pfAnchorName + `"` + "\n")
 	}
@@ -201,7 +199,7 @@ func RemovePfAnchor(conf string) string {
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
 
-		if strings.Contains(trimmed, "# 由 ISC 添加") {
+		if strings.Contains(trimmed, i18n.T("platform.pf_anchor_k")) {
 			// 跳过这句注释，以及紧随其后的 anchor 行。
 			j := i + 1
 			for j < len(lines) {
@@ -238,23 +236,23 @@ func RemovePfAnchor(conf string) string {
 func ValidatePfRule(r Rule) error {
 	if !pfRuleNamePattern.MatchString(r.Name) {
 		return fmt.Errorf(
-			"platform: 规则名 %q 不合法。"+
-				"要求形如 isc-<服务名>-<tcp|udp>-<端口>", r.Name)
+			i18n.T("platform.rule_bad_name")+
+				i18n.T("platform.rule_bad_name_b"), r.Name)
 	}
 	if !r.Port.Valid() {
-		return fmt.Errorf("platform: 规则 %s 的端口区间不合法（%s）",
+		return fmt.Errorf(i18n.T("platform.rule_bad_port"),
 			r.Name, r.Port)
 	}
 
 	if s := strings.TrimSpace(r.Source); s != "" {
 		if strings.ContainsAny(s, "\n\r") {
-			return fmt.Errorf("platform: 规则 %s 的来源地址含有换行符", r.Name)
+			return fmt.Errorf(i18n.T("platform.rule_src_newline"), r.Name)
 		}
 		// pf 的地址列表用花括号，而它们也用于宏展开 ——
 		// 让它出现在地址里会让语义完全不同。
 		if strings.ContainsAny(s, "{}") {
 			return fmt.Errorf(
-				"platform: 规则 %s 的来源地址含有花括号（pf 用它们做列表与宏）: %q",
+				i18n.T("platform.rule_src_brace"),
 				r.Name, s)
 		}
 	}
