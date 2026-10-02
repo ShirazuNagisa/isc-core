@@ -288,6 +288,18 @@ var consoleMessagesEn = map[string]string{
 	"web.task.getter_url":   "External endpoint",
 	"web.cred.ok":           "Connection OK",
 
+	"web.task.run":            "Run now",
+	"web.task.getter_cmd":     "Command",
+	"web.task.l_value":        "Value",
+	"web.task.value_ph":       "interface name (e.g. WLAN / eth0)",
+	"web.task.l_selector":     "Address selector (optional)",
+	"web.task.selector_ph":    "@1 or a regex",
+	"web.task.save_run":       "Save and run",
+	"web.task.need_name":      "Enter a task name",
+	"web.task.created":        "Task created; running the first resolution…",
+	"web.task.trigger_failed": "Trigger failed: ",
+	"web.task.accepted":       "Accepted; running…",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

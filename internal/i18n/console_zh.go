@@ -269,6 +269,18 @@ var consoleMessagesZh = map[string]string{
 	"web.task.getter_url":   "外部接口",
 	"web.cred.ok":           "连接正常",
 
+	"web.task.run":            "立即执行",
+	"web.task.getter_cmd":     "命令",
+	"web.task.l_value":        "取值",
+	"web.task.value_ph":       "网卡名（如 WLAN / eth0）",
+	"web.task.l_selector":     "地址选择器（可选）",
+	"web.task.selector_ph":    "@1 或正则",
+	"web.task.save_run":       "保存并执行",
+	"web.task.need_name":      "请填写任务名称",
+	"web.task.created":        "任务已创建，正在执行首次解析…",
+	"web.task.trigger_failed": "触发失败：",
+	"web.task.accepted":       "已受理，正在执行…",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }

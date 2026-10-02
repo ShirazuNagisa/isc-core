@@ -442,9 +442,9 @@ async function loadTasks() {
         (t.last_ipv6 ? '<br>' + esc(t.last_ipv6) : '') + '<br>' +
         '<small>' + esc(shortTime(t.last_run_at)) + '</small></td>' +
       '<td class="actions">' +
-        '<button class="tiny" data-runtask="' + esc(t.id) + '">立即执行</button> ' +
+        '<button class="tiny" data-runtask="' + esc(t.id) + '">' + t('web.task.run', '立即执行') + '</button> ' +
         '<button class="tiny danger" data-deltask="' + esc(t.id) + '" ' +
-          'data-label="' + esc(t.label) + '">删除</button>' +
+          'data-label="' + esc(t.label) + '">' + t('web.common.delete') + '</button>' +
       '</td></tr>';
   }).join('');
 
@@ -482,12 +482,12 @@ function renderTaskForm() {
       '<label class="field"><span>' + t('web.task.l_getter', '获取方式') + '</span>' +
         '<select id="tf6Type"><option value="netInterface">' + t('web.task.getter_iface', '网卡') + '</option>' +
         '<option value="url">' + t('web.task.getter_url', '外部接口') + '</option>' +
-        '<option value="cmd">命令</option></select></label>' +
-      '<label class="field full"><span>取值</span>' +
-        '<input id="tf6Value" placeholder="网卡名（如 WLAN / eth0）"></label>' +
-      '<label class="field"><span>地址选择器（可选）</span>' +
-        '<input id="tf6Sel" placeholder="@1 或正则"></label>' +
-      '<label class="field full"><span>域名（每行一个）</span>' +
+        '<option value="cmd">' + t('web.task.getter_cmd', '命令') + '</option></select></label>' +
+      '<label class="field full"><span>' + t('web.task.l_value', '取值') + '</span>' +
+        '<input id="tf6Value" placeholder="' + t('web.task.value_ph', '网卡名（如 WLAN / eth0）') + '"></label>' +
+      '<label class="field"><span>' + t('web.task.l_selector', '地址选择器（可选）') + '</span>' +
+        '<input id="tf6Sel" placeholder="' + t('web.task.selector_ph', '@1 或正则') + '"></label>' +
+      '<label class="field full"><span>' + t('web.px.l_domains') + '</span>' +
         '<textarea id="tf6Domains" rows="2" ' +
         'placeholder="home.example.com"></textarea></label>' +
     '</div>' +
@@ -497,17 +497,17 @@ function renderTaskForm() {
       '<label class="field"><span>' + t('web.common.enabled') + '</span>' +
         '<input type="checkbox" id="tf4Enable"></label>' +
       '<label class="field"><span>' + t('web.task.l_getter', '获取方式') + '</span>' +
-        '<select id="tf4Type"><option value="url">外部接口</option>' +
-        '<option value="netInterface">网卡</option>' +
-        '<option value="cmd">命令</option></select></label>' +
-      '<label class="field full"><span>取值</span>' +
+        '<select id="tf4Type"><option value="url">' + t('web.task.getter_url') + '</option>' +
+        '<option value="netInterface">' + t('web.task.getter_iface') + '</option>' +
+        '<option value="cmd">' + t('web.task.getter_cmd', '命令') + '</option></select></label>' +
+      '<label class="field full"><span>' + t('web.task.l_value', '取值') + '</span>' +
         '<input id="tf4Value" placeholder="https://api.ipify.org"></label>' +
-      '<label class="field full"><span>域名（每行一个）</span>' +
+      '<label class="field full"><span>' + t('web.px.l_domains') + '</span>' +
         '<textarea id="tf4Domains" rows="2"></textarea></label>' +
     '</div>' +
 
-    '<div class="row"><button id="tfSave" class="primary">保存并执行</button>' +
-      '<button id="tfCancel">取消</button></div>';
+    '<div class="row"><button id="tfSave" class="primary">' + t('web.task.save_run', '保存并执行') + '</button>' +
+      '<button id="tfCancel">' + t('web.common.cancel') + '</button></div>';
 
   $('tfCancel').onclick = () => { el.hidden = true; };
   $('tfSave').onclick = saveTask;
@@ -535,7 +535,7 @@ function splitLines(v) {
 
 async function saveTask() {
   const label = $('tfLabel').value.trim();
-  if (!label) { toast('请填写任务名称', 'err'); return; }
+  if (!label) { toast(t('web.task.need_name', '请填写任务名称'), 'err'); return; }
 
   const body = {
     credential_id: $('tfCred').value,
@@ -561,7 +561,7 @@ async function saveTask() {
   const r = await api('POST', '/v1/ddns-tasks', body);
   if (!r.ok) { toast(t('web.common.save_failed', '保存失败：') + explain(r), 'err'); return; }
 
-  toast('任务已创建，正在执行首次解析…', 'ok');
+  toast(t('web.task.created', '任务已创建，正在执行首次解析…'), 'ok');
   $('taskForm').hidden = true;
   await loadTasks();
 
@@ -573,8 +573,8 @@ async function saveTask() {
 
 async function runTask(id) {
   const r = await api('POST', '/v1/ddns-tasks/' + encodeURIComponent(id) + '/run');
-  if (!r.ok) { toast('触发失败：' + explain(r), 'err'); return; }
-  toast('已受理，正在执行…', 'ok');
+  if (!r.ok) { toast(t('web.task.trigger_failed', '触发失败：') + explain(r), 'err'); return; }
+  toast(t('web.task.accepted', '已受理，正在执行…'), 'ok');
   setTimeout(loadTasks, 1500);
   setTimeout(loadTasks, 4000);
 }
