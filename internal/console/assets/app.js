@@ -301,7 +301,7 @@ async function loadCredentials() {
       '<td class="mono">' + fields + '</td>' +
       '<td class="mono">' + esc(c.id) + '</td>' +
       '<td class="actions">' +
-        (caps.verify ? '<button class="tiny" data-verify="' + esc(c.id) + '">测试连接</button> ' : '') +
+        (caps.verify ? '<button class="tiny" data-verify="' + esc(c.id) + '">' + t('web.cred.test') + '</button> ' : '') +
         '<button class="tiny danger" data-delcred="' + esc(c.id) + '" ' +
           'data-label="' + esc(c.label) + '">' + t('web.common.delete') + '</button>' +
       '</td></tr>';
@@ -331,7 +331,7 @@ function renderCredForm() {
     '<h3>' + t('web.cred.new') + '</h3>' +
     '<div class="form-grid">' +
       '<label class="field"><span>' + t('web.th.name') + '</span>' +
-        '<input id="cfLabel" placeholder="例如：我的 Cloudflare"></label>' +
+        '<input id="cfLabel" placeholder="' + t('web.cred.name_ph') + '"></label>' +
       '<label class="field"><span>' + t('web.cred.provider', '服务商') + '</span>' +
         '<select id="cfProvider">' + opts + '</select></label>' +
     '</div>' +
@@ -466,7 +466,7 @@ function renderTaskForm() {
     '<h3>' + t('web.task.new_full', '新建动态解析任务') + '</h3>' +
     '<div class="form-grid">' +
       '<label class="field"><span>' + t('web.th.name') + '</span>' +
-        '<input id="tfLabel" placeholder="例如：家里的 IPv6"></label>' +
+        '<input id="tfLabel" placeholder="' + t('web.task.label_ph') + '"></label>' +
       '<label class="field"><span>' + t('web.rec.l_cred') + '</span>' +
         '<select id="tfCred">' + creds + '</select></label>' +
     '</div>' +
@@ -667,7 +667,7 @@ async function loadRecords() {
   }).join('');
 
   $('recList').innerHTML =
-    '<p class="hint">' + t('web.rec.count_pre', '共') + ' ' + items.length + ' 条记录。</p>' +
+    '<p class="hint">' + t('web.rec.count_pre', '共') + ' ' + tf('web.rec.count', '{n} 条记录。', {n: items.length}) + '</p>' +
     '<table class="data"><thead><tr><th>' + t('web.th.kind') + '</th><th>' + t('web.th.name') + '</th><th>' + t('web.rec.th_content', '内容') + '</th>' +
     '<th>TTL</th><th></th><th>ID</th><th></th></tr></thead><tbody>' +
     rows + '</tbody></table>';
@@ -741,9 +741,9 @@ async function saveRecord(recordId) {
 async function deleteRecord(recordId, name, type) {
   const p = providerByName(currentCredProvider());
   const note = p && (p.name === 'godaddy' || p.name === 'huaweicloud')
-    ? '\n\n注意：这家服务商的删除会波及同名的其它值（见 docs/PROVIDER-MATRIX.md）。'
+    ? t('web.rec.delete_note', '注意：这家服务商的删除会波及同名的其它值（见 docs/PROVIDER-MATRIX.md）。')
     : '';
-  if (!confirm('确定删除 ' + type + ' 记录 ' + name + ' ？' + note)) return;
+  if (!confirm(tf('web.rec.confirm_delete', '确定删除 {type} 记录 {name} ？', {type: type, name: name}) + note)) return;
 
   const credId = $('recCred').value;
   const zoneId = $('recZone').value;

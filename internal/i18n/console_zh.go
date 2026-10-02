@@ -337,6 +337,13 @@ var consoleMessagesZh = map[string]string{
 	"web.svc.stopped":      "未运行",
 	"web.svc.unqueryable":  "系统服务：无法查询（",
 
+	"web.rec.count":          "{n} 条记录。",
+	"web.rec.delete_note":    "注意：这家服务商的删除会波及同名的其它值（见 docs/PROVIDER-MATRIX.md）。",
+	"web.rec.confirm_delete": "确定删除 {type} 记录 {name} ？",
+	"web.nt.some_failed":     "有 {n} 个通道失败：",
+	"web.svc.action_failed":  " 失败：",
+	"web.svc.done":           "已执行：",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }

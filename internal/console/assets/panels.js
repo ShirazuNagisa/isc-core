@@ -391,7 +391,7 @@ async function testNotify() {
   if (failed.length === 0) {
     toast(tf('web.nt.test_sent', '测试通知已发送到 {n} 个通道', {n: items.length}), 'ok');
   } else {
-    toast('有 ' + failed.length + ' 个通道失败：' +
+    toast(tf('web.nt.some_failed', '有 {n} 个通道失败：', {n: failed.length}) +
       failed.map((d) => d.channel).join('、'), 'err');
   }
   loadNotify();
@@ -406,7 +406,7 @@ async function loadService() {
   const box = $('svcState');
 
   if (!r.ok) {
-    box.innerHTML = '<span class="err">读取失败：' + esc(explain(r)) + '</span>';
+    box.innerHTML = '<span class="err">' + t('web.common.read_failed') + esc(explain(r)) + '</span>';
     return;
   }
 
@@ -435,7 +435,7 @@ async function serviceAction(action) {
     restart_on_failure: $('svcRestart').checked,
   });
 
-  if (!r.ok) { toast(action + ' 失败：' + explain(r), 'err'); return; }
-  toast('已执行：' + action, 'ok');
+  if (!r.ok) { toast(action + t('web.svc.action_failed', ' 失败：') + explain(r), 'err'); return; }
+  toast(t('web.svc.done', '已执行：') + action, 'ok');
   loadService();
 }

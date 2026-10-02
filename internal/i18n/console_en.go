@@ -356,6 +356,13 @@ var consoleMessagesEn = map[string]string{
 	"web.svc.stopped":      "not running",
 	"web.svc.unqueryable":  "System service: cannot be queried (",
 
+	"web.rec.count":          "{n} record(s).",
+	"web.rec.delete_note":    "Note: on this provider, deleting affects other values with the same name (see docs/PROVIDER-MATRIX.md).",
+	"web.rec.confirm_delete": "Delete the {type} record {name}?",
+	"web.nt.some_failed":     "{n} channel(s) failed: ",
+	"web.svc.action_failed":  " failed: ",
+	"web.svc.done":           "Done: ",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }
