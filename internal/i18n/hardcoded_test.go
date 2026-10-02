@@ -71,8 +71,8 @@ var convertedFiles = []string{
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	"internal/ddnsgo":         318,
-	"internal/platform":       4,
+	"internal/ddnsgo":   318,
+	"internal/platform": 4,
 	// 只剩两个 API 数据值，不是文案：
 	//
 	//	dnspod.go     const dnspodDefaultLine = "默认"
@@ -84,7 +84,6 @@ var hardcodedBaseline = map[string]int{
 	// 迁移时它们被误换成了 i18n.T(...)，是**编译器**拦下的（const 不能是
 	// 函数调用）—— 这是第四次遇到"把数据当成文案"。
 	"internal/provider/tier1": 2,
-	"internal/reach":          90,
 	"internal/store":          70,
 	"internal/acme":           67,
 	"scripts/release":         64,
@@ -169,6 +168,11 @@ var i18nComplete = []string{
 	// 因此是面向用户的 —— 与 event/console/audit 那三个纯日志包不同，
 	// 后者的理由见 logOnlyPackages。
 	"internal/settings",
+
+	// 可达性检查。它的文案就是 `isc doctor` 的正文，而每条检查刻意保留了
+	// "这不是你的配置问题"这类判断 —— 用户看到一句失败时最需要知道的
+	// 正是"这该不该我来修"。
+	"internal/reach",
 }
 
 func TestUserFacingPackagesHaveI18n(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"strings"
 	"time"
@@ -65,7 +66,7 @@ const listeningTimeout = 700 * time.Millisecond
 // 因为如此，探测只在用户**主动点检查或生成计划**时发生，而不是定时轮询。
 func CheckListening(ctx context.Context, port int, protocol string) PortCheck {
 	if port <= 0 || port > 65535 {
-		return PortCheck{Detail: fmt.Sprintf("端口 %d 不在合法范围内", port)}
+		return PortCheck{Detail: fmt.Sprintf(i18n.T("reach.bad_port"), port)}
 	}
 	if protocol == "" {
 		protocol = "tcp"
@@ -77,7 +78,7 @@ func CheckListening(ctx context.Context, port int, protocol string) PortCheck {
 	// 用户会据此去查那个端口，而如果结论是错的，他查的是错的地方。
 	if protocol != "tcp" {
 		return PortCheck{
-			Detail: fmt.Sprintf("%s 端口无法用连接探测（UDP 没有连接的概念）",
+			Detail: fmt.Sprintf(i18n.T("reach.udp_no_probe"),
 				strings.ToUpper(protocol)),
 		}
 	}
@@ -99,18 +100,18 @@ func CheckListening(ctx context.Context, port int, protocol string) PortCheck {
 			_ = conn.Close()
 			return PortCheck{
 				Listening: true,
-				Detail:    fmt.Sprintf("端口 %d 上有服务在监听", port),
+				Detail:    fmt.Sprintf(i18n.T("reach.port.listening"), port),
 			}
 		}
 
 		// 上下文被取消（用户中断）时不该继续试下一个地址。
 		if ctx.Err() != nil {
-			return PortCheck{Detail: "探测被中断"}
+			return PortCheck{Detail: i18n.T("reach.port.interrupted")}
 		}
 	}
 
 	return PortCheck{
-		Detail: fmt.Sprintf("端口 %d 上没有服务在监听", port),
+		Detail: fmt.Sprintf(i18n.T("reach.port.not_listening"), port),
 	}
 }
 
@@ -122,11 +123,11 @@ func DiagnosePort(ctx context.Context, req Request,
 
 	if req.Port <= 0 || req.Port > 65535 {
 		return []Check{{
-			Name:   "端口范围",
+			Name:   i18n.T("reach.check.port_range"),
 			Scope:  ScopeLocal,
 			Status: CheckFail,
-			Detail: fmt.Sprintf("端口 %d 不在 1-65535 范围内", req.Port),
-			Hint:   "请填一个合法端口。",
+			Detail: fmt.Sprintf(i18n.T("reach.bad_port_range"), req.Port),
+			Hint:   i18n.T("reach.bad_port_hint"),
 		}}
 	}
 
@@ -146,7 +147,7 @@ func diagnoseListening(ctx context.Context, req Request) Check {
 
 	if res.Listening {
 		return Check{
-			Name:   "服务监听",
+			Name:   i18n.T("reach.check.listening"),
 			Scope:  ScopeLocal,
 			Status: CheckPass,
 			Detail: res.Detail,
@@ -159,11 +160,11 @@ func diagnoseListening(ctx context.Context, req Request) Check {
 	// 重复只会让警告变长而信息量不变。
 	if req.Protocol != "" && req.Protocol != "tcp" {
 		return Check{
-			Name:   "服务监听",
+			Name:   i18n.T("reach.check.listening"),
 			Scope:  ScopeLocal,
 			Status: CheckWarn,
 			Detail: res.Detail,
-			Hint:   "请自行确认该端口上的服务已启动。",
+			Hint:   i18n.T("reach.port.confirm_hint"),
 		}
 	}
 
@@ -172,7 +173,7 @@ func diagnoseListening(ctx context.Context, req Request) Check {
 	// 做成失败会拦住一个完全合理的操作顺序（先开规则、再起服务），
 	// 而那个顺序在"先把网络配好再部署服务"的流程里很自然。
 	return Check{
-		Name:   "服务监听",
+		Name:   i18n.T("reach.check.listening"),
 		Scope:  ScopeLocal,
 		Status: CheckWarn,
 		Detail: res.Detail,
@@ -182,10 +183,9 @@ func diagnoseListening(ctx context.Context, req Request) Check {
 		// 而 Detail 刚刚说过同一件事 —— 拼接之后读起来是
 		// "…没有服务在监听 开放这个端口之前，先确认本机有服务在监听 18099…"，
 		// 既重复又拗口。这是真机上跑出来才看出来的。
-		Hint: fmt.Sprintf(
-			"规则开好了但本机没有服务，从外面访问仍然什么都不通，" +
-				"而那时很难想到问题出在本机上。" +
-				"如果服务还没启动，请先启动它；如果只是还没部署，可以先放行。"),
+		// 不需要 Sprintf：这条文案里没有动词（下面的注释解释了为什么
+		// 原来有一个 %d 但被去掉了）。
+		Hint: i18n.T("reach.port.no_listener_hint"),
 	}
 }
 
@@ -198,19 +198,18 @@ func diagnoseUpstream(req Request) Check {
 
 	if upstream == req.Port {
 		return Check{
-			Name:   "端口映射",
+			Name:   i18n.T("reach.check.portmap"),
 			Scope:  ScopeLocal,
 			Status: CheckPass,
-			Detail: fmt.Sprintf("外部 %d → 内部 %d（直通）", req.Port, upstream),
+			Detail: fmt.Sprintf(i18n.T("reach.portmap.passthrough"), req.Port, upstream),
 		}
 	}
 	return Check{
-		Name:   "端口映射",
+		Name:   i18n.T("reach.check.portmap"),
 		Scope:  ScopeLocal,
 		Status: CheckPass,
-		Detail: fmt.Sprintf("外部 %d → 内部 %d", req.Port, upstream),
-		Hint: "非标端口入口：访问时要显式带端口号，" +
-			"例如 https://example.com:8443",
+		Detail: fmt.Sprintf(i18n.T("reach.portmap.mapped"), req.Port, upstream),
+		Hint:   i18n.T("reach.portmap.hint"),
 	}
 }
 
@@ -223,35 +222,32 @@ func diagnoseLowPort(req Request, binder platform.LowPortBinder) Check {
 	// 只管入口端口：内部端口是本机服务自己的事。
 	if req.Port >= lowPortLimit {
 		return Check{
-			Name:   "低端口权限",
+			Name:   i18n.T("reach.check.lowport"),
 			Scope:  ScopeLocal,
 			Status: CheckPass,
-			Detail: fmt.Sprintf("%d 不是特权端口，无需额外权限", req.Port),
+			Detail: fmt.Sprintf(i18n.T("reach.lowport.not_privileged"), req.Port),
 		}
 	}
 
 	st := binder.Describe()
 	if binder.CanBindLowPorts() {
 		return Check{
-			Name:   "低端口权限",
+			Name:   i18n.T("reach.check.lowport"),
 			Scope:  ScopeLocal,
 			Status: CheckPass,
-			Detail: fmt.Sprintf("可以绑定 %d（%s）", req.Port, st.Backend),
+			Detail: fmt.Sprintf(i18n.T("reach.lowport.ok"), req.Port, st.Backend),
 		}
 	}
 
 	// 这是**失败**而不是警告：没有权限就一定绑不上，
 	// 而重试、等一会儿、改配置都不会让它变好。
 	return Check{
-		Name:   "低端口权限",
+		Name:   i18n.T("reach.check.lowport"),
 		Scope:  ScopeLocal,
 		Status: CheckFail,
 		Detail: st.Note,
 		Hint: fmt.Sprintf(
-			"绑定 %d 需要额外权限。三种做法：\n"+
-				"  · 换一个 ≥1024 的端口（最简单，代价是访问时要带端口号）\n"+
-				"  · 给可执行文件授权：sudo setcap 'cap_net_bind_service=+ep' /path/to/isc\n"+
-				"  · 以 root 运行内核",
+			i18n.T("reach.lowport.denied"),
 			req.Port),
 	}
 }
@@ -259,4 +255,4 @@ func diagnoseLowPort(req Request, binder platform.LowPortBinder) Check {
 // ErrNoListener 表示端口上没有服务在监听。
 //
 // 它存在是为了让调用方能区分"探测失败"与"确实没有服务"。
-var ErrNoListener = errors.New("reach: 该端口上没有服务在监听")
+var ErrNoListener = errors.New(i18n.T("reach.port.no_listener"))

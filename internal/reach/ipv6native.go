@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"strconv"
 	"strings"
@@ -36,7 +37,7 @@ type IPv6Native struct {
 	monitor  IPProvider
 	firewall platform.Firewall
 
-	// firewallState 是防火墙后端的就绪状态（含"未实现"的情形）。
+	// firewallState 是防火墙后端的就绪状态（含i18n.T("reach.check.unimpl")的情形）。
 	firewallState platform.ImplState
 
 	// externalVerdict 提供最近一次外部验证的结论。
@@ -79,11 +80,9 @@ func NewIPv6Native(monitor IPProvider, firewall platform.Firewall, state platfor
 // Meta 实现 Provider。
 func (p *IPv6Native) Meta() Meta {
 	return Meta{
-		Name:        "ipv6-native",
-		DisplayName: "IPv6 直连",
-		Description: "直接用本机的公网 IPv6 地址对外提供服务。" +
-			"不需要公网 IPv4、不需要中转服务器、流量不经过任何第三方。" +
-			"需要运营商下发了 IPv6 前缀，且路由器放行了入站连接。",
+		Name:                "ipv6-native",
+		DisplayName:         i18n.T("reach.v6.name"),
+		Description:         i18n.T("reach.v6.desc"),
 		NeedsExternalServer: false,
 		Tier:                1,
 	}
@@ -170,52 +169,47 @@ func (p *IPv6Native) inspectAddresses(ctx context.Context) (addressSnapshot, int
 func addressCheck(snap addressSnapshot, globalCount int) Check {
 	if globalCount > 0 {
 		return Check{
-			Name:   "全局 IPv6 地址",
+			Name:   i18n.T("reach.check.global_v6"),
 			Scope:  ScopeLocal,
 			Status: CheckPass,
-			Detail: fmt.Sprintf("在 %s 上找到 %d 个可用于公网访问的 IPv6 地址",
+			Detail: fmt.Sprintf(i18n.T("reach.v6.found"),
 				strings.Join(snap.ifaces, "、"), globalCount),
 		}
 	}
 	return Check{
-		Name:   "全局 IPv6 地址",
+		Name:   i18n.T("reach.check.global_v6"),
 		Scope:  ScopeLocal,
 		Status: CheckFail,
-		Detail: "没有找到可用于公网访问的 IPv6 地址" +
-			"（链路本地 fe80:: 与私有 fd00:: 不算）",
-		Hint: "确认运营商已开通 IPv6（多数家宽默认开通，可打客服确认）；" +
-			"再进路由器的 IPv6 设置，确认已开启且为「Native / 原生」模式而非隧道模式",
+		Detail: i18n.T("reach.v6.not_found"),
+		Hint:   i18n.T("reach.v6.not_found_hint"),
 	}
 }
 
 func prefixCheck(snap addressSnapshot, prefixCount int) Check {
 	if prefixCount > 0 {
 		return Check{
-			Name:   "IPv6 委派前缀",
+			Name:   i18n.T("reach.check.prefix"),
 			Scope:  ScopeLocal,
 			Status: CheckPass,
-			Detail: fmt.Sprintf("检测到 %d 个委派前缀（/64 或更粗）", prefixCount),
+			Detail: fmt.Sprintf(i18n.T("reach.prefix.found"), prefixCount),
 		}
 	}
 	if snap.globalIPv6 == 0 {
 		// 地址都没有，前缀这一项就没有单独的诊断价值 ——
 		// 重复报同一个根因只会让用户以为有两个问题。
 		return Check{
-			Name:   "IPv6 委派前缀",
+			Name:   i18n.T("reach.check.prefix"),
 			Scope:  ScopeLocal,
 			Status: CheckUnknown,
-			Detail: "没有全局 IPv6 地址，无法判断前缀",
+			Detail: i18n.T("reach.prefix.no_addr"),
 		}
 	}
 	return Check{
-		Name:   "IPv6 委派前缀",
+		Name:   i18n.T("reach.check.prefix"),
 		Scope:  ScopeLocal,
 		Status: CheckWarn,
-		Detail: "有全局 IPv6 地址，但没有检测到 /64 或更粗的委派前缀。" +
-			"这通常意味着地址是运营商逐台分配的（/128），" +
-			"重启或换设备后地址会变",
-		Hint: "这种情形下动态解析仍然可用，但地址变化会更频繁。" +
-			"建议把检测周期调短一些",
+		Detail: i18n.T("reach.prefix.no_prefix"),
+		Hint:   i18n.T("reach.prefix.no_prefix_hint"),
 	}
 }
 
@@ -223,23 +217,21 @@ func (p *IPv6Native) firewallCheck() Check {
 	if p.firewall == nil || !p.firewallState.Available {
 		backend := p.firewallState.Backend
 		if backend == "" {
-			backend = "未实现"
+			backend = i18n.T("reach.check.unimpl")
 		}
 		return Check{
-			Name:   "本机防火墙后端",
+			Name:   i18n.T("reach.check.firewall"),
 			Scope:  ScopeLocal,
 			Status: CheckFail,
-			Detail: fmt.Sprintf("当前平台（%s）的防火墙后端尚未实现，内核无法自动放行端口", backend),
-			Hint: "这是内核的能力缺口，不是你的配置问题。" +
-				"请手动在系统防火墙中放行需要的端口，或等待后续版本",
+			Detail: fmt.Sprintf(i18n.T("reach.fw.unimplemented"), backend),
+			Hint:   i18n.T("reach.fw.unimpl_hint"),
 		}
 	}
 	return Check{
-		Name:   "本机防火墙后端",
+		Name:   i18n.T("reach.check.firewall"),
 		Scope:  ScopeLocal,
 		Status: CheckPass,
-		Detail: fmt.Sprintf("已接入 %s；放行操作会先生成可预览的计划，"+
-			"并在失败时自动回滚", p.firewallState.Backend),
+		Detail: fmt.Sprintf(i18n.T("reach.fw.ready"), p.firewallState.Backend),
 	}
 }
 
@@ -257,9 +249,9 @@ func summarize(checks []Check) string {
 		}
 	}
 	if firstFail != nil {
-		return "本机还差一步：" + firstFail.Name
+		return i18n.T("reach.summary.pending") + firstFail.Name
 	}
-	return "本机已具备 IPv6 直连的条件；能否从外网访问需要用手机流量验证"
+	return i18n.T("reach.summary.ready")
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +265,7 @@ func summarize(checks []Check) string {
 // 否则"预览"就变成了"已经动手了"。
 func (p *IPv6Native) Plan(ctx context.Context, req Request) (change.Plan, error) {
 	if req.Port <= 0 || req.Port > 65535 {
-		return change.Plan{}, fmt.Errorf("reach: 端口 %d 不合法", req.Port)
+		return change.Plan{}, fmt.Errorf(i18n.T("reach.bad_port"), req.Port)
 	}
 	proto, err := parseProtocol(req.Protocol)
 	if err != nil {
@@ -282,8 +274,7 @@ func (p *IPv6Native) Plan(ctx context.Context, req Request) (change.Plan, error)
 
 	if p.firewall == nil || !p.firewallState.Available {
 		return change.Plan{}, fmt.Errorf(
-			"reach: 本平台（%s）的防火墙后端尚未实现，无法自动放行端口；"+
-				"请手动在系统防火墙中放行 %d/%s",
+			i18n.T("reach.fw.manual_allow"),
 			p.firewallState.Backend, req.Port, proto)
 	}
 
@@ -297,31 +288,31 @@ func (p *IPv6Native) Plan(ctx context.Context, req Request) (change.Plan, error)
 		Name:        ruleName(req.Label, proto, req.Port),
 		Protocol:    proto,
 		Port:        platform.NewPort(uint16(req.Port)),
-		Description: "由 ISC 管理 —— 可在 ISC 中一键撤销",
+		Description: i18n.T("platform.fw_rule_desc"),
 	}
 
 	// 让平台后端去算差异：它才知道自己那边"当前状态"长什么样
 	//（Windows 要按配置文件区分、nftables 要看表与链）。
 	ch, err := p.firewall.Plan(ctx, []platform.Rule{rule})
 	if err != nil {
-		return change.Plan{}, fmt.Errorf("reach: 计算防火墙差异失败: %w", err)
+		return change.Plan{}, fmt.Errorf(i18n.T("reach.diff_failed"), err)
 	}
 
 	plan := change.Plan{
 		ID:        newPlanID("firewall"),
 		Kind:      KindFirewallExpose,
-		Title:     fmt.Sprintf("放行 %d/%s 的入站连接", req.Port, proto),
+		Title:     fmt.Sprintf(i18n.T("reach.plan.title"), req.Port, proto),
 		Risk:      RiskForExpose(req.Port),
 		CreatedAt: time.Now().UTC(),
 		Notes: []string{
-			"规则只放行这一个端口，不会改动其它规则。",
-			"撤销时会恢复成添加之前的状态。",
+			i18n.T("reach.plan.notes_a"),
+			i18n.T("reach.plan.notes_b"),
 		},
 	}
 
 	if !ch.Reversible {
 		plan.Warnings = append(plan.Warnings,
-			"该后端报告此变更不可撤销；应用后需要手动清理。")
+			i18n.T("reach.plan.irreversible"))
 	}
 
 	// 把诊断结果分成"拦住"与"提醒"两类。
@@ -407,16 +398,13 @@ func RiskForExpose(port int) change.Risk {
 func (p *IPv6Native) Revert(ctx context.Context, rec change.Record) error {
 	if p.firewall == nil || !p.firewallState.Available {
 		return fmt.Errorf(
-			"reach: 无法自动撤销 %s：当前平台的防火墙后端不可用。"+
-				"请在系统防火墙中手动删除以 %q 开头的规则",
+			i18n.T("reach.rollback.no_backend"),
 			rec.PlanID, rulePrefix)
 	}
 
 	if len(rec.Payload) == 0 {
 		return fmt.Errorf(
-			"reach: 无法自动撤销 %s：这条变更没有保存回滚数据"+
-				"（可能由更早的内核版本创建）。"+
-				"请在系统防火墙中手动删除以 %q 开头的规则",
+			i18n.T("reach.rollback.no_payload"),
 			rec.PlanID, rulePrefix)
 	}
 
@@ -427,7 +415,7 @@ func (p *IPv6Native) Revert(ctx context.Context, rec change.Record) error {
 		Reversible: true,
 	}
 	if err := p.firewall.Rollback(ctx, ch); err != nil {
-		return fmt.Errorf("reach: 撤销防火墙变更 %s 失败: %w", rec.PlanID, err)
+		return fmt.Errorf(i18n.T("reach.rollback.failed"), rec.PlanID, err)
 	}
 	return nil
 }
@@ -460,17 +448,15 @@ func (p *IPv6Native) upstreamCheck() Check {
 				// 这是「运营商封了」那个结论 —— 而它**不影响 Viable**：
 				// 本机配置没有问题，只是上游不放行。
 				return Check{
-					Name:   "上游可达性",
+					Name:   i18n.T("reach.check.upstream"),
 					Scope:  ScopeUpstream,
 					Status: CheckBlocked,
 					Detail: detail,
-					Hint: "这不是你能在本机修复的。可以尝试：" +
-						"换一个端口（运营商常常只封特定端口）、" +
-						"换用其它可达方式、或联系运营商确认",
+					Hint:   i18n.T("reach.upstream.blocked"),
 				}
 			}
 			return Check{
-				Name:   "上游可达性",
+				Name:   i18n.T("reach.check.upstream"),
 				Scope:  ScopeUpstream,
 				Status: CheckPass,
 				Detail: detail,
@@ -479,13 +465,11 @@ func (p *IPv6Native) upstreamCheck() Check {
 	}
 
 	return Check{
-		Name:   "上游可达性",
+		Name:   i18n.T("reach.check.upstream"),
 		Scope:  ScopeUpstream,
 		Status: CheckUnknown,
-		Detail: "本机无法自测：从本机访问自己的公网地址通常走回环，" +
-			"因此无论上游是否放行都会显示成功",
-		Hint: "用手机 4G/5G 打开验证地址进行确认。" +
-			"这一步不能省 —— 它是区分「本机没配好」与「运营商封了」的唯一手段",
+		Detail: i18n.T("reach.upstream.detail"),
+		Hint:   i18n.T("reach.upstream.unknown"),
 	}
 }
 
@@ -594,12 +578,12 @@ func parseProtocol(s string) (platform.Protocol, error) {
 	case "udp":
 		return platform.UDP, nil
 	default:
-		return "", fmt.Errorf("reach: 不支持的协议 %q（只支持 tcp / udp）", s)
+		return "", fmt.Errorf(i18n.T("reach.bad_proto"), s)
 	}
 }
 
 func describeRule(r platform.Rule) string {
-	return fmt.Sprintf("入站 %s %s（来源：任意）", r.Protocol, r.Port)
+	return fmt.Sprintf(i18n.T("reach.plan.diff"), r.Protocol, r.Port)
 }
 
 func newPlanID(kind string) string {
@@ -624,4 +608,4 @@ func PortListening(ctx context.Context, port int) bool {
 }
 
 // ErrNotViable 表示当前方式不可用。
-var ErrNotViable = errors.New("reach: 当前方式不可用")
+var ErrNotViable = errors.New(i18n.T("reach.unavailable"))
