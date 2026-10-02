@@ -456,3 +456,62 @@ jobs:
             exit 1
           }
           Write-Host "解出 $($exe.FullName)（$($exe.Length) 字节）"
+  # ---------------------------------------------------------------------------
+  # macOS 安装包
+  #
+  # 与 release-msi 对称。这里**不需要安装任何东西**：pkgbuild 是 macOS
+  # 自带的 —— 而 .pkg 本来就只能在 macOS 上构建（它是 xar 归档，载荷是
+  # cpio.gz，还有一份格式未公开的二进制 Bom）。所以这个 job 存在的意义
+  # 不是"检查工具在不在"，而是**检查脚本真的能在它该跑的地方跑通**。
+  # ---------------------------------------------------------------------------
+  release-pkg:
+    name: macOS 安装包
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 构建全部平台
+        run: go run ./scripts/release -out dist -version 0.1.0-ci -skip-tests
+
+      - name: 核对 pkg
+        run: |
+          set -euo pipefail
+
+          for arch in amd64 arm64; do
+            p="dist/isc_0.1.0-ci_${arch}.pkg"
+            test -f "$p" || { echo "::error::缺少产物 $p"; exit 1; }
+
+            # 一个空的或截断的 pkg 比没有更糟：用户会下载它然后装不上。
+            size=$(wc -c < "$p")
+            if [ "$size" -lt 102400 ]; then
+              echo "::error::$p 只有 $size 字节，不像是完整的安装包"
+              exit 1
+            fi
+
+            # 让 **macOS 自己**判断产物合不合法。
+            #
+            # 文件存在、大小对，与"它是一份能装的包"是两件事 ——
+            # 这一点在 .msi 那边已经吃过一次（当时我在字节层面反推，
+            # 而正确的动作是去问真正会读它的程序）。
+            #
+            # `pkgutil --check-signature` 会在未签名时报非零，而
+            # **未签名是当前预期**（证书还没买），因此不能用它。
+            # 用 `installer -pkginfo` 的展开检查代替：它解析 xar 与
+            # Distribution，失败即说明包结构有问题。
+            if ! installer -pkginfo -pkg "$p" > /dev/null 2>&1; then
+              # -pkginfo 在某些 macOS 版本上只对分发型包有效；退回到
+              # xar 层面确认它至少是个能解开的包。
+              echo "::notice::installer -pkginfo 未通过，退回到 xar 结构检查"
+              xar -tf "$p" > /dev/null || {
+                echo "::error::$p 不是合法的 xar 归档"
+                exit 1
+              }
+            fi
+          done

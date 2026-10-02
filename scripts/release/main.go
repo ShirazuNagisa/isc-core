@@ -259,6 +259,34 @@ func run(outDir, versionArg string, runTests bool) error {
 					"    警告：生成 msi 失败（其余产物不受影响）：%v\n", err)
 			}
 		}
+
+		// macOS 额外产出 .pkg。
+		//
+		// 与 .msi 一样需要外部工具，但性质不同：pkgbuild 是 **macOS 自带**的，
+		// 因此"打不出 pkg"只可能发生在**不是在 macOS 上构建 darwin 目标**时
+		// —— 而那种组合下本来也不该尝试。桩会返回 ErrPkgToolsMissing，
+		// 这里据此安静地跳过。
+		if t.GOOS == "darwin" {
+			pkgPath := filepath.Join(outDir,
+				fmt.Sprintf("%s_%s_%s.pkg", binaryName, version, t.GOARCH))
+			err := BuildPkg(PkgOptions{
+				BinaryPath: filepath.Join(stage, exeNameFor(t)),
+				Version:    version,
+				OutPath:    pkgPath,
+			})
+			switch {
+			case err == nil:
+				artifacts = append(artifacts, pkgPath)
+				fmt.Printf("    %s\n", filepath.Base(pkgPath))
+			case errors.Is(err, ErrPkgToolsMissing):
+				fmt.Fprintf(os.Stderr,
+					"    跳过 pkg：这台机器上没有 macOS 打包工具"+
+						"（pkgbuild 是系统自带的，因此这意味着当前不是 macOS）\n")
+			default:
+				fmt.Fprintf(os.Stderr,
+					"    警告：生成 pkg 失败（其余产物不受影响）：%v\n", err)
+			}
+		}
 	}
 
 	// 清掉暂存目录。
