@@ -75,7 +75,7 @@ var hardcodedBaseline = map[string]int{
 	"internal/platform":       4,
 	"internal/provider/tier1": 158,
 	"internal/reach":          90,
-	"internal/store":          73,
+	"internal/store":          70,
 	"internal/acme":           67,
 	"scripts/release":         64,
 	"internal/proxy":          55,

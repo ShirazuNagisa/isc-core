@@ -976,7 +976,20 @@ var messagesEn = map[string]string{
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
-	"store.closed":         "The database is closed",
+	"store.migration_changed": "store: the content of migration %04d_%s has changed (recorded %s…, actual %s…).\n" +
+		"A migration that has already been applied must not be edited — doing so gives " +
+		"upgraded databases and fresh installs the same version number but different schemas.\n" +
+		"Put the change in a new migration file (for example %04d_something.sql) and " +
+		"restore %s to its original content",
+	"store.migrate_table_info":   "store: failed to read the migrations table structure: %w",
+	"store.migrate_table_scan":   "store: failed to scan the migrations table structure: %w",
+	"store.migrate_table_iter":   "store: failed to iterate the migrations table structure: %w",
+	"store.migrate_add_column":   "store: failed to add the checksum column to the migrations table: %w",
+	"store.migrate_backfill":     "store: failed to backfill the checksum for migration %04d: %w",
+	"store.migrate_read_applied": "store: failed to read applied migrations: %w",
+	"store.migrate_scan_version": "store: failed to scan the migration version: %w",
+	"store.migrate_iter_version": "store: failed to iterate migration versions: %w",
+	"store.closed":               "The database is closed",
 	// --- credential management (CLI) ---
 	"cli.credential.short":      "Manage DNS provider credentials",
 	"cli.credential.list_short": "List saved credentials",

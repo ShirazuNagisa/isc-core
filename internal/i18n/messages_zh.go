@@ -948,7 +948,20 @@ var messagesZh = map[string]string{
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",
-	"store.closed":         "数据库已关闭",
+	"store.migration_changed": "store: 迁移 %04d_%s 的内容已被修改（记录 %s…，实际 %s…）。\n" +
+		"已应用过的迁移**不能再改** —— 那会让已升级的数据库与新装的数据库" +
+		"出现同样的版本号、不同的表结构。\n" +
+		"请把改动写成一个新的迁移文件（例如 %04d_改了什么.sql），" +
+		"并把 %s 恢复原样",
+	"store.migrate_table_info":   "store: 读取迁移表结构失败: %w",
+	"store.migrate_table_scan":   "store: 扫描迁移表结构失败: %w",
+	"store.migrate_table_iter":   "store: 遍历迁移表结构失败: %w",
+	"store.migrate_add_column":   "store: 为迁移表补充 checksum 列失败: %w",
+	"store.migrate_backfill":     "store: 回填迁移 %04d 的校验和失败: %w",
+	"store.migrate_read_applied": "store: 读取已应用迁移失败: %w",
+	"store.migrate_scan_version": "store: 扫描迁移版本失败: %w",
+	"store.migrate_iter_version": "store: 遍历迁移版本失败: %w",
+	"store.closed":               "数据库已关闭",
 	// --- 凭据管理（CLI） ---
 	"cli.credential.short":      "管理 DNS 服务商凭据",
 	"cli.credential.list_short": "列出已保存的凭据",
