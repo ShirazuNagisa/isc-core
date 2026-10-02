@@ -338,8 +338,16 @@ var consoleHardcodedLines = map[string]int{
 	// 剥离之前分别是 129 / 195 / 94 / 26 —— 也就是说有 90 行是注释，
 	// 而注释本来就该留着。不剥的话这个数字**永远降不到 0**。
 	"internal/console/assets/index.html": 0,
-	"internal/console/assets/app.js":     17,
-	"internal/console/assets/panels.js":  1,
+	// app.js 归零。
+	//
+	// 它一度停在 17，而那 17 行**全是注释** —— 根因是 stripJSComments
+	// 在 `esc()` 的 `.replace(/'/g, '&#39;')` 处把正则字面量里的单引号
+	// 当成了字符串开始，状态从此整个反转，后面所有注释都不再被识别。
+	//
+	// 修法用的是 JavaScript 的语法事实：`'` 与 `"` 字符串不能跨行，
+	// 因此换行即重置状态。回归测试见 console_comments_test.go。
+	"internal/console/assets/app.js":    0,
+	"internal/console/assets/panels.js": 1,
 	// i18n.js 只剩一行：消息表加载失败时写给开发者看的那条 warn。
 	// 它是**开发者**信息，不是用户文案，因此留着。
 	"internal/console/assets/i18n.js": 1,
