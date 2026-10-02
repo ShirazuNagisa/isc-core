@@ -1,6 +1,10 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 // 本文件是 .msi 生成的**共享声明**：类型、常量、哨兵错误。
 //
@@ -37,3 +41,31 @@ const msiUpgradeCode = "7C4E1B92-3D6A-4F58-9E21-8A5B0C7D4E63"
 // 调用方靠它区分"**这台机器打不了 MSI**"与"打 MSI 时出错了"：
 // 前者该跳过并告诉用户怎么装，后者该报出来。
 var ErrWixMissing = errors.New("wix")
+
+// msiVersion 把内核的版本串收敛成 MSI 接受的 x.y.z。
+func msiVersion(v string) (string, error) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	// 去掉 -dirty / -rc1 这类后缀。
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+
+	parts := strings.Split(v, ".")
+	for len(parts) < 3 {
+		parts = append(parts, "0")
+	}
+	parts = parts[:3]
+
+	for _, p := range parts {
+		if p == "" {
+			return "", fmt.Errorf("版本号 %q 无法转成 MSI 的 x.y.z 形式", v)
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return "", fmt.Errorf("版本号 %q 含非数字段 %q，"+
+					"而 MSI 只接受 x.y.z", v, p)
+			}
+		}
+	}
+	return strings.Join(parts, "."), nil
+}
