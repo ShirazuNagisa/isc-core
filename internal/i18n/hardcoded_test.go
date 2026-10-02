@@ -85,20 +85,20 @@ var hardcodedBaseline = map[string]int{
 	// 函数调用）—— 这是第四次遇到"把数据当成文案"。
 	"internal/provider/tier1": 2,
 	"internal/store":          70,
-	"internal/acme":           67,
+	"internal/acme":           60,
 	"scripts/release":         64,
-	"internal/proxy":          55,
+	"internal/proxy":          41,
 	"internal/verify":         43,
-	"internal/change":         40,
-	"internal/daemon":         37,
-	"internal/ddns":           30,
-	"internal/notify":         28,
+	"internal/change":         22,
+	"internal/daemon":         12,
+	"internal/ddns":           17,
+	"internal/notify":         22,
 	"internal/provider":       21,
-	"internal/credential":     17,
+	"internal/credential":     16,
 	"internal/secret":         14,
 	"internal/paths":          14,
 	"internal/dns":            12,
-	"internal/job":            9,
+	"internal/job":            6,
 	"internal/runtimeinfo":    9,
 	"internal/configio":       9,
 }
@@ -290,10 +290,58 @@ var logOnlyPackages = map[string]string{
 		"审计写不进去不该让业务操作失败",
 }
 
+// logLevels 是日志级别的方法名。
+//
+// 只看方法名不够 —— `x.Error("用户可见文案")` 也可能存在。因此还要看
+// **接收者**：只有形如 `r.log` / `d.log` / `logger` / `slog` 的才当成日志。
+var logLevels = map[string]bool{
+	"Debug": true, "Info": true, "Warn": true, "Error": true,
+}
+
+// isLogCall 判断一个调用是不是日志调用。
+//
+// 判据是"接收者的名字里含 log"（不区分大小写）+ 方法名是日志级别。
+// 这个判断刻意保守：宁可漏掉一条日志（那它会被当成文案要求迁移），
+// 也不要把一条用户可见的错误当成日志而放过。
+func isLogCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || !logLevels[sel.Sel.Name] {
+		return false
+	}
+	return receiverLooksLikeLogger(sel.X)
+}
+
+// receiverLooksLikeLogger 检查接收者表达式里是否出现 "log"。
+//
+// 覆盖 `r.log`、`d.log`、`s.log`、`logger`、`slog`、`a.b.logger` 这些写法。
+func receiverLooksLikeLogger(x ast.Expr) bool {
+	switch v := x.(type) {
+	case *ast.Ident:
+		return strings.Contains(strings.ToLower(v.Name), "log")
+	case *ast.SelectorExpr:
+		return strings.Contains(strings.ToLower(v.Sel.Name), "log") ||
+			receiverLooksLikeLogger(v.X)
+	default:
+		return false
+	}
+}
+
 // countHardcodedCJK 统计各包里的中文字符串字面量。
 //
 // 只统计**字符串字面量**，不统计注释 —— 注释里的中文是好的
 // （它们解释了"为什么"），而 D21 管的是面向用户的文案。
+//
+// # 日志调用的参数不算
+//
+// D21 要求的是"面向用户的文案"，而日志行是给运维看的。把它们翻译了反而
+// 有害（运维靠 grep 稳定字符串定位问题，而用户贴出来的日志会与文档对不上）。
+//
+// 这一点此前是靠 logOnlyPackages **逐个包**手工豁免的 —— 那对"整包只剩日志"
+// 的情形够用，但对 internal/change 这种**用户可见错误与日志混在一起**的包
+// 就失效了：棘轮会把日志行也算进去，于是它在测量一个 D21 不关心的东西，
+// 而那个数字永远降不到 0。
+//
+// 改成按**调用**排除之后，棘轮测的才是它该测的东西。
 func countHardcodedCJK(t *testing.T, root string) map[string]int {
 	t.Helper()
 
@@ -330,9 +378,31 @@ func countHardcodedCJK(t *testing.T, root string) map[string]int {
 		// 统一成斜杠，让基线表在三个平台上一致。
 		pkg := filepath.ToSlash(filepath.Dir(rel))
 
+		// 第一遍：记下所有日志调用里的字符串位置。
+		logged := map[token.Pos]bool{}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || !isLogCall(call) {
+				return true
+			}
+			for _, arg := range call.Args {
+				ast.Inspect(arg, func(m ast.Node) bool {
+					if lit, ok := m.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						logged[lit.Pos()] = true
+					}
+					return true
+				})
+			}
+			return true
+		})
+
+		// 第二遍：统计剩下的。
 		ast.Inspect(f, func(n ast.Node) bool {
 			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			if logged[lit.Pos()] {
 				return true
 			}
 			s, uerr := strconv.Unquote(lit.Value)

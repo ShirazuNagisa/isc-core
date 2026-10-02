@@ -66,7 +66,33 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 
 **判据**：这行会不会被写进日志？会，就不要翻译。
 
-登记方式见 `logOnlyPackages`（每条都要写明理由）。
+##### 棘轮本身因此改过一次
+
+一开始的做法是 `logOnlyPackages`：把"整包只剩日志"的包列出来豁免。
+那对 `internal/event` / `internal/console` / `internal/audit` 够用 ——
+但 `internal/change` 与 `internal/daemon` 是**用户可见错误与日志混在同一个
+包里**，逐个包豁免对它们失效：棘轮把日志行也算进去，于是它在**测量一个 D21
+不关心的东西**，而那个数字永远降不到 0。
+
+改成按**调用**排除（`countHardcodedCJK` 跳过日志调用的字符串参数）之后：
+
+| 包 | 改前 | 改后 |
+|---|---|---|
+| `internal/daemon` | 37 | **12** |
+| `internal/change` | 40 | **22** |
+| `internal/proxy` | 55 | 41 |
+| `internal/acme` | 67 | 60 |
+| `internal/ddns` | 30 | 17 |
+| `internal/notify` | 28 | 22 |
+| `internal/job` | 9 | 6 |
+| `internal/credential` | 17 | 16 |
+
+判断"是不是日志调用"有两个条件：方法名是 `Debug/Info/Warn/Error`，
+**且接收者的名字里含 `log`**。第二个条件是必要的 —— 只看方法名会被
+`resp.Error("记录不存在")` 这类调用骗过去。
+
+这个判断刻意保守：宁可漏掉一条日志（那它会被要求迁移），也不要把一条
+用户可见的错误当成日志而放过。`counter_test.go` 的 11 条测试钉住了两侧。
 
 ### 2. 模式与数据不是文案
 
