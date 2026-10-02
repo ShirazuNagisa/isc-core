@@ -721,6 +721,22 @@ var messagesZh = map[string]string{
 	"cli.init.step_cred_note_a": "Token 只开 Zone:DNS:Edit 权限即可 —— 内核只需要改 DNS 记录。",
 	"cli.init.step_cred_note_b": "用 isc credential fields cloudflare 可以看到需要哪些字段。",
 
+	"cli.err.not_running":  "cli: 内核未运行",
+	"cli.err.unreachable":  "cli: 内核不可达",
+	"cli.err.runtime_read": "cli: 读取运行时文件失败: %w",
+	"cli.err.no_endpoint":  "运行时文件中没有可用的通道",
+	"cli.err.http_status":  "cli: 内核返回 HTTP %d",
+	"cli.flag.json":        "以 JSON 输出，便于脚本消费",
+	"cli.flag.lang":        "输出语言：zh-CN 或 en",
+	"cli.flag.verbose":     "输出调试日志",
+	"cli.flag.data_dir":    "覆盖数据目录（默认取平台标准位置，也可用 %s 环境变量）",
+	"cli.status.short":     "查看运行中的内核状态",
+	"cli.status.long": "连接运行中的内核并打印其状态。\n\n" +
+		"若内核未运行，命令以非零码退出并给出如何启动的提示 ——\n" +
+		"这使它可以直接用于脚本中的健康检查。",
+	"cli.status.backends": "\n平台后端可用性：",
+	"cli.version.short":   "打印版本信息",
+
 	// --- 存储 ---
 	"store.open_failed":    "打开数据库失败：%s",
 	"store.migrate_failed": "数据库迁移失败：%s",

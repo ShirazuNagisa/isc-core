@@ -21,9 +21,9 @@ import (
 // 客户端错误。
 var (
 	// ErrNotRunning 表示没有找到运行中的内核。
-	ErrNotRunning = errors.New("cli: 内核未运行")
+	ErrNotRunning = errors.New(i18n.T("cli.err.not_running"))
 	// ErrUnreachable 表示找到了运行时文件但所有通道都连不上。
-	ErrUnreachable = errors.New("cli: 内核不可达")
+	ErrUnreachable = errors.New(i18n.T("cli.err.unreachable"))
 )
 
 // clientTimeout 是普通请求的超时。
@@ -72,7 +72,7 @@ func Connect(ctx context.Context, runtimeFile string) (*Client, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrNotRunning
 		}
-		return nil, fmt.Errorf("cli: 读取运行时文件失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("cli.err.runtime_read"), err)
 	}
 	if info.IsStale() {
 		// 文件在但进程没了：内核是崩溃退出的。
@@ -95,7 +95,7 @@ func Connect(ctx context.Context, runtimeFile string) (*Client, error) {
 		return c, nil
 	}
 	if lastErr == nil {
-		lastErr = errors.New("运行时文件中没有可用的通道")
+		lastErr = errors.New(i18n.T("cli.err.no_endpoint"))
 	}
 	return nil, fmt.Errorf("%w: %v", ErrUnreachable, lastErr)
 }
@@ -238,7 +238,7 @@ func (c *Client) doBody(ctx context.Context, method, path string, body []byte, o
 		if err := json.NewDecoder(resp.Body).Decode(&p); err == nil && p.Title != "" {
 			return newAPIError(resp.StatusCode, p)
 		}
-		return fmt.Errorf("cli: 内核返回 HTTP %d", resp.StatusCode)
+		return fmt.Errorf(i18n.T("cli.err.http_status"), resp.StatusCode)
 	}
 
 	if out == nil {

@@ -71,7 +71,6 @@ var convertedFiles = []string{
 // 数字由 TestNoNewHardcodedStrings 自己统计并对照，因此它同时是
 // **进度表**：改小它是这个迁移唯一的推进方式。
 var hardcodedBaseline = map[string]int{
-	"internal/cli":            14,
 	"internal/ddnsgo":         318,
 	"internal/platform":       204,
 	"internal/provider/tier1": 158,
@@ -143,8 +142,12 @@ func TestNoNewHardcodedStrings(t *testing.T) {
 //
 // 这个列表只增不减：一个包进了这里就不该再退出去。
 var i18nComplete = []string{
-	// 目前为空 —— 这正是迁移的起点。
-	// 一个包降到 0 之后，把它的路径加进来。
+	// 第一个达标的包。
+	//
+	// 443 处 → 0，用了七轮。它的每一轮都同时在做两件事：把文案搬进目录，
+	// 以及**发现那些"搬进去之后才显形"的问题** —— 帮助文本的求值时机、
+	// 用了不存在的 key、并行测试与全局语言的冲突。
+	"internal/cli",
 }
 
 func TestUserFacingPackagesHaveI18n(t *testing.T) {

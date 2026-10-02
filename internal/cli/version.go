@@ -27,7 +27,7 @@ type versionOutput struct {
 func newVersionCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "打印版本信息",
+		Short: i18n.T("cli.version.short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			v := versionOutput{

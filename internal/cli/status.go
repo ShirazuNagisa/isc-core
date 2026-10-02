@@ -35,12 +35,9 @@ type statusOutput struct {
 func newStatusCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "查看运行中的内核状态",
-		Long: `连接运行中的内核并打印其状态。
-
-若内核未运行，命令以非零码退出并给出如何启动的提示 ——
-这使它可以直接用于脚本中的健康检查。`,
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.status.short"),
+		Long:  i18n.T("cli.status.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signalContext(cmd.Context())
 			defer cancel()
@@ -116,7 +113,7 @@ func printStatusText(app *App, s statusOutput) error {
 		_, _ = fmt.Fprintf(w, "  %-14s %s\n", "uptime", formatDuration(s.Health.UptimeSeconds))
 	}
 
-	_, _ = fmt.Fprintln(w, "\n平台后端可用性：")
+	_, _ = fmt.Fprintln(w, i18n.T("cli.status.backends"))
 	for _, name := range []string{
 		"firewall", "service_manager", "ip_monitor",
 		"secret_store", "transport", "low_port_binder",

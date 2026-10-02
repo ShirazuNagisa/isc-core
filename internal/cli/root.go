@@ -91,13 +91,13 @@ func newWithApp(app *App) *cobra.Command {
 	}
 
 	root.PersistentFlags().BoolVar(&app.jsonOut, "json", false,
-		"以 JSON 输出，便于脚本消费")
+		i18n.T("cli.flag.json"))
 	root.PersistentFlags().StringP("lang", "L", string(i18n.Default),
-		"输出语言：zh-CN 或 en")
+		i18n.T("cli.flag.lang"))
 	root.PersistentFlags().BoolVarP(&app.verbose, "verbose", "v", false,
-		"输出调试日志")
+		i18n.T("cli.flag.verbose"))
 	root.PersistentFlags().String("data-dir", "",
-		"覆盖数据目录（默认取平台标准位置，也可用 "+paths.EnvDataDir+" 环境变量）")
+		i18n.T("cli.flag.data_dir", paths.EnvDataDir))
 
 	root.AddCommand(
 		newVersionCmd(app),

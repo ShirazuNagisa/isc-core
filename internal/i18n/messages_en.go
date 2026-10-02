@@ -747,6 +747,22 @@ var messagesEn = map[string]string{
 	"cli.init.step_cred_note_a": "The token only needs Zone:DNS:Edit — the kernel only changes DNS records.",
 	"cli.init.step_cred_note_b": "isc credential fields cloudflare lists the fields it needs.",
 
+	"cli.err.not_running":  "cli: the kernel is not running",
+	"cli.err.unreachable":  "cli: the kernel is unreachable",
+	"cli.err.runtime_read": "cli: cannot read the runtime file: %w",
+	"cli.err.no_endpoint":  "the runtime file lists no usable channel",
+	"cli.err.http_status":  "cli: the kernel returned HTTP %d",
+	"cli.flag.json":        "output JSON for scripts to consume",
+	"cli.flag.lang":        "output language: zh-CN or en",
+	"cli.flag.verbose":     "output debug logs",
+	"cli.flag.data_dir":    "override the data directory (defaults to the platform location, or the %s environment variable)",
+	"cli.status.short":     "Show the running kernel's status",
+	"cli.status.long": "Connect to the running kernel and print its status.\n\n" +
+		"If the kernel is not running the command exits non-zero and says how to\n" +
+		"start it — which makes it usable directly as a health check in scripts.",
+	"cli.status.backends": "\nPlatform backend availability:",
+	"cli.version.short":   "Print version information",
+
 	// --- store ---
 	"store.open_failed":    "Failed to open the database: %s",
 	"store.migrate_failed": "Database migration failed: %s",
