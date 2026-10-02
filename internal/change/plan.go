@@ -118,7 +118,11 @@ type Plan struct {
 	Kind string
 	// Title 是人类可读的标题（已本地化）。
 	Title string
-	// Risk 是整体风险等级，取所有步骤中最高的那个。
+	// Risk 是整体风险等级。
+	//
+	// 由**构造计划的那段代码**显式声明，而不是从步骤里聚合出来的 ——
+	// 风险取决于"这次到底改了什么"，而那只有构造者知道。
+	// 见 NormalizeRisk 的说明。
 	Risk Risk
 	// Steps 按执行顺序排列。
 	Steps []Step
@@ -198,18 +202,32 @@ func (p Plan) Validate() error {
 	return nil
 }
 
-// highestRisk 返回一组步骤中最高的风险等级。
+// NormalizeRisk 把风险等级规范化到一个已知值。
+//
+// # 为什么只做规范化，不做"聚合"
+//
+// 这里曾经有一个 highestRisk(steps, declared) —— 而它的实现是
+// `_ = steps`：签名与注释都说"返回一组步骤中最高的风险"，
+// 实际上完全忽略输入。**一个名字与注释都在撒谎的函数比没有更糟** ——
+// 迟早有人会调用它，然后拿到一个看起来合理但其实是错的答案。
+//
+// 而且 Step 根本没有 Risk 字段，那个聚合在概念上就无从谈起：
+// 风险是**整个计划**的属性，由构造它的那段代码显式声明。
 //
 // 刻意**不做**"从 Diff 内容推断风险"的猜测：猜错的方向恰好是把
-// 危险操作显示成安全，而那个代价不可接受。风险等级由构造计划的
-// 那一段代码显式声明 —— 它才知道自己做了什么。
-func highestRisk(steps []Step, declared Risk) Risk {
-	rank := map[Risk]int{RiskLow: 1, RiskMedium: 2, RiskHigh: 3}
-
-	out := declared
-	if out == "" || rank[out] == 0 {
-		out = RiskLow
+// 危险操作显示成安全，而那个代价不可接受。
+func NormalizeRisk(declared Risk) Risk {
+	switch declared {
+	case RiskLow, RiskMedium, RiskHigh:
+		return declared
+	default:
+		// 空值或未识别的值都退回最低档。
+		//
+		// 退回 low 而不是 high 是刻意的：`Risk` 只用于**展示**与
+		// 确认提示，而把它默认成 high 会让每一次计划都弹一个
+		// "高风险"警告 —— 那会让用户学会忽略那个警告。
+		//
+		// 真正决定"要不要拦"的是权限与确认流程，不是这个字段。
+		return RiskLow
 	}
-	_ = steps
-	return out
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/dns"
 )
 
@@ -57,8 +58,14 @@ func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request, id str
 		}
 	}
 
+	// 校验会更新凭据的 last_verified_at，因此算一次写操作 —— 审计它。
+	//
+	// 注意 ActionCredentialVerify 这个常量一直存在，而**上一轮加这个
+	// 端点时我忘了接上它**。这是本轮扫描（找出"定义了却没人用"的
+	// 常量和函数）发现的。
 	switch {
 	case err == nil:
+		s.auditSuccess(r, audit.ActionCredentialVerify, "credential", id)
 		writeJSON(w, s.Log, http.StatusOK, "application/json",
 			verifyResult(true, "连接正常"))
 
@@ -77,6 +84,7 @@ func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request, id str
 					"这不代表凭据有问题 —— 可以用「DNS 记录」面板列一次区域来确认"))
 
 	default:
+		s.auditFailure(r, audit.ActionCredentialVerify, "credential", err)
 		writeJSON(w, s.Log, http.StatusOK, "application/json",
 			verifyResult(false, humanizeVerifyError(err)))
 	}
