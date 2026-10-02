@@ -162,7 +162,7 @@ func run(outDir, versionArg string, runTests bool) error {
 			return err
 		}
 
-		archive, err := pack(outDir, t, binPath, version)
+		archive, err := pack(outDir, t, binPath, version, exeNameFor(t))
 		if err != nil {
 			return err
 		}
@@ -194,12 +194,21 @@ func run(outDir, versionArg string, runTests bool) error {
 	return nil
 }
 
+// exeNameFor 返回某个目标的可执行文件名。
+//
+// 单独一个函数而不是在两处各写一遍：打包时需要知道"哪个文件是可执行的"
+// 才能给它设置权限位，而两处判断不一致会让那个文件既没有执行位、
+// 也不被当成二进制。
+func exeNameFor(t target) string {
+	if t.GOOS == "windows" {
+		return binaryName + ".exe"
+	}
+	return binaryName
+}
+
 // buildTarget 编译单个目标，返回可执行文件路径。
 func buildTarget(root string, t target, outDir, ldflags string) (string, error) {
-	exeName := binaryName
-	if t.GOOS == "windows" {
-		exeName += ".exe"
-	}
+	exeName := exeNameFor(t)
 
 	// 先放到一个临时目录，再连同文档一起打包 ——
 	// 直接放进 outDir 会让中间产物与最终产物混在一起。
@@ -260,7 +269,7 @@ func buildTarget(root string, t target, outDir, ldflags string) (string, error) 
 //
 // 版本必须出现在文件名里：用户下载一堆包时，文件名是他唯一能看到的
 // 版本信息。
-func pack(outDir string, t target, stage, version string) (string, error) {
+func pack(outDir string, t target, stage, version, exeName string) (string, error) {
 	base := fmt.Sprintf("%s-%s-%s", binaryName, version, t.Label)
 	ext := ".tar.gz"
 	if t.Format == "zip" {
@@ -271,7 +280,7 @@ func pack(outDir string, t target, stage, version string) (string, error) {
 	if t.Format == "zip" {
 		return outPath, packZip(outPath, stage)
 	}
-	return outPath, packTarGz(outPath, stage)
+	return outPath, packTarGz(outPath, stage, exeName)
 }
 
 func packZip(outPath, dir string) error {
@@ -341,7 +350,18 @@ func addToZip(zw *zip.Writer, path, name string) error {
 	return err
 }
 
-func packTarGz(outPath, dir string) error {
+// packTarGz 打包成 tar.gz。
+//
+// exeName 是其中**应当被标记为可执行**的那个文件。这个参数是必需的，
+// 而且它修的是一个只能在 Windows 上复现的缺陷：
+//
+//	tar 头里的模式来自文件在磁盘上的 mode，而在 Windows 上 go build
+//	产出的文件是 0666 —— 没有执行位这个概念。于是**在 Windows 上交叉
+//	编译出的 Linux 产物**，用户解压后会得到 "Permission denied"。
+//
+// 交叉编译是完全正当的用法（本项目就是这么发布的），因此不能靠
+// "构建机上恰好有正确的权限位"。
+func packTarGz(outPath, dir, exeName string) error {
 	f, err := os.Create(outPath)
 	if err != nil {
 		return err
@@ -371,7 +391,11 @@ func packTarGz(outPath, dir string) error {
 		if e.IsDir() {
 			continue
 		}
-		if err := addToTar(tw, filepath.Join(dir, e.Name()), e.Name()); err != nil {
+		mode := os.FileMode(0o644)
+		if e.Name() == exeName {
+			mode = 0o755
+		}
+		if err := addToTar(tw, filepath.Join(dir, e.Name()), e.Name(), mode); err != nil {
 			return err
 		}
 	}
@@ -385,7 +409,7 @@ func packTarGz(outPath, dir string) error {
 	return f.Sync()
 }
 
-func addToTar(tw *tar.Writer, path, name string) error {
+func addToTar(tw *tar.Writer, path, name string, mode os.FileMode) error {
 	src, err := os.Open(path)
 	if err != nil {
 		return err
@@ -399,7 +423,7 @@ func addToTar(tw *tar.Writer, path, name string) error {
 
 	hdr := &tar.Header{
 		Name: name,
-		Mode: int64(info.Mode().Perm()),
+		Mode: int64(mode.Perm()),
 		Size: info.Size(),
 		// 时间戳清零，理由同上。
 		ModTime: time.Time{},

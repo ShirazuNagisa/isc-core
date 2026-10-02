@@ -118,6 +118,144 @@ jobs:
         run: go test -race ./... -count=1
 
   # ---------------------------------------------------------------------------
+  # 发布构建
+  #
+  # 它验证的不只是"能构建"：矩阵那一组已经保证了每个平台能编译。这一组
+  # 验证的是**打包链路**（产物内容、版本注入、校验和），而那是用户真正
+  # 拿到的东西 —— 一个"能编译但打不出包"的仓库对用户毫无价值。
+  # ---------------------------------------------------------------------------
+  release-build:
+    name: 发布构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 版本号由 git describe 推导，浅克隆会让它退化成一个裸哈希。
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 构建全部平台
+        run: go run ./scripts/release -out dist -version 0.0.0-ci
+
+      - name: 核对产物
+        run: |
+          set -euo pipefail
+
+          # 七个平台一个都不能少。
+          expected="windows-amd64 windows-arm64 linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 freebsd-amd64"
+          for label in $expected; do
+            if [ "$label" = "windows-amd64" ] || [ "$label" = "windows-arm64" ]; then
+              ext=zip
+            else
+              ext=tar.gz
+            fi
+            test -f "dist/isc-0.0.0-ci-$label.$ext" || {
+              echo "::error::缺少产物 $label"
+              exit 1
+            }
+          done
+
+          # 校验和必须覆盖全部产物。
+          lines=$(wc -l < dist/SHA256SUMS)
+          if [ "$lines" -ne 7 ]; then
+            echo "::error::SHA256SUMS 应当有 7 行，实际 $lines 行"
+            exit 1
+          fi
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: 核对包内容
+        run: |
+          set -euo pipefail
+
+          # 许可证必须随包分发（GPLv3 的要求）。
+          mkdir -p /tmp/x
+          tar -xzf dist/isc-0.0.0-ci-linux-amd64.tar.gz -C /tmp/x
+          for f in isc LICENSE THIRD_PARTY_NOTICES.md README.md; do
+            test -f "/tmp/x/$f" || { echo "::error::包里缺少 $f"; exit 1; }
+          done
+
+          # 可执行位必须保留 —— tar.gz 在 Unix 上是标准，
+          # 而丢了这个位会让用户解压后无法直接运行。
+          test -x /tmp/x/isc || { echo "::error::isc 没有可执行位"; exit 1; }
+
+      - name: 核对版本注入
+        run: |
+          set -euo pipefail
+          # -ldflags 注入的版本必须真的出现在二进制里。
+          # 少了它，用户报障时我们无法知道他在跑哪个版本。
+          out=$(/tmp/x/isc version)
+          echo "$out"
+          echo "$out" | grep -q "0.0.0-ci" || {
+            echo "::error::版本号没有被注入到二进制里"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 可复现构建
+  #
+  # 这个内核会拿到用户的 DNS 凭据，因此"校验和一致"应当能证明"两个产物
+  # 来自同一份源码" —— 而如果构建本身不可复现，那个证明是不成立的。
+  #
+  # 这一组存在的意义是把那条性质**持续钉住**，而不是只在某一次提交里
+  # 手工验过一次。它已经抓到过两次：ldflags 里的构建时间，以及
+  # zip.FileInfoHeader 写进包头的文件 mtime。
+  # ---------------------------------------------------------------------------
+  reproducible:
+    name: 可复现构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 用同一个 SOURCE_DATE_EPOCH 构建两次
+        env:
+          # 固定时刻：SOURCE_DATE_EPOCH 是可复现构建的通行约定。
+          SOURCE_DATE_EPOCH: "1700000000"
+        run: |
+          set -euo pipefail
+          go run ./scripts/release -out dist-a -version 1.2.3 -skip-tests
+          go run ./scripts/release -out dist-b -version 1.2.3 -skip-tests
+
+      - name: 逐字节比对
+        run: |
+          set -euo pipefail
+
+          fail=0
+          for f in dist-a/*; do
+            name=$(basename "$f")
+            if ! cmp -s "dist-a/$name" "dist-b/$name"; then
+              echo "::error::$name 两次构建不一致"
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "构建不可复现。常见原因："
+            echo "  · 往产物里写了当前时间（应当用 SOURCE_DATE_EPOCH）"
+            echo "  · 打包时带了文件在磁盘上的 mtime"
+            echo "  · 目录遍历顺序没有排序"
+            exit 1
+          fi
+
+          echo "✅ 全部产物逐字节一致"
+          cat dist-a/SHA256SUMS
+  # ---------------------------------------------------------------------------
   # 契约漂移检查
   #
   # api/openapi.yaml 是接口的唯一真理（docs/DECISIONS.md D07）。
