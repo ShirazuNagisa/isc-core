@@ -861,7 +861,7 @@ func (d *Daemon) listen(_ context.Context) error {
 	}
 
 	if len(d.servers) == 0 {
-		return fmt.Errorf("%s", i18n.T("daemon.transport_failed", "无可用通道"))
+		return fmt.Errorf("%s", i18n.T("daemon.transport_failed", i18n.T("daemon.err.no_channel")))
 	}
 	return nil
 }
@@ -1001,7 +1001,7 @@ func (d *Daemon) closeListeners() {
 func newToken() (string, error) {
 	buf := make([]byte, tokenBytes)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("daemon: 生成访问令牌失败: %w", err)
+		return "", fmt.Errorf(i18n.T("daemon.err.token"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

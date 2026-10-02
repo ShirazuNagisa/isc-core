@@ -89,8 +89,6 @@ var hardcodedBaseline = map[string]int{
 	"scripts/release":         64,
 	"internal/proxy":          41,
 	"internal/verify":         43,
-	"internal/change":         22,
-	"internal/daemon":         12,
 	"internal/ddns":           17,
 	"internal/notify":         22,
 	"internal/provider":       21,
@@ -173,6 +171,15 @@ var i18nComplete = []string{
 	// "这不是你的配置问题"这类判断 —— 用户看到一句失败时最需要知道的
 	// 正是"这该不该我来修"。
 	"internal/reach",
+
+	// 变更编排。整条路径 —— 计划、执行、失败、回滚 —— 的文案都在这里，
+	// 而"回滚没走完时说得足够严重"是它的重点：那句话意味着防火墙规则
+	// 可能只放行了一半。
+	"internal/change",
+
+	// 守护进程。它的中文几乎全是 slog 日志（已由计数器按调用排除），
+	// 剩下的是启动失败这类返回给调用方的错误，以及**推送出去的通知正文**。
+	"internal/daemon",
 }
 
 func TestUserFacingPackagesHaveI18n(t *testing.T) {

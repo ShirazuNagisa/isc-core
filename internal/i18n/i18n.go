@@ -62,10 +62,10 @@ type Catalog struct {
 // 基础表会让那个文件无法浏览。
 func New(lang Lang) *Catalog {
 	src := messagesZh
-	extra := []map[string]string{apiMessagesZh, tier1MessagesZh, reachMessagesZh}
+	extra := []map[string]string{apiMessagesZh, tier1MessagesZh, reachMessagesZh, opsMessagesZh}
 	if lang == En {
 		src = messagesEn
-		extra = []map[string]string{apiMessagesEn, tier1MessagesEn, reachMessagesEn}
+		extra = []map[string]string{apiMessagesEn, tier1MessagesEn, reachMessagesEn, opsMessagesEn}
 	}
 
 	// 没有补充层时直接用基础表，避免每次构造都复制一遍。
@@ -225,5 +225,6 @@ func layeredCatalogMaps() []map[string]string {
 		apiMessagesZh, apiMessagesEn,
 		tier1MessagesZh, tier1MessagesEn,
 		reachMessagesZh, reachMessagesEn,
+		opsMessagesZh, opsMessagesEn,
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"log/slog"
 	"sync"
 	"time"
@@ -224,7 +225,7 @@ func (r Result) OK() bool { return r.Status == StatusApplied }
 // 而不是"最初哪一步失败了"。
 func (r Result) Problem() error {
 	if r.RollbackErr != nil {
-		return fmt.Errorf("变更失败且自动回滚未完成，系统可能处于中间状态：%w", r.RollbackErr)
+		return fmt.Errorf(i18n.T("change.err.autorollback"), r.RollbackErr)
 	}
 	return r.Err
 }
@@ -305,7 +306,7 @@ func (r *Runner) Apply(ctx context.Context, plan Plan) (Result, error) {
 
 	// 先落盘再动手。
 	if err := r.journal.Save(ctx, rec); err != nil {
-		return res, fmt.Errorf("change: 无法写入变更日志，已放弃执行（不做无记录的变更）: %w", err)
+		return res, fmt.Errorf(i18n.T("change.err.no_journal"), err)
 	}
 
 	r.log.Info("开始执行变更",
@@ -320,7 +321,7 @@ func (r *Runner) Apply(ctx context.Context, plan Plan) (Result, error) {
 		if err := ctx.Err(); err != nil {
 			// 上下文被取消：把它当成一次普通失败处理，走回滚路径。
 			// 直接返回会让已生效的步骤留在系统里。
-			res.Err = fmt.Errorf("变更被取消: %w", err)
+			res.Err = fmt.Errorf(i18n.T("change.err.cancelled"), err)
 			res.FailedStep = step.ID
 			return r.fail(ctx, rec, res)
 		}
@@ -328,7 +329,7 @@ func (r *Runner) Apply(ctx context.Context, plan Plan) (Result, error) {
 		r.log.Debug("执行变更步骤", "plan", plan.ID, "step", step.ID, "title", step.Title)
 
 		if err := step.apply(ctx); err != nil {
-			res.Err = fmt.Errorf("步骤 %q 失败: %w", step.Title, err)
+			res.Err = fmt.Errorf(i18n.T("change.err.step_failed"), step.Title, err)
 			res.FailedStep = step.ID
 			setStepState(&rec, step.ID, StepFailed, err.Error())
 			return r.fail(ctx, rec, res)
@@ -417,7 +418,7 @@ func (r *Runner) fail(ctx context.Context, rec Record, res Result) (Result, erro
 func (r *Runner) rollbackSteps(ctx context.Context, planID string, applied []string) ([]string, error) {
 	live := r.liveSteps(planID)
 	if live == nil {
-		return nil, fmt.Errorf("change: 找不到计划 %s 的执行上下文，无法自动回滚", planID)
+		return nil, fmt.Errorf(i18n.T("change.err.no_context"), planID)
 	}
 
 	var done []string
@@ -426,7 +427,7 @@ func (r *Runner) rollbackSteps(ctx context.Context, planID string, applied []str
 		id := applied[i]
 		step, ok := live[id]
 		if !ok {
-			return done, fmt.Errorf("change: 找不到步骤 %s 的撤销动作", id)
+			return done, fmt.Errorf(i18n.T("change.err.no_undo"), id)
 		}
 		if !step.Revertable() {
 			// 无需撤销的步骤跳过，不算失败。
@@ -434,7 +435,7 @@ func (r *Runner) rollbackSteps(ctx context.Context, planID string, applied []str
 			continue
 		}
 		if err := step.revert(ctx); err != nil {
-			return done, fmt.Errorf("撤销步骤 %q 失败: %w", step.Title, err)
+			return done, fmt.Errorf(i18n.T("change.err.undo_failed"), step.Title, err)
 		}
 		done = append(done, id)
 		r.log.Info("已撤销变更步骤", "plan", planID, "step", id, "title", step.Title)
@@ -462,7 +463,7 @@ func (r *Runner) Rollback(ctx context.Context, planID string) (Result, error) {
 
 	rec, found, err := r.journal.Get(ctx, planID)
 	if err != nil {
-		return res, fmt.Errorf("change: 读取变更记录失败: %w", err)
+		return res, fmt.Errorf(i18n.T("change.err.read_record"), err)
 	}
 	if !found {
 		return res, ErrNotFound
@@ -475,14 +476,12 @@ func (r *Runner) Rollback(ctx context.Context, planID string) (Result, error) {
 	case StatusApplying:
 		// 执行中的记录不该被撤销：那个进程可能还在写系统状态，
 		// 两边同时动手会得到谁也没预料到的结果。
-		return res, fmt.Errorf(
-			"change: 变更 %s 仍处于执行中状态；"+
-				"若确认内核上次是异常退出，请先执行恢复检查", planID)
+		return res, fmt.Errorf(i18n.T("change.err.still_running"), planID)
 	}
 
 	rev, ok := r.reverters[rec.Kind]
 	if !ok {
-		return res, fmt.Errorf("change: 没有登记 %q 类型的撤销器，无法撤销", rec.Kind)
+		return res, fmt.Errorf(i18n.T("change.err.no_reverter"), rec.Kind)
 	}
 
 	applied := rec.AppliedSteps()
@@ -554,16 +553,16 @@ type Interrupted struct {
 func (r *Runner) RecoverInterrupted(ctx context.Context) ([]Interrupted, error) {
 	records, err := r.journal.ListInterrupted(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("change: 检查中断的变更失败: %w", err)
+		return nil, fmt.Errorf(i18n.T("change.err.check_interrupt"), err)
 	}
 
 	out := make([]Interrupted, 0, len(records))
 	for _, rec := range records {
 		applied := rec.AppliedSteps()
-		reason := "上次执行未走完（内核可能异常退出）"
+		reason := i18n.T("change.msg.interrupted")
 		if len(applied) > 0 {
 			reason = fmt.Sprintf(
-				"上次执行在第 %d 步之后中断，已有 %d 个步骤生效",
+				i18n.T("change.msg.interrupted_detail"),
 				len(applied), len(applied))
 		}
 		out = append(out, Interrupted{Record: rec, Reason: reason})
@@ -665,4 +664,4 @@ func (r *Runner) publish(typ string, plan Plan, res Result) {
 }
 
 // ErrNotFound 表示找不到指定的变更记录。
-var ErrNotFound = errors.New("change: 变更记录不存在")
+var ErrNotFound = errors.New(i18n.T("change.err.not_found"))

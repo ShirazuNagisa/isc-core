@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"sync"
 	"time"
 )
@@ -258,7 +259,7 @@ func (p *Pending) removeFromOrderLocked(id string) {
 // ---------------------------------------------------------------------------
 
 // ErrPlanExpired 表示待确认的计划不存在或已过期。
-var ErrPlanExpired = errors.New("change: 计划不存在或已过期，请重新生成")
+var ErrPlanExpired = errors.New(i18n.T("change.err.plan_expired"))
 
 // Prepare 生成一个待确认的计划。
 //

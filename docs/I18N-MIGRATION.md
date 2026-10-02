@@ -39,8 +39,8 @@
 | `scripts/release` | 64 | 构建工具输出，**不是产品**，优先级最低 |
 | `internal/proxy` | 55 | 反代启动与路由错误 |
 | `internal/verify` | 43 | 外部验证会话的说明 |
-| `internal/change` | 40 | 计划与回滚的状态 |
-| `internal/daemon` | 37 | 守护进程日志与事件 |
+| `internal/change` | ✅ **0** | 已完成；计划/执行/失败/回滚整条路径 |
+| `internal/daemon` | ✅ **0** | 已完成；大部分是日志（已按调用排除） |
 | 其余 11 个包 | 148 | |
 
 **建议顺序按用户可见度**，而不是按包大小：

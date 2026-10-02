@@ -42,7 +42,7 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		return notify.Message{
 			Event:    event.TypeDNSUpdateFailed,
 			Severity: notify.SeverityError,
-			Title:    fmt.Sprintf("动态解析失败：%s", label),
+			Title:    fmt.Sprintf(i18n.T("notify.ddns.failed"), label),
 			Body:     str(p, "error"),
 			// 键里只有任务 ID —— 错误文本会变，放进去会让去重失效。
 			DedupKey: "dns.update_failed:" + taskID,
@@ -59,8 +59,8 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		return notify.Message{
 			Event:    event.TypeDNSRecordUpdated,
 			Severity: notify.SeverityInfo,
-			Title:    fmt.Sprintf("动态解析已更新：%s", label),
-			Body:     fmt.Sprintf("新地址 %s", str(p, "ip")),
+			Title:    fmt.Sprintf(i18n.T("notify.ddns.updated"), label),
+			Body:     fmt.Sprintf(i18n.T("notify.ddns.new_addr"), str(p, "ip")),
 			DedupKey: "dns.record_updated:" + taskID,
 			Data:     p,
 		}, true
@@ -74,8 +74,8 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		return notify.Message{
 			Event:    event.TypeIPPrefixChanged,
 			Severity: notify.SeverityWarning,
-			Title:    fmt.Sprintf("IPv6 前缀已变化（%s）", iface),
-			Body:     "新前缀 " + str(p, "prefix"),
+			Title:    fmt.Sprintf(i18n.T("notify.prefix.changed"), iface),
+			Body:     fmt.Sprintf(i18n.T("notify.prefix.new"), str(p, "prefix")),
 			DedupKey: "ip.prefix_changed:" + iface,
 			Data:     p,
 		}, true
@@ -86,7 +86,7 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		return notify.Message{
 			Event:    event.TypeCertIssued,
 			Severity: notify.SeverityInfo,
-			Title:    fmt.Sprintf("证书已签发：%s", name),
+			Title:    fmt.Sprintf(i18n.T("notify.cert.issued"), name),
 			DedupKey: "cert.issued:" + name,
 			Data:     p,
 		}, true
@@ -97,7 +97,7 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		return notify.Message{
 			Event:    event.TypeCertFailed,
 			Severity: notify.SeverityError,
-			Title:    fmt.Sprintf("证书签发失败：%s", name),
+			Title:    fmt.Sprintf(i18n.T("notify.cert.failed"), name),
 			Body:     str(p, "error") + "\n" + i18n.T("notify.cert_hint"),
 			DedupKey: "cert.failed:" + name,
 			Data:     p,
@@ -115,15 +115,14 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		// 它必须比普通的"变更失败"更醒目。
 		if rbErr := str(p, "rollback_error"); rbErr != "" {
 			severity = notify.SeverityError
-			body = fmt.Sprintf(
-				"变更失败，且自动回滚未能完成 —— 系统可能处于中间状态。\n%s\n%s",
+			body = fmt.Sprintf(i18n.T("notify.change.rollback_failed"),
 				str(p, "error"), rbErr)
 		}
 
 		return notify.Message{
 			Event:    event.TypeChangeFailed,
 			Severity: severity,
-			Title:    fmt.Sprintf("系统变更失败：%s", title),
+			Title:    fmt.Sprintf(i18n.T("notify.change.failed"), title),
 			Body:     body,
 			DedupKey: "change.failed:" + planID,
 			Data:     p,
@@ -134,7 +133,7 @@ var notifyEvents = map[string]func(payload map[string]any) (notify.Message, bool
 		return notify.Message{
 			Event:    event.TypeChangeRolledBack,
 			Severity: notify.SeverityInfo,
-			Title:    fmt.Sprintf("系统变更已撤销：%s", str(p, "title")),
+			Title:    fmt.Sprintf(i18n.T("notify.change.reverted"), str(p, "title")),
 			DedupKey: "change.rolled_back:" + str(p, "plan_id"),
 			Data:     p,
 		}, true

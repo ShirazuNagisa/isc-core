@@ -29,6 +29,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
 	"time"
 )
@@ -174,29 +175,29 @@ func (p Plan) Empty() bool { return len(p.Steps) == 0 }
 // 难以定位的怪问题（日志里两条同样的步骤、回滚时定位到错误的记录）。
 func (p Plan) Validate() error {
 	if strings.TrimSpace(p.ID) == "" {
-		return errors.New("change: 计划缺少 ID")
+		return errors.New(i18n.T("change.plan.no_id"))
 	}
 	if strings.TrimSpace(p.Kind) == "" {
-		return errors.New("change: 计划缺少变更类型")
+		return errors.New(i18n.T("change.plan.no_kind"))
 	}
 	if strings.TrimSpace(p.Title) == "" {
-		return errors.New("change: 计划缺少标题")
+		return errors.New(i18n.T("change.plan.no_title"))
 	}
 
 	seen := make(map[string]bool, len(p.Steps))
 	for i, s := range p.Steps {
 		if strings.TrimSpace(s.ID) == "" {
-			return fmt.Errorf("change: 第 %d 个步骤缺少 ID", i+1)
+			return fmt.Errorf(i18n.T("change.plan.step_no_id"), i+1)
 		}
 		if seen[s.ID] {
 			// 重复 ID 会让回滚定位到错误的步骤 —— 而那是在
 			// 出问题的时候才暴露，代价最高。
-			return fmt.Errorf("change: 步骤 ID 重复: %s", s.ID)
+			return fmt.Errorf(i18n.T("change.plan.dup_step_id"), s.ID)
 		}
 		seen[s.ID] = true
 
 		if s.apply == nil {
-			return fmt.Errorf("change: 步骤 %s 没有执行体", s.ID)
+			return fmt.Errorf(i18n.T("change.plan.step_no_body"), s.ID)
 		}
 	}
 	return nil
