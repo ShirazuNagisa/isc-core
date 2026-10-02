@@ -50,6 +50,13 @@ const (
 	// TypeChangeRolledBack 系统变更已被撤销。
 	TypeChangeRolledBack = "change.rolled_back"
 
+	// TypeCertIssued 证书签发成功。
+	TypeCertIssued = "cert.issued"
+	// TypeCertFailed 证书签发失败。
+	TypeCertFailed = "cert.failed"
+	// TypeCertRenewed 证书自动续期成功。
+	TypeCertRenewed = "cert.renewed"
+
 	// TypeEventsGap 告知客户端请求的序号已滑出保留窗口，需要重新拉取全量状态。
 	TypeEventsGap = "events.gap"
 

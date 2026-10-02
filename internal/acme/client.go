@@ -129,19 +129,30 @@ func (s *Store) Load(name string) (Cert, error) {
 		return Cert{}, err
 	}
 
-	out := Cert{CertPEM: certPEM, KeyPEM: keyPEM, Path: base + certSuffix}
-
 	// 从证书本身读出有效期与域名 —— 那是**权威来源**。
 	//
 	// 不依赖 meta 文件：它可能缺失（用户手工拷了证书过来）或过期
 	//（我们改了格式）。决定"要不要续期"必须基于证书本身。
-	if leaf, err := parseLeaf(certPEM); err == nil {
-		out.Domains = leaf.DNSNames
-		out.IssuedAt = leaf.NotBefore
-		out.ExpiresAt = leaf.NotAfter
+	leaf, err := parseLeaf(certPEM)
+	if err != nil {
+		// 解析失败必须**报错**，不能返回一个有效期为零的 Cert。
+		//
+		// 静默返回零值会让调用方看到一张"有效期读不出来"的证书，
+		// 而真正的问题是文件坏了 —— 用户拿到的提示会指向错误的方向。
+		return Cert{}, fmt.Errorf("acme: 证书文件 %s 无法解析: %w",
+			base+certSuffix, err)
 	}
 
-	return out, nil
+	return Cert{
+		Meta: Meta{
+			Domains:   leaf.DNSNames,
+			IssuedAt:  leaf.NotBefore,
+			ExpiresAt: leaf.NotAfter,
+		},
+		CertPEM: certPEM,
+		KeyPEM:  keyPEM,
+		Path:    base + certSuffix,
+	}, nil
 }
 
 // Exists 报告某个名字的证书是否存在。

@@ -93,6 +93,49 @@ func (m *Manager) Start(ctx context.Context, port int) error {
 }
 
 func (m *Manager) startLocked(ctx context.Context, port int) error {
+	srv, ln, err := m.prepareLocked(ctx, port)
+	if err != nil {
+		return err
+	}
+
+	httpSrv := &http.Server{
+		Handler: srv,
+		// 不设 ReadTimeout / WriteTimeout：代理要转发大文件与长连接
+		//（媒体流、WebSocket），设它们会在一段时间后切断正常请求。
+		//
+		// 只设头部读取超时：它挡住的是"连上之后不发请求"的连接耗尽攻击，
+		// 而不影响正常的长传输。
+		ReadHeaderTimeout: 20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	m.httpSrv = httpSrv
+
+	go func() {
+		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			m.log.Error("代理监听异常退出", "port", port, "err", err)
+			m.mu.Lock()
+			m.lastErr = err
+			m.mu.Unlock()
+		}
+	}()
+
+	m.log.Info("反向代理已启动", "port", port, "routes", len(srv.Routes()))
+	return nil
+}
+
+// prepareLocked 准备好代理服务器与监听，但**不开始服务**。
+//
+// # 为什么要把这一步单独拆出来
+//
+// 明文与 TLS 两种模式共用同一套准备动作（停旧的、加载路由、绑端口），
+// 区别只在"怎么服务"。早先的版本让 ServeTLS 直接复用 startLocked ——
+// 而那会先起一个**明文 HTTP 服务**，随后试图在同一个监听上做 TLS，
+// 结果是监听已被占用，握手阶段客户端收到的是明文响应。
+//
+// 那个 bug 的表现是 "first record does not look like a TLS handshake"，
+// 完全看不出根因是"起了两个服务"。
+func (m *Manager) prepareLocked(ctx context.Context, port int) (*Server, net.Listener, error) {
 	// 先停掉旧的：改端口时如果不先释放，新监听会因为端口占用而失败，
 	// 而那个错误在用户看来是"改端口之后代理起不来了"。
 	if m.httpSrv != nil {
@@ -107,11 +150,11 @@ func (m *Manager) startLocked(ctx context.Context, port int) error {
 	// 那比"代理根本没起来"更容易诊断，而且用户还能通过接口把路由
 	// 修好。若这里直接失败，用户就得先修好数据才能启动服务 ——
 	// 而他可能正是想通过界面去修。
-	// loadErr 与监听错误分开记录。
 	//
-	// 早先的版本共用一个 lastErr，而监听成功之后会把它清成 nil ——
-	// 于是"路由加载失败但监听成功"这种情况下，状态里什么都不剩，
-	// 用户在界面上只看到"代理在运行"却发现所有请求都是 404。
+	// loadErr 与监听错误分开记录：共用一个 lastErr 的话，监听成功
+	// 之后会把它清成 nil，于是"路由加载失败但监听成功"这种情况下
+	// 状态里什么都不剩，用户在界面上只看到"代理在运行"却发现
+	// 所有请求都是 404。
 	var loadErr error
 
 	routes, err := m.store.List(ctx)
@@ -131,42 +174,19 @@ func (m *Manager) startLocked(ctx context.Context, port int) error {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		m.lastErr = err
-		return fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"proxy: 无法监听端口 %d：%w"+
 				"（端口可能已被其它程序占用）", port, err)
 	}
 
-	httpSrv := &http.Server{
-		Handler: srv,
-		// 不设 ReadTimeout / WriteTimeout：代理要转发大文件与长连接
-		//（媒体流、WebSocket），设它们会在一段时间后切断正常请求。
-		//
-		// 只设头部读取超时：它挡住的是"连上之后不发请求"的连接耗尽攻击，
-		// 而不影响正常的长传输。
-		ReadHeaderTimeout: 20 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		ErrorLog:          nil,
-	}
-
 	m.server = srv
-	m.httpSrv = httpSrv
 	m.ln = ln
 	m.port = port
 	// 保留路由加载的错误：它不会因为监听成功而消失 ——
 	// 用户仍然需要知道"为什么所有请求都是 404"。
 	m.lastErr = loadErr
 
-	go func() {
-		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			m.log.Error("代理监听异常退出", "port", port, "err", err)
-			m.mu.Lock()
-			m.lastErr = err
-			m.mu.Unlock()
-		}
-	}()
-
-	m.log.Info("反向代理已启动", "port", port, "routes", len(routes))
-	return nil
+	return srv, ln, nil
 }
 
 // Stop 停止监听。
