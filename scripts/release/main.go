@@ -131,7 +131,23 @@ func run(outDir, versionArg string, runTests bool) error {
 	fmt.Printf("  提交    %s\n", commit)
 	fmt.Printf("  时间    %s\n", buildTime)
 	fmt.Printf("  目标    %d 个平台\n", len(defaultTargets))
-	fmt.Printf("  Go      %s (%s/%s)\n\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("  Go      %s (%s/%s)\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+
+	// 系统级安装包对版本号的要求**比压缩包严**，而它们的失败是"静默少一个
+	// 产物"。在这里一次说清，比让用户在中途的两行警告里发现要好。
+	//
+	// 触发它的典型情形：仓库还没有版本标签，于是 `git describe` 退化成
+	// 一个裸哈希（如 `7530bd2`）。压缩包不在乎（.deb 会自动加 `0~` 前缀），
+	// 而 MSI 要求纯 x.y.z —— 那种情况下**拒绝是对的**（版本号是升级逻辑
+	// 的依据，不能猜），但用户需要提前知道。
+	if _, err := msiVersion(version); err != nil {
+		fmt.Printf("  注意    %s\n", "版本号不是 x.y.z，.msi 将被跳过")
+		fmt.Printf("          （用 -version 0.1.0 指定，或先打一个 git tag）\n")
+	}
+	if _, err := pkgVersion(version); err != nil {
+		fmt.Printf("  注意    %s\n", "版本号不合法，.pkg 将被跳过")
+	}
+	fmt.Println()
 
 	if runTests {
 		// 构建前跑一遍测试。
