@@ -177,9 +177,9 @@ func run(outDir, versionArg string, runTests bool) error {
 		artifacts = append(artifacts, archive)
 		fmt.Printf("    %s\n", filepath.Base(archive))
 
-		// Linux 额外产出一个 .deb。
+		// Linux 额外产出 .deb 与 .rpm。
 		//
-		// 只有 Linux 需要：Windows 与 macOS 的用户不会用 apt。
+		// 只有 Linux 需要：Windows 与 macOS 的用户不会用这两个。
 		if t.GOOS == "linux" {
 			debPath := filepath.Join(outDir,
 				fmt.Sprintf("%s_%s_%s.deb", binaryName, version, t.GOARCH))
@@ -197,6 +197,34 @@ func run(outDir, versionArg string, runTests bool) error {
 			}
 			artifacts = append(artifacts, debPath)
 			fmt.Printf("    %s\n", filepath.Base(debPath))
+
+			// RPM 系发行版（RHEL / Fedora / openSUSE）用这个。
+			rpmPath := filepath.Join(outDir,
+				fmt.Sprintf("%s-%s-1.%s.rpm", binaryName, version, t.GOARCH))
+			if err := BuildRPM(rpmPath, RpmOptions{
+				Package: binaryName,
+				// RPM 的版本号不能含连字符 —— 那是它分隔版本与
+				// 发布号的字符。BuildRPM 会挡住并给出解决方式。
+				Version:    rpmVersion(version),
+				Release:    "1",
+				Arch:       t.GOARCH,
+				Summary:    "ISC 接入编排器内核",
+				License:    "GPL-3.0-or-later",
+				URL:        homepage,
+				BinaryPath: filepath.Join(stage, exeNameFor(t)),
+				DocDir:     stage,
+			}); err != nil {
+				// RPM 生成失败**不中止整个发布**：它的格式比 deb 复杂，
+				// 而一个打不出来的 rpm 不该让另外九个产物也发不出去。
+				//
+				// 但必须显式报出来 —— 静默跳过会让"某个平台少了包"
+				// 这件事一直不被发现。
+				fmt.Fprintf(os.Stderr,
+					"    警告：生成 rpm 失败（其余产物不受影响）：%v\n", err)
+			} else {
+				artifacts = append(artifacts, rpmPath)
+				fmt.Printf("    %s\n", filepath.Base(rpmPath))
+			}
 		}
 	}
 
@@ -222,6 +250,18 @@ func run(outDir, versionArg string, runTests bool) error {
 
 	fmt.Printf("\n完成：%d 个产物在 %s/\n", len(artifacts), outDir)
 	return nil
+}
+
+// rpmVersion 把版本号转成 RPM 认的形式。
+//
+// RPM 用连字符分隔 Version 与 Release，因此 Version 里**不能有连字符**。
+// 而我们的版本可能来自 `git describe`（例如 "1.0.0-rc1"），
+// 于是这里把连字符换成下划线。
+//
+// 换成下划线而不是直接删掉：`1.0.0rc1` 与 `1.0.0-rc1` 在读的人看来
+// 是两回事，而下划线保留了那个分隔。
+func rpmVersion(v string) string {
+	return strings.ReplaceAll(v, "-", "_")
 }
 
 // exeNameFor 返回某个目标的可执行文件名。

@@ -159,10 +159,10 @@ jobs:
             }
           done
 
-          # 校验和必须覆盖全部产物（7 个压缩包 + 2 个 .deb）。
+          # 校验和必须覆盖全部产物（7 个压缩包 + 2 个 .deb + 2 个 .rpm）。
           lines=$(wc -l < dist/SHA256SUMS)
-          if [ "$lines" -ne 9 ]; then
-            echo "::error::SHA256SUMS 应当有 9 行，实际 $lines 行"
+          if [ "$lines" -ne 11 ]; then
+            echo "::error::SHA256SUMS 应当有 11 行，实际 $lines 行"
             exit 1
           fi
           (cd dist && sha256sum -c SHA256SUMS)
@@ -220,6 +220,43 @@ jobs:
           sudo dpkg -i "$deb"
           isc version
           sudo dpkg -r isc
+
+      - name: 核对 .rpm
+        run: |
+          set -euo pipefail
+
+          # Ubuntu runner 上装了 rpm，因此可以用它自己来验证 ——
+          # 比单元测试更强：单元测试用的是我们自己写的解析器。
+          rpm=dist/isc-0.0.0_ci-1.amd64.rpm
+          test -f "$rpm" || { echo "::error::缺少 .rpm"; exit 1; }
+
+          echo "--- rpm -qip ---"
+          rpm -qip "$rpm"
+
+          echo "--- rpm -qlp ---"
+          rpm -qlp "$rpm"
+
+          echo "--- rpm -qplv ---"
+          rpm -qplv "$rpm"
+
+          # 可执行文件必须在，且必须带执行位。
+          rpm -qplv "$rpm" | grep -q '^-rwxr-xr-x .*/usr/bin/isc$' || {
+            echo "::error::/usr/bin/isc 缺失或没有执行位"
+            exit 1
+          }
+
+          # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
+          if rpm -qlp "$rpm" | grep -q '^/usr/share/doc/isc/isc$'; then
+            echo "::error::可执行文件被复制进了文档目录，包体积会翻倍"
+            exit 1
+          fi
+
+          # 载荷完整性：rpm -K 会校验签名 header 里的校验和。
+          # 校验和算错时它只说"包已损坏"，而那是很难归因的。
+          rpm -K "$rpm" || {
+            echo "::error::rpm 校验和不通过"
+            exit 1
+          }
 
       - name: 核对版本注入
         run: |
