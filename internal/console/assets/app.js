@@ -1,3 +1,9 @@
+// 本文件里的文案经 window.iscI18n 取（与 panels.js 同一套别名）。
+//
+// 第二个参数是**兜底**：消息表没到或 key 不存在时显示它。动态渲染的内容
+// 必须保留兜底 —— 这些字符串只在这里出现一次，没有第二个来源。
+const t = (key, fallback) => window.iscI18n.t(key, fallback);
+const tf = (key, fallback, params) => window.iscI18n.tf(key, fallback, params);
 /* ISC 验证控制台
  *
  * 定位：验证内核功能的工具，不是最终 GUI。
@@ -147,7 +153,7 @@ async function boot() {
       '请确认是通过 <code>http://127.0.0.1:端口/</code> 打开的控制台 ' +
       '（不是主机名、也不是局域网 IP —— 内核会拒绝非本机 Host 的请求，' +
       '这是为了防 DNS rebinding）。<br>底层错误：' + esc(err.message);
-    $('pillConn').textContent = '未连接';
+    $('pillConn').textContent = t('web.conn.down', '未连接');
     $('pillConn').className = 'pill err';
     return;
   }
@@ -155,14 +161,14 @@ async function boot() {
   try {
     const h = await api('GET', '/v1/health');
     if (h.ok) {
-      $('pillConn').textContent = '已连接';
+      $('pillConn').textContent = t('web.conn.up', '已连接');
       $('pillConn').className = 'pill ok';
     } else {
-      $('pillConn').textContent = '鉴权失败';
+      $('pillConn').textContent = t('web.conn.auth_failed', '鉴权失败');
       $('pillConn').className = 'pill err';
     }
   } catch {
-    $('pillConn').textContent = '连接失败';
+    $('pillConn').textContent = t('web.conn.failed', '连接失败');
     $('pillConn').className = 'pill err';
   }
 
@@ -189,12 +195,12 @@ async function loadOverview() {
   const m = meta.body;
 
   const cards = [
-    ['版本', m.version],
-    ['接口版本', m.api_version],
-    ['操作系统', m.os + ' / ' + m.arch],
-    ['启动时间', shortTime(m.started_at)],
-    ['提交', (m.commit || '').slice(0, 12) || '—'],
-    ['构建时间', m.build_time || '—'],
+    [t('web.meta.version', '版本'), m.version],
+    [t('web.meta.api_version', '接口版本'), m.api_version],
+    [t('web.meta.os', '操作系统'), m.os + ' / ' + m.arch],
+    [t('web.meta.started', '启动时间'), shortTime(m.started_at)],
+    [t('web.meta.commit', '提交'), (m.commit || '').slice(0, 12) || '—'],
+    [t('web.meta.build_time', '构建时间'), m.build_time || '—'],
   ];
   $('overviewCards').innerHTML = cards.map(([k, v]) =>
     '<div class="card"><div class="k">' + esc(k) + '</div>' +
@@ -202,15 +208,15 @@ async function loadOverview() {
 
   const caps = m.capabilities || {};
   const labels = {
-    firewall: '防火墙编排', service_manager: '服务管理（自启）',
-    ip_monitor: 'IP / 前缀监控', secret_store: '密钥库',
-    transport: '本地传输', low_port_binder: '低端口绑定',
+    firewall: t('web.cap.firewall', '防火墙编排'), service_manager: t('web.cap.service_manager', '服务管理（自启）'),
+    ip_monitor: t('web.cap.ip_monitor', 'IP / 前缀监控'), secret_store: t('web.cap.secret_store', '密钥库'),
+    transport: t('web.cap.transport', '本地传输'), low_port_binder: t('web.cap.low_port', '低端口绑定'),
   };
   const rows = Object.keys(labels).map((key) => {
     const c = caps[key] || {};
     const badge = c.available
-      ? '<span class="badge ok">可用</span>'
-      : '<span class="badge warn">引导模式</span>';
+      ? '<span class="badge ok">' + t('web.cap.available', '可用') + '</span>'
+      : '<span class="badge warn">' + t('web.cap.guided', '引导模式') + '</span>';
     return '<tr><td>' + esc(labels[key]) + '</td>' +
       '<td>' + badge + '</td>' +
       '<td class="mono">' + esc(c.backend || '—') + '</td>' +
@@ -232,13 +238,13 @@ async function loadIP() {
   const s = r.body;
 
   $('ipPrimary').innerHTML = [
-    ['主 IPv6', s.primary_ipv6],
-    ['主前缀', s.primary_prefix],
-    ['主 IPv4', s.primary_ipv4],
+    [t('web.ip.primary_v6', '主 IPv6'), s.primary_ipv6],
+    [t('web.ip.primary_prefix', '主前缀'), s.primary_prefix],
+    [t('web.ip.primary_v4', '主 IPv4'), s.primary_ipv4],
   ].map(([k, v]) =>
     '<div class="card"><div class="k">' + esc(k) + '</div>' +
     '<div class="v big ' + (v ? 'accent' : '') + '">' +
-    esc(v || '（无 —— 该机器没有可用的公网地址）') + '</div></div>').join('');
+    esc(v || t('web.ip.none', '（无 —— 该机器没有可用的公网地址）')) + '</div></div>').join('');
 
   const list = s.interfaces || [];
   if (!list.length) {
@@ -275,7 +281,7 @@ async function loadCredentials() {
   state.credentials = (r.body && r.body.items) || [];
 
   if (!state.credentials.length) {
-    $('credList').innerHTML = '<div class="empty">还没有配置任何凭据。</div>';
+    $('credList').innerHTML = '<div class="empty">' + t('web.cred.empty', '还没有配置任何凭据。') + '</div>';
     renderRecordCredPicker();
     return;
   }
@@ -284,10 +290,10 @@ async function loadCredentials() {
     const p = providerByName(c.provider);
     const caps = (p && p.capabilities) || {};
     const tags = [];
-    if (caps.dynamic) tags.push('<span class="badge accent">动态解析</span>');
-    if (caps.zone_list) tags.push('<span class="badge">记录管理</span>');
-    if (caps.verify) tags.push('<span class="badge">可校验</span>');
-    if (!caps.available) tags.push('<span class="badge muted">未实现</span>');
+    if (caps.dynamic) tags.push('<span class="badge accent">' + t('web.cap.dynamic', '动态解析') + '</span>');
+    if (caps.zone_list) tags.push('<span class="badge">' + t('web.cap.zones', '记录管理') + '</span>');
+    if (caps.verify) tags.push('<span class="badge">' + t('web.cap.verify', '可校验') + '</span>');
+    if (!caps.available) tags.push('<span class="badge muted">' + t('web.cap.unimplemented', '未实现') + '</span>');
 
     const fields = Object.keys(c.fields || {})
       .map((k) => esc(k) + '=' + esc(c.fields[k])).join('  ');
@@ -326,11 +332,11 @@ function renderCredForm() {
       esc(p.display_name || p.name) + '</option>').join('');
 
   el.innerHTML =
-    '<h3>新建凭据</h3>' +
+    '<h3>' + t('web.cred.new') + '</h3>' +
     '<div class="form-grid">' +
       '<label class="field"><span>名称</span>' +
         '<input id="cfLabel" placeholder="例如：我的 Cloudflare"></label>' +
-      '<label class="field"><span>服务商</span>' +
+      '<label class="field"><span>' + t('web.cred.provider', '服务商') + '</span>' +
         '<select id="cfProvider">' + opts + '</select></label>' +
     '</div>' +
     '<div class="form-grid" id="cfFields"></div>' +
@@ -349,7 +355,7 @@ function renderCredFields() {
   const fields = (p && p.credential_fields) || [];
 
   $('cfFields').innerHTML = fields.map((f) => {
-    const req = f.required ? '' : '（可选）';
+    const req = f.required ? '' : t('web.cred.optional', '（可选）');
     const help = f.help ? '<small>' + esc(f.help) + '</small>' : '';
     return '<label class="field"><span>' + esc(f.label || f.key) + req + '</span>' +
       '<input data-field="' + esc(f.key) + '" ' +
@@ -361,7 +367,7 @@ function renderCredFields() {
 
 async function saveCredential() {
   const label = $('cfLabel').value.trim();
-  if (!label) { toast('请填写名称', 'err'); return; }
+  if (!label) { toast(t('web.cred.need_name', '请填写名称'), 'err'); return; }
 
   const fields = {};
   document.querySelectorAll('#cfFields [data-field]').forEach((inp) => {
@@ -373,15 +379,15 @@ async function saveCredential() {
   });
   if (!r.ok) { toast('保存失败：' + explain(r), 'err'); return; }
 
-  toast('凭据已创建', 'ok');
+  toast(t('web.cred.created', '凭据已创建'), 'ok');
   $('credForm').hidden = true;
   await loadCredentials();
 }
 
 async function verifyCredential(id) {
-  status('正在测试连接…');
+  status(t('web.cred.testing', '正在测试连接…'));
   const r = await api('POST', '/v1/credentials/' + encodeURIComponent(id) + '/verify');
-  if (!r.ok) { toast('测试失败：' + explain(r), 'err'); status('就绪', true); return; }
+  if (!r.ok) { toast('测试失败：' + explain(r), 'err'); status(t('web.raw.ready'), true); return; }
 
   const b = r.body || {};
   if (b.ok) {
@@ -389,7 +395,7 @@ async function verifyCredential(id) {
     status('就绪');
   } else {
     toast('测试未通过：' + (b.message || '未知原因'), 'err');
-    status('测试未通过', true);
+    status(t('web.cred.not_passed', '测试未通过'), true);
   }
 }
 

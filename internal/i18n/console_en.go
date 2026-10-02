@@ -223,6 +223,47 @@ var consoleMessagesEn = map[string]string{
 	"web.common.read_failed": "Read failed: ",
 	"web.settings.saved":     "Settings saved",
 
+	// --- rendered by app.js ---
+	"web.conn.down":        "Disconnected",
+	"web.conn.up":          "Connected",
+	"web.conn.auth_failed": "Authentication failed",
+	"web.conn.failed":      "Connection failed",
+
+	"web.meta.version":     "Version",
+	"web.meta.api_version": "API version",
+	"web.meta.os":          "Operating system",
+	"web.meta.started":     "Started at",
+	"web.meta.commit":      "Commit",
+	"web.meta.build_time":  "Build time",
+
+	"web.cap.firewall":        "Firewall orchestration",
+	"web.cap.service_manager": "Service manager (autostart)",
+	"web.cap.ip_monitor":      "IP / prefix monitoring",
+	"web.cap.secret_store":    "Secret store",
+	"web.cap.transport":       "Local transport",
+	"web.cap.low_port":        "Low-port binding",
+	"web.cap.available":       "Available",
+	"web.cap.guided":          "Guided mode",
+	"web.cap.dynamic":         "Dynamic DNS",
+	"web.cap.zones":           "Record management",
+	"web.cap.verify":          "Verifiable",
+	"web.cap.unimplemented":   "Not implemented",
+
+	"web.ip.primary_v6":     "Primary IPv6",
+	"web.ip.primary_prefix": "Primary prefix",
+	"web.ip.primary_v4":     "Primary IPv4",
+	"web.ip.none":           "(none — this machine has no usable public address)",
+
+	"web.cred.empty":      "No credentials configured yet.",
+	"web.cred.provider":   "Provider",
+	"web.cred.optional":   "(optional)",
+	"web.cred.need_name":  "Enter a name",
+	"web.cred.created":    "Credential created",
+	"web.cred.testing":    "Testing the connection…",
+	"web.cred.not_passed": "Test did not pass",
+
+	"web.common.unknown": "unknown reason",
+
 	// --- shared ---
 	"web.common.loading": "Loading…",
 }

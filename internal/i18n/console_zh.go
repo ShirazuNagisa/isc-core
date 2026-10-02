@@ -204,6 +204,47 @@ var consoleMessagesZh = map[string]string{
 	"web.common.read_failed": "读取失败：",
 	"web.settings.saved":     "设置已保存",
 
+	// --- 由 app.js 渲染的内容 ---
+	"web.conn.down":        "未连接",
+	"web.conn.up":          "已连接",
+	"web.conn.auth_failed": "鉴权失败",
+	"web.conn.failed":      "连接失败",
+
+	"web.meta.version":     "版本",
+	"web.meta.api_version": "接口版本",
+	"web.meta.os":          "操作系统",
+	"web.meta.started":     "启动时间",
+	"web.meta.commit":      "提交",
+	"web.meta.build_time":  "构建时间",
+
+	"web.cap.firewall":        "防火墙编排",
+	"web.cap.service_manager": "服务管理（自启）",
+	"web.cap.ip_monitor":      "IP / 前缀监控",
+	"web.cap.secret_store":    "密钥库",
+	"web.cap.transport":       "本地传输",
+	"web.cap.low_port":        "低端口绑定",
+	"web.cap.available":       "可用",
+	"web.cap.guided":          "引导模式",
+	"web.cap.dynamic":         "动态解析",
+	"web.cap.zones":           "记录管理",
+	"web.cap.verify":          "可校验",
+	"web.cap.unimplemented":   "未实现",
+
+	"web.ip.primary_v6":     "主 IPv6",
+	"web.ip.primary_prefix": "主前缀",
+	"web.ip.primary_v4":     "主 IPv4",
+	"web.ip.none":           "（无 —— 该机器没有可用的公网地址）",
+
+	"web.cred.empty":      "还没有配置任何凭据。",
+	"web.cred.provider":   "服务商",
+	"web.cred.optional":   "（可选）",
+	"web.cred.need_name":  "请填写名称",
+	"web.cred.created":    "凭据已创建",
+	"web.cred.testing":    "正在测试连接…",
+	"web.cred.not_passed": "测试未通过",
+
+	"web.common.unknown": "未知原因",
+
 	// --- 通用 ---
 	"web.common.loading": "加载中…",
 }
