@@ -15,40 +15,28 @@
 | CLI 输出 | ✅ **0** | 443 → 0，七轮。15 个文件 |
 | API 错误 | ✅ **0** | 105 → 0，文案在分层文件 `api_zh.go` / `api_en.go` |
 | 设置校验 | ✅ **0** | 6 条校验错误，会经 API 的 `detail` 返回给调用方 |
-| `internal/platform` | ✅ **4** | 204 → 4，剩的 4 处**有意保留**（见下） |
+| 业务包（20 个） | ✅ **0** | reach / change / acme / notify / store / credential / secret / paths / dns / job / runtimeinfo / configio / provider / ddns / proxy / verify / daemon 全部进了 `i18nComplete` |
+| `internal/platform` | ✅ **4** | 204 → 4，剩的 4 处**有意保留**（见第三节） |
 | 日志包 + 构建工具（event / console / audit / scripts/release） | ✅ 豁免 | 见 `exemptPackages` |
-| **控制台前端** | ⚠️ **未开始** | 414 行，见第五节 |
+| **控制台前端** | ✅ **2 行** | 444 → 2（都是开发者信息，见第五节） |
 
-`internal/cli` 与 `internal/api` 现在受"**完全不许有**"的约束
-（`i18nComplete` 列表），其余包受"不许涨"的棘轮约束。
+`i18nComplete` 里的包受"**完全不许有**"的约束，其余包受"不许涨"的棘轮约束。
 
 ---
 
 ## 二、剩余（棘轮基线）
 
-数字来自 `internal/i18n/hardcoded_test.go` 的 `hardcodedBaseline`，
-它同时是**进度表**：调小它是这个迁移唯一的推进方式。
+数字来自 `internal/i18n/hardcoded_test.go` 的 `hardcodedBaseline`。
+**只剩三项，而且三项都是"达标的定义不是零"** —— 它们是数据值，不是文案：
 
-| 包 | 处数 | 用户可见度 |
+| 包 | 处数 | 为什么不翻 |
 |---|---|---|
-| `internal/ddnsgo` | ✅ **10** | 已完成；剩 10 处是数据值与内部哨兵 |
-| `internal/provider/tier1` | ✅ **2** | 已完成；剩 2 处是 API 数据值（DNSPod 的 `record_line`） |
-| `internal/reach` | ✅ **0** | 已完成；它就是 `isc doctor` 的正文 |
-| `internal/store` | ✅ **0** | 已完成；仓储层数据库错误 |
-| `internal/acme` | ✅ **0** | 已完成；DNS-01 失败那条把四种成因逐条列出 |
-| `scripts/release` | ✅ 豁免 | 构建工具，跑在维护者机器上，拿不到用户的语言设置 |
-| `internal/proxy` | 55 | 反代启动与路由错误 |
-| `internal/verify` | ✅ **0** | 已完成；含发给手机的验证页 |
-| `internal/change` | ✅ **0** | 已完成；计划/执行/失败/回滚整条路径 |
-| `internal/daemon` | ✅ **0** | 已完成；大部分是日志（已按调用排除） |
-| 其余小包 | ✅ **0** | credential / secret / paths / dns / job / runtimeinfo / configio / provider 均已完成 |
+| `internal/ddnsgo` | **10** | 移植代码里的 API 参数与内部哨兵：DNSPod / 腾讯云的线路名 `"默认"`（服务商收的就是中文串）、namesilo / vercel 拼进消息 key 的前缀、`updateStatusType` 的 `"未改变"`/`"失败"`/`"成功"` |
+| `internal/platform` | **4** | 匹配**系统网卡名**的模式（`"蓝牙"`、`"本地连接*"`…）。翻译成英文会让中文 Windows 上的匹配全部失效 |
+| `internal/provider/tier1` | **2** | `dnspodDefaultLine` / `tcDefaultLine`：`record_line` 参数收的中文串 |
 
-**建议顺序按用户可见度**，而不是按包大小：
-`provider/tier1` → `reach` → `acme` → `proxy` → `verify` → `change` →
-`daemon` → `notify` → 其余 → `ddnsgo`（最后，因为要标注与上游的差异）
-。
-
----
+三条判据都在第三节。逐处的理由写在 `hardcodedBaseline` 的注释里 ——
+**那份注释就是这张表的正文**，改数字之前先读它。
 
 ## 三、判断口径：什么**不该**翻译
 
@@ -135,6 +123,7 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 | **模式被当成文案翻译** | 1 | **单元测试** |
 | 断言写死了某种语言的片段 | 2 | 并行测试间歇失败 |
 | 帮助文本不跟着 `--lang` 变 | 1 | 真机输出 |
+| **词法器把正则字面量里的引号当字符串开始** | 1 | **棘轮数字与临时工具对不上**（见第五节） |
 
 两件事值得记住：
 
@@ -149,58 +138,79 @@ slog 日志行与开发者错误。翻译它们**反而有害**：
 
 ---
 
-## 五、控制台前端：一块未开工的工作
+## 五、控制台前端：已完成（444 行 → 2 行）
 
-`internal/console/assets/` 下三个文件共 **414 行含中文 / 18413 个字符**，
-而它是 D21 明确列出的四个面之一。
+`internal/console/assets/` 下四个文件现在只剩 **2 行含中文（114 个字符）**，
+而且两行都是**开发者信息**（`panels.js` 一条、`i18n.js` 一条：消息表加载
+失败时写给开发者看的 warn）。棘轮 `consoleHardcodedLines` 停在 0 / 0 / 1 / 1。
 
-**朴素做法行不通**（试过）：写工具按文本节点抽取，抽出 128 条，其中大半是
-不可翻译的碎片 —— 原文被 `<strong>` / `<code>` 切开了：
-
-```
-console.t026 = 是这套系统的核心概念：ISP 重拨后变化的是整个
-console.t027 = 前缀，该前缀下的
-console.t028 = 所有
-console.t029 = AAAA 记录都要重写，而不是只改一个地址。
-```
-
-对应的 HTML：
+**朴素做法行不通**（试过）：按文本节点抽取会得到不可翻译的碎片 ——
+原文被 `<strong>` / `<code>` 切开：
 
 ```html
 <strong>前缀</strong>是这套系统的核心概念：ISP 重拨后变化的是整个
 <code>/64</code> 前缀，该前缀下的<strong>所有</strong> AAAA 记录都要重写，
 ```
 
-逐文本节点替换**做不到正确的结果**：翻出来的英文会语序错乱，而译者拿到的
-是一条没有上下文的片段。
+逐节点替换翻出来的英文语序错乱，而译者拿到的是一条没有上下文的片段
+（当时抽出 128 条，大半是"前缀，该前缀下的"这种）。
 
-**需要的设计决定**：把整句（含内联标签）作为一条消息，用 `innerHTML`
-注入。代价是消息表里存 HTML 片段 —— 对自有的内嵌资源可以接受，
-但要写明这个前提（消息表因此不能被外部输入影响）。
+**实际采用的设计**：把**整句（含内联标签）作为一条消息**。
 
-机制大致是：
+1. 内核把当前语言的消息表作为静态资源提供（`/console/i18n.json`），
+   文案来自 `internal/i18n/console_{zh,en}.go`；
+2. 前端 `i18n.js` 取一次，对 `[data-i18n]` 用 `textContent`、
+   对 `[data-i18n-html]` 用 `innerHTML` 注入；
+3. **中文原文仍然写在调用处**，作为表没到时的回退 —— 页面因此不会在
+   网络慢的时候显示一串 key；
+4. 拼接句一律用 `tf` 占位符，而不是把变量拼在句子中间：
+   语序恰恰是翻译时最常要动的东西。
 
-1. 内核把当前语言的前端消息表作为静态资源提供
-   （`/console/i18n/zh-CN.json`）；
-2. 前端启动时取一次，对 `[data-i18n]` 与 `[data-i18n-html]` 元素做替换；
-3. 为消除"先渲染中文再替换"的闪烁，静态 HTML 里的文案保持中文
-   （默认语言），英文用户会看到一次替换。
+**安全前提（必须保持）**：两次 `innerHTML` 只吃消息表里的值，而那张表是
+纯静态文案。**一旦有人往表里塞进用户可控的内容，这里就是 XSS 入口。**
 
-`TestConsoleAssetsAreCounted` 目前只**拦住新增**，并把这个数字打出来。
+### 这一块踩到的两个坑
+
+**一、数字对不上时，先怀疑度量工具。** 棘轮说 `app.js` 还剩 17 行，
+而迁移用的临时 dumper 说 0 行 —— 两者用的是同一个正则。差别在于棘轮先跑
+`stripJSComments`：那个词法器在 `esc()` 的 `.replace(/'/g, '&#39;')` 处
+把**正则字面量里的单引号**当成了字符串开始，状态从此整个反转，后面所有
+注释都不再被识别、其中的中文被计入。修法用的是 JavaScript 的语法事实：
+`'` 与 `"` 字符串不能跨行，因此**换行即重置状态**；回归测试见
+`console_comments_test.go`。
+
+**二、只有外部工具能发现的两处缺陷。** 前端没有构建链，因此语法错误不会
+在编译期暴露 —— 接上 `node --check`（`internal/console/syntax_test.go`）
+之后当场抓到两处，其中一处会让整个 `panels.js` 不执行。
+
+### 守住它的三条测试
+
+| 测试 | 挡什么 |
+|---|---|
+| `TestConsoleAssetsAreCounted` | 新增未迁移的中文（棘轮，只降不升） |
+| `TestConsoleMarkersHaveCatalogEntries` | `data-i18n` 标了、目录里没有 → 页面上那块**空白**，不报错 |
+| `TestConsoleCatalogHasNoDeadEntries` | 目录里有、页面上没用 → 死条目，译者会以为还要维护 |
 
 ---
 
 ## 六、怎么继续
 
+D21 的迁移**基本收口**：`i18nComplete` 20 个包 + 控制台前端，剩下的三项
+（ddnsgo 10 / platform 4 / tier1 2）是**数据值**，按第三节的判据不该翻。
+
+新增文案时的检查（也是唯一的推进方式 —— 棘轮只降不升）：
+
 ```bash
-# 看当前进度与是否超了基线
-go test ./internal/i18n/ -run 'Hardcoded|UsedKeys' -v
+# 进度、是否超基线、key 是否存在、页面标记与目录是否对得上
+go test ./internal/i18n/ -count=1 -v
 
-# 找一个包里的全部中文串
-go run ./tools/... # （迁移用的临时工具未入库，可直接用 grep 或写一个）
+# 找一个包里的全部中文串（迁移用的临时工具未入库，grep 或现写一个都行）
+grep -rn '[一-龥]' internal/<pkg>/ --include='*.go'
 
-# 转换完成后：调低 hardcodedBaseline 里对应的数字
-# 降到 0 的包：从 hardcodedBaseline 删掉，加进 i18nComplete
+# 转换完成后调低 hardcodedBaseline / consoleHardcodedLines 里对应的数字；
+# 降到 0 的包从 hardcodedBaseline 删掉，加进 i18nComplete。
 ```
 
 **每完成一个文件就调低基线** —— 棘轮松掉之后再想收紧会很难。
+**新写的文案从一开始就走目录**：等到棘轮顶到上限再迁移，成本高得多，
+而且那时候"顺手翻译"和"改代码"混在一起，评审也看不清。
