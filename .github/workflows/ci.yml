@@ -272,8 +272,40 @@ jobs:
           # 真正安装一遍再卸载 —— 这是端到端的证据。
           # 只有本机架构那个装得上，因此这里显式挑 amd64。
           deb=$(ls dist/*_amd64.deb)
-          sudo dpkg -i "$deb" || { echo "::error::dpkg -i 失败：$deb"; exit 1; }
-          isc version || { echo "::error::安装之后 isc version 跑不起来"; exit 1; }
+
+          # GitHub 的 runner 上有 unattended-upgrades 在后台跑，它会持有 dpkg
+          # 的**前端锁**。撞上时 dpkg 报的是
+          # "dpkg frontend lock is locked by another process" ——
+          # 那是环境竞争，不是包的问题，重试几次即可。
+          #
+          # 但**只对锁重试**：其它任何错误立刻失败，并把 dpkg 自己的话带进
+          # 注解 —— 否则 CI 上只剩一句"dpkg -i 失败"，而日志在 API 里是 403。
+          installed=0
+          for attempt in 1 2 3 4 5; do
+            if out=$(sudo dpkg -i "$deb" 2>&1); then
+              installed=1
+              echo "$out"
+              break
+            fi
+            if echo "$out" | grep -qi 'lock'; then
+              echo "第 $attempt 次撞上 dpkg 锁，5 秒后重试"
+              sleep 5
+              continue
+            fi
+            break
+          done
+          if [ "$installed" -ne 1 ]; then
+            echo "$out"
+            echo "::error::dpkg -i 失败：$deb —— $(printf '%s' "$out" | grep -v '^$' | tail -4 | tr '\n' ' ')"
+            exit 1
+          fi
+
+          if ! out=$(isc version 2>&1); then
+            echo "$out"
+            echo "::error::安装之后 isc version 跑不起来 —— $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$out"
           sudo dpkg -r isc
 
       - name: 核对 .rpm
