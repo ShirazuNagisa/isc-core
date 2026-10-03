@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // 本文件生成 macOS 的 .pkg 安装包。
@@ -44,6 +45,12 @@ func BuildPkg(opts PkgOptions) error {
 		return err
 	}
 
+	// 没设 SOURCE_DATE_EPOCH（开发构建）时用"现在"。
+	stamp := opts.Stamp
+	if stamp.IsZero() {
+		stamp = time.Now().UTC()
+	}
+
 	dir, err := os.MkdirTemp("", "isc-pkg-")
 	if err != nil {
 		return err
@@ -71,6 +78,37 @@ func BuildPkg(opts PkgOptions) error {
 	}
 
 	out := filepath.Join(dir, "isc.pkg")
+
+	// 暂存树的时间戳必须固定。
+	//
+	// pkgbuild 会把树里每个条目的 mtime 写进 **Payload 与 Bom**，而 `dir`
+	// 是刚建的临时目录 —— 不固定的话，同一个 SOURCE_DATE_EPOCH 下两次
+	// 构建出来的载荷都不同。
+	//
+	// 实测它确实管用：固定之后，两次构建的 Payload / Bom / PackageInfo
+	// **逐字节相同**（解出来逐成员比对过）。
+	//
+	// # 但 .pkg 整体仍然不是逐字节可复现的（已知，且刻意不掩盖）
+	//
+	// xar 的目录表（TOC）里还有一批与源码无关、而 pkgbuild 不给开关的字段：
+	//
+	//	creation-time      归档创建时刻
+	//	inode/deviceno     构建机上临时文件的 inode 与设备号
+	//	uid/user/gid/group 构建者的用户名（CI 上是 runner，本机上是开发者）
+	//	atime/mtime/ctime  同一批时间
+	//
+	// 试过把它们改写掉，**行不通**：xar 的校验覆盖到了压缩后的 TOC 字节，
+	// 只要重新压缩 TOC，`xar -t` 就报 "Checksums do not match!"。
+	// 实测三种情形全部失败：TOC 内容一个字符不改、只重新压缩；改一个时间
+	// 值；只把 uid 改成 0。也就是说"改写 TOC"这条路得连 xar 的校验和重算
+	// 规则一起实现，而那是另一件事的工程量。
+	//
+	// 结论：.pkg **不进**"逐字节可复现"的承诺，其余 11 个产物进
+	//（CI 的可复现构建跑在 Linux 上，本来也只比对那 11 个）。
+	if err := fixTreeTimes(filepath.Join(dir, "root"), stamp); err != nil {
+		return err
+	}
+
 	cmd := exec.Command(pkgbuild,
 		"--root", filepath.Join(dir, "root"),
 		"--identifier", pkgIdentifier,

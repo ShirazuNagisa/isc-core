@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,38 +181,73 @@ func TestPackZipIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestBuildTimestampHonorsSourceDateEpoch 验证可复现构建的约定。
-func TestBuildTimestampHonorsSourceDateEpoch(t *testing.T) {
-	// 1700000000 = 2023-11-14T22:13:20Z
-	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+// TestBuildArgsDisablesVCSStamping 钉住 `-buildvcs=false`。
+//
+// 它修的是一个只在 CI 上看得见的缺陷：默认的 `-buildvcs=auto` 会把主模块的
+// 伪版本写进二进制，而那个伪版本带一个 `+dirty` 后缀（来自 git status）。
+// 于是"同一个 SOURCE_DATE_EPOCH 下构建两次"必然不一致 —— 因为**第一次
+// 构建会创建一个未跟踪的输出目录**，第二次构建看到的工作区就不再干净。
+//
+// CI 的「可复现构建」因此挂了两轮，报的是
+//
+//	SHA256SUMS 两次构建不一致
+//	isc-1.2.3-windows-amd64.zip 两次构建不一致
+//
+// 而那句话完全指不到原因：产物确实只取决于源码，取决于的是 **git 状态**。
+// 这条测试把这个决定钉在这里，免得有人觉得它多余而删掉。
+func TestBuildArgsDisablesVCSStamping(t *testing.T) {
+	t.Parallel()
 
-	got := buildTimestamp()
-	const want = "2023-11-14T22:13:20Z"
-	if got != want {
-		t.Errorf("buildTimestamp() = %q，期望 %q", got, want)
+	args := buildArgs("-s -w", "/tmp/isc")
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "-buildvcs=false") {
+		t.Errorf("构建参数里必须有 -buildvcs=false，否则「工作区里有什么」会改变产物：%v", args)
+	}
+	// 这两条不能因为上面的改动而丢：ldflags 与输出路径仍要传下去。
+	if !strings.Contains(joined, "-ldflags -s -w") {
+		t.Errorf("ldflags 没有传下去: %v", args)
+	}
+	if !strings.Contains(joined, "-o /tmp/isc") {
+		t.Errorf("输出路径没有传下去: %v", args)
+	}
+	if !strings.Contains(joined, "-trimpath") {
+		t.Errorf("-trimpath 不能丢（构建机路径会进二进制）: %v", args)
 	}
 }
 
-func TestBuildTimestampFallsBackToNow(t *testing.T) {
+// TestSourceTimeHonorsSourceDateEpoch 验证可复现构建的约定。
+func TestSourceTimeHonorsSourceDateEpoch(t *testing.T) {
+	// 1700000000 = 2023-11-14T22:13:20Z
+	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+
+	got := sourceTime().Format(time.RFC3339)
+	const want = "2023-11-14T22:13:20Z"
+	if got != want {
+		t.Errorf("sourceTime() = %q，期望 %q", got, want)
+	}
+}
+
+func TestSourceTimeFallsBackToNow(t *testing.T) {
 	t.Setenv("SOURCE_DATE_EPOCH", "")
 
-	got := buildTimestamp()
-	if got == "" {
+	got := sourceTime()
+	if got.IsZero() {
 		t.Fatal("未设置 SOURCE_DATE_EPOCH 时应当回退到当前时间")
 	}
-	if _, err := time.Parse(time.RFC3339, got); err != nil {
+	if _, err := time.Parse(time.RFC3339, got.Format(time.RFC3339)); err != nil {
 		t.Errorf("回退值不是合法的 RFC3339: %q", got)
 	}
 }
 
-// TestBuildTimestampRejectsBadEpoch 验证非法值不会让构建失败。
+// TestSourceTimeRejectsBadEpoch 验证非法值不会让构建失败。
 //
 // 报错中止构建是过度反应：一个坏的环境变量不该让人打不出包，
 // 而回退到当前时间只是让构建不可复现 —— 那是一个已知的、可接受的降级。
-func TestBuildTimestampRejectsBadEpoch(t *testing.T) {
+func TestSourceTimeRejectsBadEpoch(t *testing.T) {
 	for _, bad := range []string{"not-a-number", "-5", "0", "  "} {
 		t.Setenv("SOURCE_DATE_EPOCH", bad)
-		if got := buildTimestamp(); got == "" {
+		if got := sourceTime(); got.IsZero() {
 			t.Errorf("SOURCE_DATE_EPOCH=%q 时应当回退到当前时间", bad)
 		}
 	}

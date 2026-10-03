@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 本文件测 .pkg 生成里**与平台无关**的部分。
@@ -129,5 +131,107 @@ func TestPkgNonDarwinStubReturnsSentinel(t *testing.T) {
 	err := BuildPkg(PkgOptions{Version: "0.1.0", OutPath: os.DevNull})
 	if !errors.Is(err, ErrPkgToolsMissing) {
 		t.Errorf("非 darwin 上应当返回 ErrPkgToolsMissing，得到: %v", err)
+	}
+}
+
+// TestFixTreeTimesPinsEveryEntry 钉住"暂存树的时间戳必须固定"。
+//
+// pkgbuild 把树里每个条目的 mtime 原样写进 Payload（odc cpio）与 Bom，
+// 而那棵树是每次构建现建的临时目录 —— 不固定的话，同一个 SOURCE_DATE_EPOCH
+// 下两次构建出来的**载荷**都不同（实测：差异只在 mtime 字段）。
+//
+// 注意它保证的范围：**载荷**可复现，而 .pkg 整体不是 —— xar 的目录表里
+// 还有构建机的 inode、用户名与三个时间，而那份 TOC 改不得（理由与实测
+// 证据见 pkg_darwin.go 的 BuildPkg）。这条测试守的是前半句，
+// 不要把它当成后半句。
+//
+// 这里也是它唯一的守门人：.pkg 只在 macOS 上打得出来，CI 的
+// 「可复现构建」跑在 Linux 上，看不见这一层。因此 fixTreeTimes 放在
+// 没有构建标签的 pkg_def.go 里 —— 任何平台都要能测到它。
+func TestFixTreeTimesPinsEveryEntry(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	nested := filepath.Join(root, "usr", "local", "bin")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(nested, "isc")
+	if err := os.WriteFile(target, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 先设一个"很旧"的时间：这样一来，断言通过就只能是**真的被改了**，
+	// 而不是原本就碰巧等于目标值。
+	if err := fixTreeTimes(root, time.Unix(1000000000, 0).UTC()); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Unix(1700000000, 0).UTC()
+	if err := fixTreeTimes(root, stamp); err != nil {
+		t.Fatal(err)
+	}
+
+	checked := 0
+	err := filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		checked++
+		if !info.ModTime().Equal(stamp) {
+			t.Errorf("%s 的 mtime = %v，期望 %v",
+				path, info.ModTime().UTC(), stamp)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// root + usr + local + bin + isc
+	if checked != 5 {
+		t.Errorf("检查了 %d 个条目，期望 5 个 —— 树没搭对，断言就不可信", checked)
+	}
+
+	// 内容不能被顺手改掉。
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "binary" {
+		t.Errorf("文件内容被改动了: %q", got)
+	}
+}
+
+// TestFixTreeTimesZeroIsNoop 钉住零值 = 不改动。
+//
+// 零值代表"没有设 SOURCE_DATE_EPOCH"（开发构建）。那时必须保持原样 ——
+// 把时间统一设成 1970 年会让开发产物看起来像坏掉的包。
+func TestFixTreeTimesZeroIsNoop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "isc")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fixTreeTimes(root, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Errorf("零值不该改动 mtime: %v → %v",
+			before.ModTime(), after.ModTime())
 	}
 }

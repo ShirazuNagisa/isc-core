@@ -124,7 +124,11 @@ func run(outDir, versionArg string, runTests bool) error {
 	// 设了它之后，同一份源码 + 同一个 epoch 会产出**逐字节相同**的
 	// 二进制 —— 而这是"校验和一致"能证明"两个产物来自同一份源码"
 	// 的前提。不设时用当前时间，那是开发构建的合理默认。
-	buildTime := buildTimestamp()
+	// 一个时刻，两处用途：注入二进制的构建时间，以及 .pkg 暂存树里的
+	// 文件 mtime（见 fixTreeTimes）。**只取一次**，否则同一个包里会出现
+	// 两个不同的时间戳。
+	stamp := sourceTime()
+	buildTime := stamp.Format(time.RFC3339)
 
 	fmt.Printf("ISC-Core 发布构建\n")
 	fmt.Printf("  版本    %s\n", version)
@@ -289,6 +293,7 @@ func run(outDir, versionArg string, runTests bool) error {
 				BinaryPath: filepath.Join(stage, exeNameFor(t)),
 				Version:    version,
 				OutPath:    pkgPath,
+				Stamp:      stamp,
 			})
 			switch {
 			case err == nil:
@@ -368,16 +373,7 @@ func buildTarget(root string, t target, outDir, ldflags string) (string, error) 
 	}
 	binPath := filepath.Join(stage, exeName)
 
-	cmd := exec.Command("go", "build",
-		// -trimpath 去掉产物里的本机路径。
-		//
-		// 不做的话，构建机上用户的目录名会被写进二进制 ——
-		// 那既是隐私问题，也让构建不可复现。
-		"-trimpath",
-		"-ldflags", ldflags,
-		"-o", binPath,
-		"./cmd/isc",
-	)
+	cmd := exec.Command("go", buildArgs(ldflags, binPath)...)
 	cmd.Dir = root
 	// CGO_ENABLED=0 是本项目的硬约束（见 docs/DECISIONS.md）。
 	//
@@ -409,6 +405,46 @@ func buildTarget(root string, t target, outDir, ldflags string) (string, error) 
 	}
 
 	return stage, nil
+}
+
+// buildArgs 返回 `go build` 的参数。
+//
+// 单独抽出来是为了能被测试钉住 —— 其中 `-buildvcs=false` 那一条修的是一个
+// 只在 CI 上看得见的缺陷，而它的失败信息（"两次构建不一致"）完全指不到原因。
+func buildArgs(ldflags, binPath string) []string {
+	return []string{
+		"build",
+
+		// -trimpath 去掉产物里的本机路径。
+		//
+		// 不做的话，构建机上用户的目录名会被写进二进制 ——
+		// 那既是隐私问题，也让构建不可复现。
+		"-trimpath",
+
+		// 关掉 Go 的 VCS 自动注入。
+		//
+		// 默认（-buildvcs=auto）下 Go 会把主模块的**伪版本**写进二进制，
+		// 而伪版本带一个 `+dirty` 后缀 —— 它来自 `git status`。
+		//
+		// 于是"同一个 SOURCE_DATE_EPOCH 下构建两次"必然不一致：
+		//
+		//	第一次构建：工作区干净  → v0.0.0-…-d2e52b6bc31f
+		//	第二次构建：多了未跟踪的 dist-a/ → v0.0.0-…-d2e52b6bc31f+dirty
+		//
+		// 两次的二进制因此不同，包不同，校验和也不同。这个坑在 CI 的
+		// 「可复现构建」里挂了两轮，报的是 `SHA256SUMS 两次构建不一致`
+		// 与 `isc-...-windows-amd64.zip 两次构建不一致` —— 而真正的原因是
+		// **第一次构建自己制造了那个未跟踪目录**。
+		//
+		// 版本与提交号本来就由 ldflags 显式注入（internal/version），
+		// 因此关掉它不丢任何东西；留下它反而让"产物只取决于源码"
+		// 这句话不成立 —— 它还取决于构建时工作区里有什么杂物。
+		"-buildvcs=false",
+
+		"-ldflags", ldflags,
+		"-o", binPath,
+		"./cmd/isc",
+	}
 }
 
 // pack 把暂存目录打成一个压缩包。
@@ -644,19 +680,24 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// buildTimestamp 返回构建时间戳。
+// sourceTime 返回构建应当使用的时间戳。
 //
 // 优先用 SOURCE_DATE_EPOCH（可复现构建的通行约定），否则用当前时间。
-func buildTimestamp() string {
+//
+// 返回 time.Time 而不是格式化好的字符串，是因为**同一个时刻有两个用处**：
+// 注入二进制的构建时间，以及 .pkg 暂存树里每个文件的 mtime（pkgbuild 会把
+// 它原样写进 Payload 与 Bom）。两处各自取一次"现在"就会在同一个包里留下
+// 两个不同的时间戳。
+func sourceTime() time.Time {
 	if raw := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH")); raw != "" {
 		secs, err := strconv.ParseInt(raw, 10, 64)
 		if err == nil && secs > 0 {
-			return time.Unix(secs, 0).UTC().Format(time.RFC3339)
+			return time.Unix(secs, 0).UTC()
 		}
 		fmt.Fprintf(os.Stderr,
 			"警告：SOURCE_DATE_EPOCH=%q 无法解析，改用当前时间\n", raw)
 	}
-	return time.Now().UTC().Format(time.RFC3339)
+	return time.Now().UTC()
 }
 
 // deriveVersion 由 git 推导版本号。

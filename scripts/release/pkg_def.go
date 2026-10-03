@@ -3,7 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // 本文件是 macOS .pkg 生成的**共享声明**：类型、常量、哨兵错误。
@@ -17,6 +21,41 @@ type PkgOptions struct {
 	BinaryPath string // 要打包的可执行文件（Mach-O）
 	Version    string // 版本号
 	OutPath    string // 产物路径
+
+	// Stamp 是写进包内部的**固定时刻**（暂存树里每个文件的 mtime）。
+	//
+	// 零值表示"用当前时间" —— 那是开发构建的合理默认。设了
+	// SOURCE_DATE_EPOCH 时它会是一个固定值，两次构建因此逐字节相同。
+	Stamp time.Time
+}
+
+// fixTreeTimes 把一棵目录树里所有条目的 mtime 统一设成 t。
+//
+// # 为什么必须做这件事
+//
+// pkgbuild 把 `--root` 树里每个条目的 **mtime 原样写进 Payload（odc cpio）
+// 与 Bom**。而那棵树是每次构建现建的临时目录，mtime 就是"现在" ——
+// 于是同一个 epoch、同一份源码，两次构建出来的**载荷**都不同。
+//
+// 这是实测出来的：两次构建的 .pkg 解出来后，cpio 里只有 mtime 字段有差异
+// （每个条目差两三个八进制数字），其余每一个字节都相同。固定之后，
+// Payload / Bom / PackageInfo 三个成员逐字节相同。
+//
+// # 它**不能**让 .pkg 整体可复现
+//
+// xar 的目录表里还写着构建机的 inode、用户名与三个时间，而那份 TOC 不能
+// 安全改写（xar 的校验覆盖到压缩后的 TOC 字节）。原因与实测证据写在
+// pkg_darwin.go 的 BuildPkg 里 —— 那里是读代码的人会经过的地方。
+func fixTreeTimes(root string, t time.Time) error {
+	if t.IsZero() {
+		return nil
+	}
+	return filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chtimes(path, t, t)
+	})
 }
 
 // pkgIdentifier 是这个包的**跨版本标识**。
