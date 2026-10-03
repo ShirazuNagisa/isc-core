@@ -155,9 +155,14 @@ weight 丢失），并且都没有粉饰。这些已全部进 `docs/PROVIDER-MAT
 - `SecretStore` 走系统 API 调用（`golang.org/x/sys/windows`、`syscall`），而不是链接 libsecret 等 C 库；
 - CI 中加一道检查：`CGO_ENABLED=0 go build ./...` 必须通过。
 
-**代价（必须知晓）**：`go test -race` 需要 cgo，因此**开发机上跑不了竞态检测**。
-处置方式：CI 在 Linux / macOS 上用 `CGO_ENABLED=1` 单独跑一组 `-race` 测试 ——
-只影响测试，不影响发布产物的构建形态。见 `.github/workflows/ci.yml` 的 `race` job。
+**代价（必须知晓）**：`go test -race` 需要 cgo。原先的开发机（Windows，无 MSVC）
+因此**跑不了竞态检测**，只能靠 CI 的 `race` job（Linux + `CGO_ENABLED=1`）。
+
+**2026-10-03 更新**：迁移到 macOS 之后这条限制消失了 —— 本机有 Xcode 的
+clang，`CGO_ENABLED=1 go test -race ./... -count=1`（与 CI 的 race job 完全
+同一条命令）在 22 个包上全绿。因此竞态**现在可以在本机先查**，
+CI 那一步退回成第二道防线，而不是唯一一道。
+注意发布产物仍然坚持 `CGO_ENABLED=0`（见 `Makefile` 与构建矩阵）。
 
 ---
 
@@ -2663,7 +2668,7 @@ CI 的 `reproducible` 跑在 Linux 上，本来就不产出 `.pkg`，因此它�
 | R11 | 移植 ddns-go 带入全局可变状态 | 并发缺陷 | 移植时强制剥离包级全局状态，用依赖注入替代；代码审查硬性检查项 |
 | R12 | 无 MSVC 工具链 | 交叉编译复杂化 | 硬约束：禁止任何 cgo 依赖；CI 加 `CGO_ENABLED=0` 构建检查 |
 | R13 | **令牌对本机其余交互用户可读** | 多用户机器上的本地提权路径 | `runtime.json` 含访问令牌，而"可读"等价于"可控制内核"（内核以 SYSTEM 运行，能改防火墙）。目标场景（家用单用户机器）不构成问题，但必须如实记录。**根治方案**：识别命名管道客户端的会话，只放行控制台会话的用户与管理员（`WTSGetActiveConsoleSessionId` + `WTSQuerySessionInformation`），或改为按用户显式授权。排在 M5 之后。见 `docs/DECISIONS.md` D09 |
-| R14 | 开发机无法跑 `go test -race` | 并发缺陷漏检 | 竞态检测需要 cgo，而本机无 C 工具链。处置：CI 在 Linux / macOS 上用 `CGO_ENABLED=1` 单独跑一组 `-race`（见 `.github/workflows/ci.yml`） |
+| R14 | ~~开发机无法跑 `go test -race`~~ **已消解**（2026-10-03） | 并发缺陷漏检 | 迁移到 macOS 后本机有 clang，`CGO_ENABLED=1 go test -race ./...` 可跑（22 个包全绿）。CI 的 `race` job 仍在，作为第二道防线 —— 它是**另一台机器**上的复现，价值不减 |
 
 ---
 
