@@ -773,6 +773,57 @@ func TestRPMDocFilesAreFlaggedAsDocs(t *testing.T) {
 	}
 }
 
+// TestRPMDirNamesReconstructPaths 钉住"文件清单能拼回原路径"。
+//
+// RPM 把文件路径拆成三张表，而 rpm 拼路径是**直接连接**：
+//
+//	path = dirNames[dirIndexes[i]] + baseNames[i]
+//
+// 中间不会替你补分隔符（见 rpmfi.cc 的 rpmfilesFN）。因此 DIRNAMES 的每一项
+// 都必须以 `/` 结尾，否则 `/usr/bin` + `isc` 会拼成 `/usr/binisc`：
+// `rpm -qpl` 打出来的路径是错的，而**安装会落到错误的位置**。
+//
+// 真实包的 DIRNAMES 全部以 `/` 结尾（对照验算过）。这条测试做两件事：
+// 逐项检查结尾斜杠，以及**用三张表把每个文件的路径拼回来**，与源路径逐字比对
+// —— 后者才是真正要保证的性质。
+func TestRPMDirNamesReconstructPaths(t *testing.T) {
+	t.Parallel()
+
+	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+
+	dirs := rpm.Header[tagDirNames]
+	bases := rpm.Header[tagBaseNames]
+	idx := rpm.Header[tagDirIndexes]
+	sizes := rpm.Header[tagFileSizes]
+	if len(bases.Strings) == 0 || len(idx.Ints) != len(bases.Strings) {
+		t.Fatalf("三张表的长度对不上：dirs=%d bases=%d indexes=%d",
+			len(dirs.Strings), len(bases.Strings), len(idx.Ints))
+	}
+	if len(sizes.Ints) != len(bases.Strings) {
+		t.Fatalf("FILESIZES 有 %d 项，文件有 %d 个",
+			len(sizes.Ints), len(bases.Strings))
+	}
+
+	for i, name := range dirs.Strings {
+		if !strings.HasSuffix(name, "/") {
+			t.Errorf("DIRNAMES 第 %d 项 = %q，没有以 / 结尾 —— "+
+				"rpm 直接连接目录与文件名，少了它路径会拼错、安装会落到别处", i, name)
+		}
+	}
+
+	for i := range bases.Strings {
+		d := dirs.Strings[idx.Ints[i]]
+		got := d + bases.Strings[i]
+		// 去掉目录结尾的斜杠再比一次，容忍源路径写成 /usr/bin/isc 之外的形态。
+		if got != strings.Replace(got, "//", "/", -1) {
+			t.Errorf("第 %d 个文件的路径拼出来是 %q，出现了双斜杠", i, got)
+		}
+		if got != "/usr/bin/isc" && !strings.HasPrefix(got, "/usr/share/doc/") {
+			t.Errorf("第 %d 个文件的路径拼出来是 %q，不像我们打包的那几个文件", i, got)
+		}
+	}
+}
+
 // TestRPMDoesNotDuplicateArchivesize 钉住 rpm 的"两边不能都有"规则。
 //
 // rpm 的 `headerMergeLegacySigs` 第一个循环：

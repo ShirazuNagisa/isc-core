@@ -563,6 +563,21 @@ func rpmSplitPaths(files []rpmFile) (dirs []string, dirIdx []uint32, basenames [
 		dir := path.Dir(f.Path)
 		base := path.Base(f.Path)
 
+		// DIRNAMES 的每一项都**必须以 `/` 结尾**。
+		//
+		// rpm 拼路径的方式是**直接连接**：`dirNames[dirIndexes[i]] + baseNames[i]`
+		//（见 rpmfi.cc 的 rpmfilesFN），中间不会替你补分隔符。少了这个斜杠，
+		// `/usr/bin` + `isc` 会拼成 `/usr/binisc`：
+		//
+		//   - `rpm -qpl` 打出来的路径是错的（CI 那一步因此找不到 /usr/bin/isc）；
+		//   - 更要紧的是**装到错误的位置**。
+		//
+		// 真实包的 DIRNAMES 全部以 `/` 结尾（验算过）。根目录是特例：它本身就
+		// 是 `/`。
+		if dir != "/" {
+			dir += "/"
+		}
+
 		idx, ok := seen[dir]
 		if !ok {
 			idx = len(dirs)

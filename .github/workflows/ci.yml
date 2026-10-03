@@ -240,10 +240,11 @@ jobs:
             #
             # 现在只做两件事：取出含 usr/bin/isc 的那一行，看第一列是不是
             # -rwxr-xr-x；不匹配时**把那一行原样打出来**。
-            line=$(echo "$contents" | grep -F 'usr/bin/isc' | head -1)
+            line=$(echo "$contents" | grep -F 'usr/bin/isc' | head -1 || true)
             case "$line" in
               "")
                 echo "::error::$d 的清单里没有 usr/bin/isc"
+                echo "$contents"
                 exit 1
                 ;;
               -rwxr-xr-x*)
@@ -348,10 +349,16 @@ jobs:
 
             # 可执行文件必须在，且必须带执行位。
             # 与 .deb 那处同样的理由：不匹配列宽，失败时把那一行打出来。
-            line=$(echo "$verbose" | grep -F '/usr/bin/isc' | head -1)
+            #
+            # `|| true` 是必须的：`set -o pipefail` 下，grep 没匹配就让整个
+            # 管道返回非零，`set -e` 于是**静默**结束这一步 —— 连我们自己的
+            # ::error:: 都来不及打（上一轮就是这么失败的，注解里只有一句
+            # "exit code 1"）。
+            line=$(echo "$verbose" | grep -F '/usr/bin/isc' | head -1 || true)
             case "$line" in
               "")
                 echo "::error::$r 的清单里没有 /usr/bin/isc"
+                echo "$verbose"
                 exit 1
                 ;;
               -rwxr-xr-x*)
