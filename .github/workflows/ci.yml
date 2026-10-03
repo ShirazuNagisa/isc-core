@@ -387,6 +387,46 @@ jobs:
             }
           done
 
+          # 真正安装一遍再卸载 —— 与 .deb 那一步对称。
+          #
+          # **只查询不安装是不够的**：2026-10-03 那轮里，rpm 的 `-qip/-qlp`
+          # 全部通过，而包里仍有两处只有安装才会暴露的缺陷（DIRNAMES 少了
+          # 结尾斜杠导致路径拼成 /usr/binisc、cpio 载荷里没有目录条目）。
+          # 查询读的是 header，安装读的是载荷与文件清单的**实际效果**。
+          #
+          # 只有本机架构那个装得上。
+          rpm=$(ls dist/*_amd64.rpm)
+          if [ -e /usr/bin/isc ]; then
+            echo "::error::/usr/bin/isc 已存在（上一步没清干净），无法判断这次安装的效果"
+            exit 1
+          fi
+
+          sudo rpm --initdb || true
+          sudo rpm -i "$rpm" || {
+            echo "::error::rpm -i 失败：$rpm"
+            sudo rpm -qp --scripts "$rpm" 2>&1 | head -20 || true
+            exit 1
+          }
+
+          echo "--- 安装结果 ---"
+          rpm -ql isc
+          test -x /usr/bin/isc || {
+            echo "::error::装完之后 /usr/bin/isc 不存在或没有执行位 —— 路径拼错时就是这样"
+            exit 1
+          }
+          test -f /usr/share/doc/isc/LICENSE || {
+            echo "::error::装完之后缺少 /usr/share/doc/isc/LICENSE"
+            exit 1
+          }
+          isc version || { echo "::error::装完之后 isc version 跑不起来"; exit 1; }
+
+          sudo rpm -e isc || { echo "::error::rpm -e 卸载失败"; exit 1; }
+          test ! -e /usr/bin/isc || {
+            echo "::error::卸载之后 /usr/bin/isc 还在"
+            exit 1
+          }
+          echo "✅ rpm 安装 / 运行 / 卸载 全部通过"
+
       - name: 核对版本注入
         run: |
           set -euo pipefail
@@ -643,4 +683,221 @@ jobs:
                 exit 1
               }
             fi
+
+            # 载荷里的路径必须是装完之后真正会出现的那个。
+            #
+            # 这一条抓的是"结构与实际不符"：rpm 那一边出过 DIRNAMES 少结尾
+            # 斜杠的事故 —— 包能解开、能查询，只是路径会拼成 `/usr/binisc`，
+            # 而所有结构检查都看不出来。
+            pkgutil --payload-files "$p" | grep -qx './usr/local/bin/isc' || {
+              echo "::error::$p 的载荷里没有 ./usr/local/bin/isc"
+              pkgutil --payload-files "$p" | head -20
+              exit 1
+            }
           done
+
+          # 真正安装一遍 —— 这是唯一能证明"用户双击装得上"的动作。
+          #
+          # 只做结构核对是不够的：deb 与 rpm 那两步都在结构核对之后才真正
+          # 安装，而真正安装各抓到过一处结构检查看不见的缺陷。
+          case "$(uname -m)" in
+            arm64) arch=arm64 ;;
+            x86_64) arch=amd64 ;;
+            *) echo "::error::不认识的架构 $(uname -m)"; exit 1 ;;
+          esac
+          p="dist/isc_0.1.0-ci_${arch}.pkg"
+          echo "在本机（$(uname -m)）安装 $p"
+
+          if [ -e /usr/local/bin/isc ]; then
+            echo "::error::/usr/local/bin/isc 已存在，无法判断这次安装的效果"
+            exit 1
+          fi
+
+          sudo installer -pkg "$p" -target / || {
+            echo "::error::installer 安装失败：$p"
+            exit 1
+          }
+
+          echo "--- 安装结果 ---"
+          test -x /usr/local/bin/isc || {
+            echo "::error::装完之后 /usr/local/bin/isc 不存在或没有执行位"
+            exit 1
+          }
+          /usr/local/bin/isc version || { echo "::error::装完之后 isc version 跑不起来"; exit 1; }
+          pkgutil --pkg-info com.shirazunagisa.isc || {
+            echo "::error::receipt 没写进 pkgutil 数据库"
+            exit 1
+          }
+
+          # 清理：pkg 没有卸载器，receipt 与文件都得自己收掉。
+          sudo rm -f /usr/local/bin/isc
+          sudo pkgutil --forget com.shirazunagisa.isc > /dev/null
+          test ! -e /usr/local/bin/isc || { echo "::error::清理失败"; exit 1; }
+          echo "✅ pkg 安装 / 运行 / 清理 全部通过"
+
+  # ---------------------------------------------------------------------------
+  # 系统服务安装（要 root）
+  #
+  # 这一组存在的理由只有一个：**launchd 与 systemd 的后端曾经写好了却根本没
+  # 接上**（装配点还返回 stub，于是 `isc service install` 报"将在 M5 实现"），
+  # 而当时的测试全都看不见 —— 后端自己的测试是与平台无关的纯逻辑，
+  # "装配点接的是实现还是 stub"没人检查。
+  #
+  # 因此这里做真正的事：注册服务、查状态、启动、确认内核真的起来了、卸载。
+  # 这些动作都需要 root，runner 上正好有（sudo）。
+  # ---------------------------------------------------------------------------
+  service-linux:
+    name: 服务安装 linux (systemd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 构建并安装服务
+        run: |
+          set -euo pipefail
+
+          data=/var/lib/isc-ci
+          exe=/tmp/isc-ci/isc
+          mkdir -p /tmp/isc-ci
+          CGO_ENABLED=0 go build -o "$exe" ./cmd/isc
+
+          # install 会写 unit 并 reload，然后启用它。
+          sudo "$exe" service install --data-dir "$data" --exe "$exe" --no-restart
+
+          # unit 里必须真的带上我们给的数据目录与可执行文件 ——
+          # 服务进程的环境与当前 shell 无关，靠环境变量传不过去。
+          unit=$(sudo systemctl show -p FragmentPath --value isc)
+          echo "unit: $unit"
+          sudo cat "$unit"
+          sudo grep -q "ExecStart=$exe daemon run --data-dir $data" "$unit" || {
+            echo "::error::unit 里的 ExecStart 不是我们期望的那一条"
+            exit 1
+          }
+
+          sudo "$exe" service status || true
+
+      - name: 启动并确认内核真的活了
+        run: |
+          set -euo pipefail
+
+          data=/var/lib/isc-ci
+          exe=/tmp/isc-ci/isc
+
+          sudo "$exe" service start
+
+          # 等内核起来（socket 与 runtime.json 都要出现）。
+          for i in $(seq 1 30); do
+            if sudo test -S "$data/run/isc.sock"; then break; fi
+            sleep 1
+          done
+
+          sudo "$exe" status --data-dir "$data" --json > /tmp/status.json || true
+          cat /tmp/status.json
+          # JSON 里的字段是 "running": true（不是 health.status —— 那个是
+          # "ok"，表示内核自己健康）。本机跑过一遍确认过形状。
+          grep -q '"running": *true' /tmp/status.json || {
+            echo "::error::服务启动了，但内核没在跑 —— 看上面的输出"
+            sudo journalctl -u isc --no-pager | tail -40 || true
+            exit 1
+          }
+
+          # 服务状态下应当报"内核在跑 + 服务已安装"。
+          sudo "$exe" service status
+
+      - name: 卸载并确认清理干净
+        run: |
+          set -euo pipefail
+
+          exe=/tmp/isc-ci/isc
+          sudo "$exe" service stop || true
+          sudo "$exe" service uninstall
+
+          if systemctl list-unit-files | grep -q '^isc\.service'; then
+            echo "::error::卸载之后 unit 文件还在"
+            exit 1
+          fi
+          sudo test ! -e /etc/systemd/system/isc.service || {
+            echo "::error::/etc/systemd/system/isc.service 还在"
+            exit 1
+          }
+          echo "✅ systemd 安装 / 启动 / 运行 / 卸载 全部通过"
+
+  service-macos:
+    name: 服务安装 macos (launchd)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 构建并安装服务
+        run: |
+          set -euo pipefail
+
+          data=/tmp/isc-ci-data
+          exe=/tmp/isc-ci/isc
+          mkdir -p /tmp/isc-ci
+          CGO_ENABLED=0 go build -o "$exe" ./cmd/isc
+
+          sudo "$exe" service install --data-dir "$data" --exe "$exe" --no-restart
+
+          plist=/Library/LaunchDaemons/com.isc.core.plist
+          sudo test -f "$plist" || { echo "::error::plist 没有写出来：$plist"; exit 1; }
+          sudo cat "$plist"
+
+          # plist 里必须带上数据目录与可执行文件。
+          sudo grep -q "<string>$exe</string>" "$plist" || {
+            echo "::error::plist 里的可执行文件不是我们给的那个"
+            exit 1
+          }
+          sudo grep -q "<string>--data-dir</string>" "$plist" || {
+            echo "::error::plist 里没有把数据目录传给服务进程"
+            exit 1
+          }
+
+          sudo "$exe" service status || true
+
+      - name: 启动并确认内核真的活了
+        run: |
+          set -euo pipefail
+
+          data=/tmp/isc-ci-data
+          exe=/tmp/isc-ci/isc
+
+          sudo "$exe" service start
+
+          for i in $(seq 1 30); do
+            if sudo test -S "$data/run/isc.sock"; then break; fi
+            sleep 1
+          done
+
+          sudo "$exe" status --data-dir "$data" --json > /tmp/status.json || true
+          cat /tmp/status.json
+          grep -q '"running": *true' /tmp/status.json || {
+            echo "::error::服务启动了，但内核没在跑 —— 看上面的输出"
+            sudo launchctl print system/com.isc.core 2>&1 | tail -30 || true
+            exit 1
+          }
+
+          sudo "$exe" service status
+
+      - name: 卸载并确认清理干净
+        run: |
+          set -euo pipefail
+
+          exe=/tmp/isc-ci/isc
+          plist=/Library/LaunchDaemons/com.isc.core.plist
+
+          sudo "$exe" service stop || true
+          sudo "$exe" service uninstall
+
+          sudo test ! -e "$plist" || { echo "::error::卸载之后 plist 还在"; exit 1; }
+          echo "✅ launchd 安装 / 启动 / 运行 / 卸载 全部通过"
