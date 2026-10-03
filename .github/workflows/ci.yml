@@ -324,17 +324,27 @@ jobs:
           fi
           echo "找到 ${#rpms[@]} 个 .rpm：${rpms[*]}"
 
+          # 每一条 rpm 命令都把**它自己的报错**带进注解：CI 日志通过 API 取
+          # 是 403，注解是唯一能看见错误原文的通道（.deb 那一步的教训）。
+          run_rpm() {
+            local out
+            if ! out=$("$@" 2>&1); then
+              echo "$out"
+              echo "::error::$1 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -3 | tr '\n' ' ')"
+              return 1
+            fi
+            printf '%s\n' "$out"
+          }
+
           for r in "${rpms[@]}"; do
             echo "--- rpm -qip $r ---"
-            rpm -qip "$r" || { echo "::error::$r 不是 rpm 认得的包"; exit 1; }
+            run_rpm rpm -qip "$r" || exit 1
 
             echo "--- rpm -qlp $r ---"
-            paths=$(rpm -qlp "$r") || { echo "::error::$r 的内容读不出来"; exit 1; }
-            echo "$paths"
+            paths=$(run_rpm rpm -qlp "$r") || exit 1
 
             echo "--- rpm -qplv $r ---"
-            verbose=$(rpm -qplv "$r") || { echo "::error::$r 的详细内容读不出来"; exit 1; }
-            echo "$verbose"
+            verbose=$(run_rpm rpm -qplv "$r") || exit 1
 
             # 可执行文件必须在，且必须带执行位。
             # 与 .deb 那处同样的理由：不匹配列宽，失败时把那一行打出来。
@@ -364,7 +374,7 @@ jobs:
           # 载荷完整性：rpm -K 会校验签名 header 里的校验和。
           # 校验和算错时它只说"包已损坏"，而那是很难归因的。
           for r in "${rpms[@]}"; do
-            rpm -K "$r" || {
+            run_rpm rpm -K "$r" || {
               echo "::error::$r 的校验和不通过"
               exit 1
             }

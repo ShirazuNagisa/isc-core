@@ -45,6 +45,10 @@ import (
 const (
 	rpmLeadSize = 96
 
+	// rpmLeadMajor 是 lead 里的主版本号。rpm 自己不校验它（只校验魔数），
+	// 但 `file` 靠它报告 "RPM v3.0"。
+	rpmLeadMajor = 3
+
 	// rpmFileTypeBits 是普通文件的 POSIX 类型位（S_IFREG）。
 	//
 	// RPM 的 mode 字段（头部标签与 cpio 条目都是）带这一位，
@@ -214,17 +218,33 @@ func rpmLead(opts RpmOptions) []byte {
 	lead := make([]byte, rpmLeadSize)
 
 	copy(lead[0:4], rpmLeadMagic)
+
+	// 主/次版本号：**3.0**。
+	//
+	// rpm 自己的写入端就是 3（有 RPMTAG_RPMFORMAT 时是 4）—— 它不校验这个
+	// 字段（只校验魔数），但 `file` 之类的工具靠它报告"RPM v3.0"，
+	// 而写 0 会得到一句 "RPM v0.0"。
+	lead[4] = rpmLeadMajor
+	lead[5] = 0
+
 	// 类型：0 = 二进制包，1 = 源码包。
-	lead[4] = 0
-	// 架构号与操作系统号：现代 rpm 忽略，填 0。
 	binary.BigEndian.PutUint16(lead[6:8], 0)
-	binary.BigEndian.PutUint16(lead[8:10], 1) // 1 = i18n 包名（已弃用但合法）
+	// 架构号：已弃用，rpm 写 0。
+	binary.BigEndian.PutUint16(lead[8:10], 0)
 
-	name := opts.Package
+	// 名字：rpm 写 NEVR（名字-版本-发布号），NUL 结尾、超长截断。
+	// 同样是弃用字段（现代 rpm 只读 header），但按它的写法来最省事。
+	name := opts.Package + "-" + opts.Version + "-" + opts.Release
+	if len(name) > 65 {
+		name = name[:65]
+	}
 	copy(lead[10:76], name)
-	binary.BigEndian.PutUint16(lead[76:78], uint16(len(name)))
 
-	// 签名类型：5 = 无签名。
+	// 操作系统号：已弃用，rpm 写 0（**这里曾经写成名字长度** —— 一个纯粹的
+	// 笔误，因为 76:78 这段既不是名字长度、也没有别的东西要放）。
+	binary.BigEndian.PutUint16(lead[76:78], 0)
+
+	// 签名类型：5 = 有签名 header（RPMSIGTYPE_HEADERSIG）。
 	binary.BigEndian.PutUint16(lead[78:80], 5)
 	return lead
 }

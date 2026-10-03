@@ -304,9 +304,10 @@ func TestRPMLead(t *testing.T) {
 	t.Parallel()
 
 	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+	lead := rpm.Lead
 
-	if len(rpm.Lead) != rpmLeadSize {
-		t.Fatalf("lead 是 %d 字节，期望 %d", len(rpm.Lead), rpmLeadSize)
+	if len(lead) != rpmLeadSize {
+		t.Fatalf("lead 是 %d 字节，期望 %d", len(lead), rpmLeadSize)
 	}
 	// **lead 的魔数与 header 的魔数不是一回事**：
 	//
@@ -316,12 +317,35 @@ func TestRPMLead(t *testing.T) {
 	// 这里曾经写的是 `rpmHeaderMagic` —— 而实现里也用了同一个常量，
 	// 于是测试与实现互相印证、一起错。断言写成**字面量**，这样常量写错
 	// 时它抓得住。
-	if !bytes.HasPrefix(rpm.Lead, []byte{0xed, 0xab, 0xee, 0xdb}) {
-		t.Errorf("lead 魔数 = % x，期望 ed ab ee db（0xEDABEEDB）",
-			rpm.Lead[0:4])
+	if !bytes.HasPrefix(lead, []byte{0xed, 0xab, 0xee, 0xdb}) {
+		t.Errorf("lead 魔数 = % x，期望 ed ab ee db（0xEDABEEDB）", lead[0:4])
 	}
-	if rpm.Lead[4] != 0 {
-		t.Errorf("包类型 = %d，期望 0（二进制包）", rpm.Lead[4])
+
+	// 字段偏移（rpm 的 struct rpmlead_s）：
+	//
+	//	0:4   magic        4:5 major    5:6 minor   6:8 type
+	//	8:10  archnum      10:76 name   76:78 osnum  78:80 signature_type
+	//
+	// 这条测试原先查的是 lead[4] 并把它叫"包类型" —— 那个偏移是**主版本号**，
+	// 类型在 6:8。两个字段都写错，而断言把错的那个当成了基准。
+	if lead[4] != 3 {
+		t.Errorf("lead 主版本号 = %d，期望 3（rpm 自己写的就是 3）", lead[4])
+	}
+	if lead[5] != 0 {
+		t.Errorf("lead 次版本号 = %d，期望 0", lead[5])
+	}
+	if typ := binary.BigEndian.Uint16(lead[6:8]); typ != 0 {
+		t.Errorf("包类型 = %d，期望 0（二进制包；1 是源码包）", typ)
+	}
+	if os := binary.BigEndian.Uint16(lead[76:78]); os != 0 {
+		t.Errorf("osnum = %d，期望 0（已弃用，rpm 写 0）", os)
+	}
+	if st := binary.BigEndian.Uint16(lead[78:80]); st != 5 {
+		t.Errorf("signature_type = %d，期望 5（有签名 header）", st)
+	}
+	name := strings.TrimRight(string(lead[10:76]), "\x00")
+	if !strings.HasPrefix(name, "isc") {
+		t.Errorf("lead 里的名字 = %q，期望以包名开头（rpm 写 NEVR）", name)
 	}
 }
 
