@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
-# 构建**可被其它语言链接的内核库**（c-shared）。
+# 构建**可被其它语言链接的内核库**（c-shared）—— 这就是 ISC-Core 的发布产物。
 #
 # 为什么必须是 c-shared：GUI 在 macOS 上用 Swift、在 Windows 上用 C#，
 # 两者能链接的都只有 C ABI。cgo 会同时产出头文件，Swift 用 bridging header、
 # C# 用 DllImport 直接调用。
 #
+# **安装包不再是发布产物**（2026-10-03 项目主决定）：.deb / .rpm / .pkg / .msi
+# 与各平台归档都从发布里去掉，发布只有这个库。
+# 打包代码仍留在 scripts/release（有人要自己打包时可以用），只是不进发布。
+#
 # 用法：
-#   scripts/build-libisc.sh [输出目录]      # 默认 dist/
+#   scripts/build-libisc.sh [输出目录]      # 默认 dist/；构建后刷新 SHA256SUMS
 #
 # 注意：**这一步必须开 cgo**（CGO_ENABLED=1），这与内核其余部分坚持的
 # CGO_ENABLED=0 并不矛盾 —— 内核本体、CLI 与守护进程仍然零 cgo，
@@ -58,5 +62,23 @@ CGO_ENABLED=1 go build \
             $extldflags" \
   -o "$lib" ./cmd/libisc
 
+header="${lib%.*}.h"
+
 echo "✅ $lib"
-echo "✅ ${lib%.*}.h   （Swift 用 bridging header，C# 用 DllImport）"
+echo "✅ $header   （Swift 用 bridging header，C# 用 DllImport）"
+
+# 刷新校验和：发布包只有这两个文件，校验和也只覆盖它们。
+if command -v shasum >/dev/null 2>&1; then
+  (cd "$out" && shasum -a 256 "$(basename "$lib")" "$(basename "$header")" > SHA256SUMS)
+  echo "✅ $out/SHA256SUMS"
+fi
+
+cat <<EOF
+
+发布产物（仅此三件）：
+  $lib
+  $header
+  $out/SHA256SUMS
+
+GUI 链接方式见 docs/LIBRARY-API.md。
+EOF

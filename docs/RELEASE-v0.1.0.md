@@ -35,34 +35,28 @@ CGO_ENABLED=0 go build -o /tmp/isc-acc/isc ./cmd/isc
 sudo scripts/acceptance-macos-sudo.sh /tmp/isc-acc/isc
 ```
 
-## 产物
+## 产物：只有可链接的库
 
-在 macOS（darwin/arm64）上构建，共 13 个产物 + `SHA256SUMS`：
+**2026-10-03 项目主决定：安装包不再是发布产物。** 发布里只保留 GUI 要链接的库：
 
 | 产物 | 说明 |
 |---|---|
-| `isc_0.1.0_darwin-amd64.tar.gz` / `darwin-arm64` | macOS 归档 |
-| `isc_0.1.0_linux-amd64.tar.gz` / `linux-arm64` | Linux 归档 |
-| `isc_0.1.0_freebsd-amd64.tar.gz` | FreeBSD 归档 |
-| `isc_0.1.0_windows-amd64.zip` / `windows-arm64` | Windows 归档 |
-| `isc_0.1.0_linux_amd64.deb` / `linux_arm64` | Debian/Ubuntu 安装包 |
-| `isc-0.1.0-1.amd64.rpm` / `aarch64` | RHEL/Fedora/openSUSE 安装包 |
-| `isc_0.1.0_arm64.pkg` / `amd64` | macOS 安装包 |
-| `libisc.dylib` + `libisc.h` | 内核库（`scripts/build-libisc.sh`） |
-| `SHA256SUMS` | 上面每个产物的 SHA-256 |
+| `libisc.dylib` | 内核库本体（macOS；Windows 上是 `isc.dll`） |
+| `libisc.h` | 头文件：Swift 用 bridging header，C# 用 `DllImport` |
+| `SHA256SUMS` | 上面两个文件的 SHA-256 |
 
-**Windows 的 `.msi` 不在这里**：它需要 WiX（Windows 专用工具），由 CI 的
-`release-msi` job 构建。
-
-### 复现这次构建
+构建（也是发布流程）：
 
 ```sh
-SOURCE_DATE_EPOCH=$(git log -1 --format=%ct v0.1.0) \
-  go run ./scripts/release -out dist -version 0.1.0
+scripts/build-libisc.sh            # → dist/libisc.dylib + libisc.h + SHA256SUMS
 ```
 
-除 `.pkg` 之外的所有产物都是**逐字节可复现**的（`.pkg` 的 xar 目录表里有一批
-pkgbuild 不给开关的字段，原因见 `DECISIONS.md` M5-e）。
+版本由 `git describe --tags` 注入，因此发布产物会自报版本号
+（`isc_version_json` 里能看到 `v0.1.0` 与对应 commit）。
+
+**被打包代码没有被删掉**：`.deb` / `.rpm` / `.pkg` / `.msi` 与各平台归档仍可由
+`go run ./scripts/release -out dist -version X` 构建（有人要自己分发时可以用），
+只是**不再进发布**。
 
 ## 已知限制（刻意记录，不掩盖）
 
