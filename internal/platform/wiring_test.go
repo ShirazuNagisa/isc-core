@@ -56,7 +56,7 @@ func TestServiceManagerIsWired(t *testing.T) {
 // TestBundleHasNoStubsWhereImplementationsExist 是上一条的**普遍形式**。
 //
 // 只盯 ServiceManager 是不够的：同一类漏接可能发生在任何一个后端上
-//（防火墙、IP 监控、密钥存储、传输、低端口绑定）。这里逐个检查
+// （防火墙、IP 监控、密钥存储、传输、低端口绑定）。这里逐个检查
 // "这个平台上应当可用的后端"是不是真的可用。
 //
 // 名单是**按平台声明**的，因此它同时是一份"这个平台做到哪一步"的清单：

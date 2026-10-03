@@ -18,10 +18,26 @@ type defaults struct {
 //
 // 遵循 FHS：配置放 /etc/isc，可变数据放 /var/lib/isc。
 // 非 root 运行且无写权限时，回退到用户目录，保证开发与试用不受阻。
+// systemDataRoot / systemConfigRoot 是 Linux 上的系统级目录（FHS，D20）。
+const (
+	systemDataRoot   = "/var/lib/isc"
+	systemConfigRoot = "/etc/isc"
+)
+
+// SystemDataDir 返回系统级数据目录，以及它当前是否存在。
+//
+// 与 macOS 同一个理由（见 paths_darwin.go 的说明）：内核作为 systemd 服务
+// 运行时数据在 /var/lib/isc，而普通用户的回退目录在 ~/.local/share 下 ——
+// "找不到"会被误读成"没在跑"。
+func SystemDataDir() (string, bool) {
+	fi, err := os.Stat(systemDataRoot)
+	return systemDataRoot, err == nil && fi.IsDir()
+}
+
 func defaultRoots() (defaults, error) {
 	const (
-		systemConfig = "/etc/isc"
-		systemData   = "/var/lib/isc"
+		systemConfig = systemConfigRoot
+		systemData   = systemDataRoot
 	)
 	if writable(systemData) || os.Geteuid() == 0 {
 		return defaults{data: systemData, config: systemConfig}, nil

@@ -15,6 +15,12 @@ type defaults struct {
 	config string
 }
 
+// SystemDataDir 在这类平台上没有系统级目录，因此总是返回 false。
+//
+// 之所以仍然导出它：调用方（CLI 的提示逻辑）不该按平台写分支 ——
+// 那正是"某个平台漏了一处"的来源。
+func SystemDataDir() (string, bool) { return "", false }
+
 // defaultRoots 在非主流平台上回退到用户目录。
 //
 // 这些平台不在官方支持列表内（见 docs/DECISIONS.md D11），

@@ -14,15 +14,33 @@ type defaults struct {
 	config string
 }
 
+// systemDataRoot 是 macOS 上的系统级数据目录（见 docs/DECISIONS.md D20）。
+const systemDataRoot = "/Library/Application Support/ISC"
+
+// SystemDataDir 返回系统级数据目录，以及它当前是否存在。
+//
+// # 为什么需要单独一个函数
+//
+// 内核以 launchd 守护进程身份运行，数据落在系统目录；而普通用户跑
+// `isc status` 时用的是自己的回退目录 —— 于是"找不到 runtime.json"会被
+// 读成"内核没在跑"，而真相往往是"它在跑，只是你找错了地方"。
+//
+// 真机上就是这么发生的：普通用户拿到的是
+// "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。"
+// —— 而他可能**已经**装成系统服务了。CLI 靠这个函数补一句提示。
+func SystemDataDir() (string, bool) {
+	fi, err := os.Stat(systemDataRoot)
+	return systemDataRoot, err == nil && fi.IsDir()
+}
+
 // defaultRoots 返回 macOS 的默认目录。
 //
 // 使用 /Library/Application Support（机器级）而不是 ~/Library（用户级），
 // 因为内核以 launchd 守护进程身份运行，需要与用户看到同一份数据。
 // 无写权限时回退到用户目录。
 func defaultRoots() (defaults, error) {
-	const systemRoot = "/Library/Application Support/ISC"
-	if writable(systemRoot) || os.Geteuid() == 0 {
-		return defaults{data: systemRoot, config: systemRoot}, nil
+	if writable(systemDataRoot) || os.Geteuid() == 0 {
+		return defaults{data: systemDataRoot, config: systemDataRoot}, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -329,10 +329,42 @@ func signalContext(parent context.Context) (context.Context, context.CancelFunc)
 	return ctx, cancel
 }
 
+// systemDirHint 返回"你可能找错了地方"的提示；不需要提示时返回空串。
+//
+// # 它修的是什么
+//
+// 内核以系统服务身份运行时数据落在**系统目录**（D20：macOS 是
+// /Library/Application Support/ISC，Linux 是 /var/lib/isc），而普通用户
+// 跑 `isc status` 时用的是自己的回退目录。于是 CLI 会理直气壮地说
+// "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。" ——
+// 而用户很可能**已经**装成系统服务了，只是他看的是另一个目录。
+//
+// 真机上就是这么发生的（2026-10-03，macOS）。这一句提示不解决问题，
+// 但它把"没有内核"与"有内核但你看不到"区分开了 —— 而这两件事需要
+// 完全不同的下一步动作。
+//
+// 纯函数，便于测试：不做 IO，只根据三个入参决定说不说。
+func systemDirHint(currentRoot, sysRoot string, sysExists bool) string {
+	// currentRoot 为空说明路径还没解析过 —— 那时提示只会造成困扰。
+	if !sysExists || sysRoot == "" || currentRoot == "" || sysRoot == currentRoot {
+		return ""
+	}
+	return i18n.T("cli.hint_system_dir", sysRoot)
+}
+
+// hintSystemDir 把 systemDirHint 的结论打出来（没可说的就什么都不打）。
+func (a *App) hintSystemDir(w io.Writer) {
+	sys, ok := paths.SystemDataDir()
+	if msg := systemDirHint(a.paths.Root(), sys, ok); msg != "" {
+		fmt.Fprintln(w, msg)
+	}
+}
+
 // fail 打印错误并返回它，供子命令统一处理。
 func (a *App) fail(cmd *cobra.Command, err error) error {
 	if errors.Is(err, ErrNotRunning) {
 		fmt.Fprintln(cmd.ErrOrStderr(), i18n.T("cli.daemon_not_running"))
+		a.hintSystemDir(cmd.ErrOrStderr())
 		return err
 	}
 	fmt.Fprintln(cmd.ErrOrStderr(), err)

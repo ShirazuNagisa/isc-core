@@ -38,6 +38,20 @@ func defaultRoots() (defaults, error) {
 	return defaults{data: root, config: root}, nil
 }
 
+// SystemDataDir 返回系统级数据目录，以及它当前是否存在。
+//
+// Windows 上不存在"用户回退目录"这回事（defaultRoots 始终返回
+// %ProgramData%\ISC），因此这个函数在这里的用途不同：它让 CLI 能区分
+// "内核没装"与"装了但我读不到"（后者需要管理员权限）。
+func SystemDataDir() (string, bool) {
+	data, err := defaultRoots()
+	if err != nil {
+		return "", false
+	}
+	fi, statErr := os.Stat(data.data)
+	return data.data, statErr == nil && fi.IsDir()
+}
+
 // tightenDir 用显式的受保护 DACL 收紧目录访问权限。
 //
 // 为什么必须显式设置：%ProgramData%\ISC 会从 C:\ProgramData 继承一组

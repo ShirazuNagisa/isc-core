@@ -58,11 +58,14 @@ var messagesZh = map[string]string{
 
 	// --- CLI ---
 	"cli.daemon_not_running": "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。",
-	"cli.connecting":         "正在连接内核",
-	"cli.connected":          "已连接内核",
-	"cli.status_header":      "ISC 内核状态",
-	"cli.version_header":     "ISC 版本信息",
-	"cli.unknown_command":    "未知命令：%s",
+	"cli.hint_system_dir": "提示：系统目录 %s 里有内核的数据 —— " +
+		"它可能是以系统服务运行的，而你现在看的是自己的用户目录。" +
+		"查看它需要管理员权限：sudo isc status",
+	"cli.connecting":      "正在连接内核",
+	"cli.connected":       "已连接内核",
+	"cli.status_header":   "ISC 内核状态",
+	"cli.version_header":  "ISC 版本信息",
+	"cli.unknown_command": "未知命令：%s",
 
 	// --- 凭据字段（服务商注册表使用）---
 	"provider.field.access_key_id":     "Access Key ID",

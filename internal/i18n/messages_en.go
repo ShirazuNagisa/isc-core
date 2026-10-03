@@ -57,11 +57,14 @@ var messagesEn = map[string]string{
 
 	// --- CLI ---
 	"cli.daemon_not_running": "ISC core is not running. Start it with 'isc daemon run' or install it as a system service.",
-	"cli.connecting":         "Connecting to ISC core",
-	"cli.connected":          "Connected to ISC core",
-	"cli.status_header":      "ISC core status",
-	"cli.version_header":     "ISC version information",
-	"cli.unknown_command":    "Unknown command: %s",
+	"cli.hint_system_dir": "Hint: the system directory %s holds kernel data — " +
+		"it may be running as a system service while you are looking at your own " +
+		"user directory. Viewing it needs administrator rights: sudo isc status",
+	"cli.connecting":      "Connecting to ISC core",
+	"cli.connected":       "Connected to ISC core",
+	"cli.status_header":   "ISC core status",
+	"cli.version_header":  "ISC version information",
+	"cli.unknown_command": "Unknown command: %s",
 
 	// --- credential fields (provider registry) ---
 	"provider.field.access_key_id":     "Access Key ID",
