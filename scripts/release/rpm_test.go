@@ -773,6 +773,39 @@ func TestRPMDocFilesAreFlaggedAsDocs(t *testing.T) {
 	}
 }
 
+// TestRPMDoesNotDuplicateArchivesize 钉住 rpm 的"两边不能都有"规则。
+//
+// rpm 的 `headerMergeLegacySigs` 第一个循环：
+//
+//	/* There mustn't be one in the main header */
+//	if (headerIsEntry(h, xl->xtag)) {
+//	    if (rpmformat < 6 && xl->quirk && !headerIsEntry(sigh, xl->stag))
+//		continue;
+//	    goto exit;
+//	}
+//
+// 其中 `{ RPMSIGTAG_PAYLOADSIZE, RPMTAG_ARCHIVESIZE, 1, 1 }` 这一条意味着：
+// 签名 header 里有 PAYLOADSIZE(1007) 时，主 header **不能**再有
+// ARCHIVESIZE(1046)（它是翻译过去的）。两边都写会得到：
+//
+//	invalid signature tag Archivesize (1046)
+//	not an rpm package (or package manifest)
+//
+// 真实包的主 header 里也没有 1046（验算过三个）。
+func TestRPMDoesNotDuplicateArchivesize(t *testing.T) {
+	t.Parallel()
+
+	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+
+	if _, ok := rpm.Header[1046]; ok {
+		t.Error("主 header 里有 ARCHIVESIZE(1046) —— rpm 要求它只能由签名里的 " +
+			"PAYLOADSIZE(1007) 翻译过来，两边都有会让它拒收整包")
+	}
+	if _, ok := rpm.Signature[tagSigPayloadSize]; !ok {
+		t.Error("签名 header 里缺少 PAYLOADSIZE —— 那是 ARCHIVESIZE 的来源")
+	}
+}
+
 // TestRPMHasNoEmptyEntries 钉住"不写零长度的条目"。
 //
 // rpm 的 `hdrblobVerifyInfo` 里有一条 `len <= 0` 就判错：

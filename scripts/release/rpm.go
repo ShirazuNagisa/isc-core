@@ -117,7 +117,6 @@ const (
 	tagFileGroupName   = 1040
 	tagSourceRPM       = 1044
 	tagFileVerifyFlags = 1045
-	tagArchiveSize     = 1046
 	tagProvideName     = 1047
 	tagRequireFlags    = 1048
 	tagRequireName     = 1049
@@ -449,7 +448,23 @@ func rpmHeaderBytes(opts RpmOptions, files []rpmFile, payload []byte) []byte {
 	b.addString(tagPayloadFlags, "9")
 
 	b.addInt32(tagSize, []uint32{uint32(rpmInstalledSize(files))})
-	b.addInt32(tagArchiveSize, []uint32{uint32(len(payload))})
+	// **刻意不写 ARCHIVESIZE（1046）**。
+	//
+	// rpm 的 headerMergeLegacySigs 里有一条硬性规定：
+	//
+	//	/* There mustn't be one in the main header */
+	//	if (headerIsEntry(h, xl->xtag)) { ... goto exit; }
+	//
+	// 也就是说"主 header 里不能再有签名 header 会翻译过来的标签"。而
+	// ARCHIVESIZE 正是从签名里的 PAYLOADSIZE(1007) 翻译过去的
+	//（xlateTags: { RPMSIGTAG_PAYLOADSIZE, RPMTAG_ARCHIVESIZE, 1, 1 }）。
+	// 两边都写会让 rpm 报：
+	//
+	//	invalid signature tag Archivesize (1046)
+	//	not an rpm package (or package manifest)
+	//
+	// 真实包的主 header 里也确实没有 1046（验算过三个）。安装后 rpm 自己会
+	// 把签名里的那个值翻译进来，因此信息一点没少。
 	b.addInt32(tagFileDigestAlgo, []uint32{8}) // 8 = SHA-256
 
 	// --- 文件清单 ---
