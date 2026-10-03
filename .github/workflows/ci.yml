@@ -224,22 +224,46 @@ jobs:
             dpkg-deb --info "$d" || { echo "::error::$d 不是 dpkg 认得的包"; exit 1; }
 
             echo "--- dpkg-deb --contents $d ---"
-            dpkg-deb --contents "$d" || { echo "::error::$d 的内容读不出来"; exit 1; }
-
-            # 可执行文件必须在，且必须带执行位。
-            dpkg-deb --contents "$d" | grep -q '^-rwxr-xr-x .* \./usr/bin/isc$' || {
-              echo "::error::$d 里 /usr/bin/isc 缺失或没有执行位"
+            contents=$(dpkg-deb --contents "$d") || {
+              echo "::error::$d 的内容读不出来"
               exit 1
             }
+            echo "$contents"
+
+            # 可执行文件必须在，且必须带执行位。
+            #
+            # 刻意**不**去匹配整行的空格数量：dpkg-deb 的列宽、以及路径是
+            # `./usr/bin/isc` 还是 `usr/bin/isc`，都会随版本/后端变化。
+            # 上一版写的是 `^-rwxr-xr-x .* \./usr/bin/isc$`，于是把一份
+            # 结构完全合规的包判成了"没有执行位" —— 而错误信息里也没有
+            # 它到底看到了什么。
+            #
+            # 现在只做两件事：取出含 usr/bin/isc 的那一行，看第一列是不是
+            # -rwxr-xr-x；不匹配时**把那一行原样打出来**。
+            line=$(echo "$contents" | grep -F 'usr/bin/isc' | head -1)
+            case "$line" in
+              "")
+                echo "::error::$d 的清单里没有 usr/bin/isc"
+                exit 1
+                ;;
+              -rwxr-xr-x*)
+                echo "  ✓ $(echo "$line" | awk '{print $1, $NF}')"
+                ;;
+              *)
+                echo "::error::$d 里 usr/bin/isc 的权限位不是 -rwxr-xr-x"
+                echo "  实际那一行：$line"
+                exit 1
+                ;;
+            esac
 
             # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
-            if dpkg-deb --contents "$d" | grep -q 'usr/share/doc/isc/isc$'; then
+            if echo "$contents" | grep -q 'usr/share/doc/isc/isc$'; then
               echo "::error::$d 把可执行文件复制进了文档目录，包体积会翻倍"
               exit 1
             fi
 
             # GPLv3 要求许可证随包分发。
-            dpkg-deb --contents "$d" | grep -q 'usr/share/doc/isc/LICENSE' || {
+            echo "$contents" | grep -q 'usr/share/doc/isc/LICENSE' || {
               echo "::error::$d 里缺少 LICENSE"
               exit 1
             }
@@ -273,19 +297,33 @@ jobs:
             rpm -qip "$r" || { echo "::error::$r 不是 rpm 认得的包"; exit 1; }
 
             echo "--- rpm -qlp $r ---"
-            rpm -qlp "$r" || { echo "::error::$r 的内容读不出来"; exit 1; }
+            paths=$(rpm -qlp "$r") || { echo "::error::$r 的内容读不出来"; exit 1; }
+            echo "$paths"
 
             echo "--- rpm -qplv $r ---"
-            rpm -qplv "$r" || { echo "::error::$r 的详细内容读不出来"; exit 1; }
+            verbose=$(rpm -qplv "$r") || { echo "::error::$r 的详细内容读不出来"; exit 1; }
+            echo "$verbose"
 
             # 可执行文件必须在，且必须带执行位。
-            rpm -qplv "$r" | grep -q '^-rwxr-xr-x .*/usr/bin/isc$' || {
-              echo "::error::$r 里 /usr/bin/isc 缺失或没有执行位"
-              exit 1
-            }
+            # 与 .deb 那处同样的理由：不匹配列宽，失败时把那一行打出来。
+            line=$(echo "$verbose" | grep -F '/usr/bin/isc' | head -1)
+            case "$line" in
+              "")
+                echo "::error::$r 的清单里没有 /usr/bin/isc"
+                exit 1
+                ;;
+              -rwxr-xr-x*)
+                echo "  ✓ $(echo "$line" | awk '{print $1, $NF}')"
+                ;;
+              *)
+                echo "::error::$r 里 /usr/bin/isc 的权限位不是 -rwxr-xr-x"
+                echo "  实际那一行：$line"
+                exit 1
+                ;;
+            esac
 
             # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
-            if rpm -qlp "$r" | grep -q '^/usr/share/doc/isc/isc$'; then
+            if echo "$paths" | grep -q '/usr/share/doc/isc/isc$'; then
               echo "::error::$r 把可执行文件复制进了文档目录，包体积会翻倍"
               exit 1
             fi
