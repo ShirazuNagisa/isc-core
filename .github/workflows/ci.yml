@@ -201,42 +201,55 @@ jobs:
           # CI 跑在 Ubuntu 上，因此可以用真正的 dpkg 来验证 ——
           # 这是比单元测试更强的证据：单元测试用的是我们自己写的
           # ar 解析器，而这里是 Debian 自己的工具。
-          # 用通配符找，而不是写死文件名：.deb 的名字是 Debian 约定
-          # （`isc_<版本>_<架构>.deb`），而这里曾经写的是发布压缩包的命名
-          # （`isc-0.0.0-ci-linux-amd64.deb`）—— 那一步因此**从来没有可能
-          # 通过**，只是因为任务在前面就挂了才一直没暴露。
-          # 名字的形状现在由 TestPackageFileNames 钉住。
-          deb=$(ls dist/*.deb)
-          test -n "$deb" || { echo "::error::缺少 .deb"; exit 1; }
-          echo "找到 $deb"
-
-          echo "--- dpkg-deb --info ---"
-          dpkg-deb --info "$deb"
-
-          echo "--- dpkg-deb --contents ---"
-          dpkg-deb --contents "$deb"
-
-          # 可执行文件必须在，且必须带执行位。
-          dpkg-deb --contents "$deb" | grep -q '^-rwxr-xr-x .* \./usr/bin/isc$' || {
-            echo "::error::/usr/bin/isc 缺失或没有执行位"
-            exit 1
-          }
-
-          # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
-          if dpkg-deb --contents "$deb" | grep -q 'usr/share/doc/isc/isc$'; then
-            echo "::error::可执行文件被复制进了文档目录，包体积会翻倍"
+          #
+          # 名字由 TestPackageFileNames 钉住，这里不重复写死一遍
+          # （写死过一次，而且写错了：`isc-0.0.0-ci-linux-amd64.deb`
+          #  是发布压缩包的命名，.deb 从第一天起叫 `isc_<版本>_<架构>.deb`）。
+          #
+          # ⚠️ 一次构建产出**两个** .deb（linux/amd64 与 linux/arm64）。
+          # 上一版写成 `deb=$(ls dist/*.deb)` 再 `dpkg-deb --info "$deb"`，
+          # 变量里其实是**两行**路径 —— dpkg-deb 收到带换行的参数后以退出码 2
+          # 失败，且它不输出我们的 ::error::，于是 CI 只报
+          # "Process completed with exit code 2"，指不到原因。
+          # 因此这里用数组逐个处理，并且每一条外部命令失败时都自己报出来。
+          debs=(dist/*.deb)
+          if [ ${#debs[@]} -eq 0 ]; then
+            echo "::error::缺少 .deb"
             exit 1
           fi
+          echo "找到 ${#debs[@]} 个 .deb：${debs[*]}"
 
-          # GPLv3 要求许可证随包分发。
-          dpkg-deb --contents "$deb" | grep -q 'usr/share/doc/isc/LICENSE' || {
-            echo "::error::包里缺少 LICENSE"
-            exit 1
-          }
+          for d in "${debs[@]}"; do
+            echo "--- dpkg-deb --info $d ---"
+            dpkg-deb --info "$d" || { echo "::error::$d 不是 dpkg 认得的包"; exit 1; }
+
+            echo "--- dpkg-deb --contents $d ---"
+            dpkg-deb --contents "$d" || { echo "::error::$d 的内容读不出来"; exit 1; }
+
+            # 可执行文件必须在，且必须带执行位。
+            dpkg-deb --contents "$d" | grep -q '^-rwxr-xr-x .* \./usr/bin/isc$' || {
+              echo "::error::$d 里 /usr/bin/isc 缺失或没有执行位"
+              exit 1
+            }
+
+            # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
+            if dpkg-deb --contents "$d" | grep -q 'usr/share/doc/isc/isc$'; then
+              echo "::error::$d 把可执行文件复制进了文档目录，包体积会翻倍"
+              exit 1
+            fi
+
+            # GPLv3 要求许可证随包分发。
+            dpkg-deb --contents "$d" | grep -q 'usr/share/doc/isc/LICENSE' || {
+              echo "::error::$d 里缺少 LICENSE"
+              exit 1
+            }
+          done
 
           # 真正安装一遍再卸载 —— 这是端到端的证据。
-          sudo dpkg -i "$deb"
-          isc version
+          # 只有本机架构那个装得上，因此这里显式挑 amd64。
+          deb=$(ls dist/*_amd64.deb)
+          sudo dpkg -i "$deb" || { echo "::error::dpkg -i 失败：$deb"; exit 1; }
+          isc version || { echo "::error::安装之后 isc version 跑不起来"; exit 1; }
           sudo dpkg -r isc
 
       - name: 核对 .rpm
@@ -245,38 +258,47 @@ jobs:
 
           # Ubuntu runner 上装了 rpm，因此可以用它自己来验证 ——
           # 比单元测试更强：单元测试用的是我们自己写的解析器。
-          # 同上：名字由 TestPackageFileNames 钉住，这里不重复一遍。
-          rpm=$(ls dist/*.rpm)
-          test -n "$rpm" || { echo "::error::缺少 .rpm"; exit 1; }
-          echo "找到 $rpm"
-
-          echo "--- rpm -qip ---"
-          rpm -qip "$rpm"
-
-          echo "--- rpm -qlp ---"
-          rpm -qlp "$rpm"
-
-          echo "--- rpm -qplv ---"
-          rpm -qplv "$rpm"
-
-          # 可执行文件必须在，且必须带执行位。
-          rpm -qplv "$rpm" | grep -q '^-rwxr-xr-x .*/usr/bin/isc$' || {
-            echo "::error::/usr/bin/isc 缺失或没有执行位"
-            exit 1
-          }
-
-          # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
-          if rpm -qlp "$rpm" | grep -q '^/usr/share/doc/isc/isc$'; then
-            echo "::error::可执行文件被复制进了文档目录，包体积会翻倍"
+          #
+          # 同 .deb：一次产出两个（amd64 / arm64），因此用数组逐个处理 ——
+          # 把两行路径塞进一个变量会让下一条命令以退出码 2 静默失败。
+          rpms=(dist/*.rpm)
+          if [ ${#rpms[@]} -eq 0 ]; then
+            echo "::error::缺少 .rpm"
             exit 1
           fi
+          echo "找到 ${#rpms[@]} 个 .rpm：${rpms[*]}"
+
+          for r in "${rpms[@]}"; do
+            echo "--- rpm -qip $r ---"
+            rpm -qip "$r" || { echo "::error::$r 不是 rpm 认得的包"; exit 1; }
+
+            echo "--- rpm -qlp $r ---"
+            rpm -qlp "$r" || { echo "::error::$r 的内容读不出来"; exit 1; }
+
+            echo "--- rpm -qplv $r ---"
+            rpm -qplv "$r" || { echo "::error::$r 的详细内容读不出来"; exit 1; }
+
+            # 可执行文件必须在，且必须带执行位。
+            rpm -qplv "$r" | grep -q '^-rwxr-xr-x .*/usr/bin/isc$' || {
+              echo "::error::$r 里 /usr/bin/isc 缺失或没有执行位"
+              exit 1
+            }
+
+            # 二进制**不该**被复制进文档目录 —— 那会让包大出一倍。
+            if rpm -qlp "$r" | grep -q '^/usr/share/doc/isc/isc$'; then
+              echo "::error::$r 把可执行文件复制进了文档目录，包体积会翻倍"
+              exit 1
+            fi
+          done
 
           # 载荷完整性：rpm -K 会校验签名 header 里的校验和。
           # 校验和算错时它只说"包已损坏"，而那是很难归因的。
-          rpm -K "$rpm" || {
-            echo "::error::rpm 校验和不通过"
-            exit 1
-          }
+          for r in "${rpms[@]}"; do
+            rpm -K "$r" || {
+              echo "::error::$r 的校验和不通过"
+              exit 1
+            }
+          done
 
       - name: 核对版本注入
         run: |
