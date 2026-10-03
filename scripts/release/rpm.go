@@ -81,6 +81,8 @@ const (
 	tagRelease         = 1002
 	tagSummary         = 1004
 	tagDescription     = 1005
+	tagBuildTime       = 1006
+	tagBuildHost       = 1007
 	tagSize            = 1009
 	tagLicense         = 1014
 	tagGroup           = 1016
@@ -107,6 +109,7 @@ const (
 	tagFileDigestAlgo  = 1095
 	tagPayloadFormat   = 1124
 	tagPayloadCompress = 1125
+	tagPayloadFlags    = 1126
 	tagDirIndexes      = 1116
 	tagBaseNames       = 1117
 	tagDirNames        = 1118
@@ -160,32 +163,33 @@ func BuildRPM(outPath string, opts RpmOptions) error {
 		return err
 	}
 
-	payload, err := rpmCPIO(files)
+	payload, rawPayloadSize, err := rpmCPIO(files)
 	if err != nil {
 		return fmt.Errorf("生成 cpio 载荷失败: %w", err)
 	}
 
+	// 未对齐的 header：**摘要算的是它**（对齐填充不参与）。
 	header := rpmHeaderBytes(opts, files, payload)
 
-	// 主 header 也要补零到 8 字节对齐。
+	// 主 header 在文件里补零到 8 字节对齐。
 	//
 	// rpm 的两个 header 结构都补到 8 字节边界，而**载荷必须从 8 的倍数
 	// 处开始**：读的时候 rpm 按同样的规则推进。少了这一步，载荷就会落在
 	// 一个非对齐的偏移上（实测差 5 字节），而 rpm 在那里读到的是填充的零，
 	// 于是报"不是 gzip 数据"—— 一个完全指不到原因的错。
 	//
-	// 注意签名里的 MD5 覆盖的是**补零之后**的 header 加载荷：rpm 的
-	// headerRead 返回的长度本身含填充。
-	header = pad8(header)
+	// 但**对齐的长度只用于签名里的长度字段**，不参与摘要计算：
+	// 实测三个真实包（其中一个 header 长度非 8 对齐）确认了这个区分。
+	padded := pad8(append([]byte(nil), header...))
 
-	// 签名 header 里含 header + 载荷的校验和，因此必须在 header
+	// 签名 header 里含 header 与载荷的校验和，因此必须在 header
 	// 生成**之后**才算得出来。
-	sig := rpmSignatureBytes(header, payload)
+	sig := rpmSignatureBytes(header, payload, len(padded), rawPayloadSize)
 
 	var buf bytes.Buffer
 	buf.Write(rpmLead(opts))
 	buf.Write(sig)
-	buf.Write(header)
+	buf.Write(padded)
 	buf.Write(payload)
 
 	return os.WriteFile(outPath, buf.Bytes(), 0o644)
@@ -320,6 +324,12 @@ func (b *rpmHeaderBuilder) bytes() []byte {
 func rpmHeaderBytes(opts RpmOptions, files []rpmFile, payload []byte) []byte {
 	var b rpmHeaderBuilder
 
+	// BUILDTIME 固定为 0：与载荷里的文件 mtime 一致，为的是可复现构建。
+	// 真实包的这一项是构建时刻，但"构建时刻进产物"正是可复现性要避免的。
+	b.addInt32(tagBuildTime, []uint32{0})
+	// BUILDHOST 固定成产品名而不是机器名：构建机的 hostname 不该进产物。
+	b.addString(tagBuildHost, "isc-core")
+
 	b.addString(tagName, opts.Package)
 	b.addString(tagVersion, opts.Version)
 	b.addString(tagRelease, opts.Release)
@@ -337,6 +347,9 @@ func rpmHeaderBytes(opts RpmOptions, files []rpmFile, payload []byte) []byte {
 	b.addString(tagRPMVersion, "4.14.0")
 	b.addString(tagPayloadFormat, "cpio")
 	b.addString(tagPayloadCompress, "gzip")
+	// PAYLOADFLAGS 是压缩级别。写 "9" 就真的用 9 —— 这两处必须一致，
+	// 否则字段在说谎（rpm 只是把它当提示，但提示也不该是假的）。
+	b.addString(tagPayloadFlags, "9")
 
 	b.addInt32(tagSize, []uint32{uint32(rpmInstalledSize(files))})
 	b.addInt32(tagArchiveSize, []uint32{uint32(len(payload))})
@@ -458,19 +471,34 @@ func rpmInstalledSize(files []rpmFile) int {
 // 它**不签名**（那需要私钥），但必须包含校验和 —— 否则 rpm 会
 // 拒绝安装。这是"包的完整性"而非"包的真实性"，而真实性由
 // SHA256SUMS 与用户的核对来保证。
-func rpmSignatureBytes(header, payload []byte) []byte {
+//
+// rpmSignatureBytes 生成签名 header。
+//
+// # 三个长度/摘要字段的确切含义（对照真实包实测）
+//
+//	tagSigSize        header（**含对齐填充**）+ 载荷的字节数
+//	tagSigPayloadSize 载荷**解压后**的字节数（不是文件里的长度）
+//	tagSigSHA256       **header 结构**的 SHA-256，十六进制串
+//	tagSigMD5          header 结构 + 载荷的 MD5（二进制 16 字节）
+//
+// 对三个真实包（含一个 header 长度非 8 对齐的）逐字节验算过：
+// 摘要是对**未对齐**的 header 结构求的（magic + 版本 + 保留 + 索引条数 +
+// 数据区长度 + 索引 + 数据区），对齐填充**不参与**；而 tagSigSize 用的是
+// **对齐之后**的长度（那个包里两者差 4 字节，正好能区分）。
+//
+// header 是未对齐的那份（用于摘要），paddedSize 是对齐后的长度（用于长度字段）。
+// 早先的实现把 SHA-256 算在了**载荷**上 —— 语义完全相反，而 rpm 校验的是
+// header，于是包会被拒。
+func rpmSignatureBytes(header, payload []byte, paddedSize, rawPayloadSize int) []byte {
 	var b rpmHeaderBuilder
 
 	// 这两项描述的是 header 与载荷的**总长度**，
 	// 而 rpm 用它们做边界检查。
-	b.addInt32(tagSigSize, []uint32{uint32(len(header) + len(payload))})
-	b.addInt32(tagSigPayloadSize, []uint32{uint32(len(payload))})
+	b.addInt32(tagSigSize, []uint32{uint32(paddedSize + len(payload))})
+	b.addInt32(tagSigPayloadSize, []uint32{uint32(rawPayloadSize)})
 
-	// 载荷的 SHA-256。
-	//
-	// 有些 rpm 版本在装包时会校验它，而校验失败时的报错只有
-	// "包已损坏" —— 那看不出是校验和本身算错了。
-	sum := sha256.Sum256(payload)
+	// header 结构的 SHA-256（十六进制串，与真实包一致）。
+	sum := sha256.Sum256(header)
 	b.entries = append(b.entries, rpmEntry{
 		Tag: tagSigSHA256, Type: rpmTypeString, Offset: b.data.Len(), Count: 1,
 	})
@@ -479,7 +507,7 @@ func rpmSignatureBytes(header, payload []byte) []byte {
 
 	// header + 载荷的 MD5。
 	//
-	// 这是 rpm 传统的完整性校验，而它算的是**从 header 开始到文件末尾**。
+	// 这是 rpm 传统的完整性校验：从 header 结构开始到文件末尾。
 	// 签名 header 本身不参与其中（它是自指的，算不了）。
 	h := md5.New()
 	h.Write(header)
@@ -511,26 +539,38 @@ func rpmSignatureBytes(header, payload []byte) []byte {
 //
 // 全部是**十六进制文本**而不是二进制 —— 这是 newc 最容易写错的地方，
 // 每个字段都是 8 位定宽十六进制。
-func rpmCPIO(files []rpmFile) ([]byte, error) {
+func rpmCPIO(files []rpmFile) ([]byte, int, error) {
 	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
+	// 按 9 级压缩：PAYLOADFLAGS 里写的就是 9，两处必须一致。
+	gz, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		return nil, 0, err
+	}
 	gz.ModTime = time.Time{}
 
+	// 同时写一份到 raw，用来数**解压后**的字节数 —— 签名里的
+	// tagSigPayloadSize 要的是它，而不是文件里那段 gzip 的长度。
+	//
+	// 刻意由这里返回，而不是让调用方按布局再算一遍：载荷的布局只有这一处
+	// 知道，两处各算一遍迟早会漂开（今天已经在别处踩过这个形状的坑）。
+	var raw bytes.Buffer
+	w := io.MultiWriter(gz, &raw)
+
 	for i, f := range files {
-		if err := writeCPIOEntry(gz, i+1, f); err != nil {
-			return nil, err
+		if err := writeCPIOEntry(w, i+1, f); err != nil {
+			return nil, 0, err
 		}
 	}
 
 	// 结尾记录：名字为 TRAILER!!!，其余字段全零。
-	if err := writeCPIOTrailer(gz); err != nil {
-		return nil, err
+	if err := writeCPIOTrailer(w); err != nil {
+		return nil, 0, err
 	}
 
 	if err := gz.Close(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes(), raw.Len(), nil
 }
 
 func writeCPIOEntry(w io.Writer, ino int, f rpmFile) error {

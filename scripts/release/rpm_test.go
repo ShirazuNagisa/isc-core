@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -38,7 +39,12 @@ type rpmParsed struct {
 	Lead      []byte
 	Signature map[int]rpmValue
 	Header    map[int]rpmValue
-	Payload   []byte
+	// HeaderBlob 是主 header 的**未对齐**原始字节 —— 签名里的摘要算的就是它。
+	HeaderBlob []byte
+	// HeaderOffset 是主 header 在文件里的起点：签名里的 SIZE 字段
+	// 就是"从这里到文件末尾"的字节数。
+	HeaderOffset int
+	Payload      []byte
 }
 
 type rpmValue struct {
@@ -93,11 +99,13 @@ func parseRPM(t *testing.T, data []byte) rpmParsed {
 	}
 
 	// --- 主 header ---
+	out.HeaderOffset = len(data) - len(rest)
 	hdr, consumed, err := parseRPMHeader(rest)
 	if err != nil {
 		t.Fatalf("解析主 header 失败: %v", err)
 	}
 	out.Header = hdr
+	out.HeaderBlob = rest[:consumed]
 
 	// 主 header 之后同样补零到 8 字节对齐 —— 载荷从 8 的倍数处开始。
 	rest = rest[consumed:]
@@ -624,13 +632,28 @@ func TestRPMDocFilesAreFlaggedAsDocs(t *testing.T) {
 	}
 }
 
-// TestRPMSignatureHeader 验证签名 header 的两项长度字段。
+// TestRPMSignatureHeader 验证签名 header 里的长度与摘要。
 //
-// rpm 用它们做边界检查，算错会让它报"包已损坏"。
+// # 这些字段的语义是**实测真实包**得出的，不是猜的
+//
+// 拿了三个真实 .rpm（其中两个来自 GitHub CLI 的 release，一个 header 长度
+// 非 8 字节对齐）逐个字段验算：
+//
+//	SIZE(1000)        header（**含对齐填充**）+ 载荷
+//	PAYLOADSIZE(1007) 载荷**解压后**的字节数（不是文件里那段 gzip 的长度）
+//	SHA256(273)       **header 结构**的 SHA-256，十六进制串
+//	MD5(1004)         header 结构 + 载荷
+//
+// 两个字段因此差得很远：SIZE 与文件长度是同量级的，而 PAYLOADSIZE 是解压
+// 之后的量（实测一个包里 50405610 vs 13711736）。
+//
+// 这条测试原先断言的正是**错的**语义（PAYLOADSIZE == gzip 长度、
+// SHA256 == 载荷的摘要）—— 实现与测试互相印证、一起错。
 func TestRPMSignatureHeader(t *testing.T) {
 	t.Parallel()
 
-	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+	data := buildTestRPM(t, "1.0.0")
+	rpm := parseRPM(t, data)
 
 	sigSize, ok := rpm.Signature[tagSigSize]
 	if !ok {
@@ -641,23 +664,48 @@ func TestRPMSignatureHeader(t *testing.T) {
 		t.Fatal("签名 header 里缺少 PAYLOADSIZE")
 	}
 
-	if int(payloadSize.Ints[0]) != len(rpm.Payload) {
-		t.Errorf("PAYLOADSIZE = %d，实际载荷 %d 字节",
-			payloadSize.Ints[0], len(rpm.Payload))
-	}
-	if int(sigSize.Ints[0]) < len(rpm.Payload) {
-		t.Errorf("SIZE = %d，小于载荷长度 %d",
-			sigSize.Ints[0], len(rpm.Payload))
+	// SIZE = 签名 header 之后的全部字节 = 主 header（含对齐填充）+ 载荷。
+	if got, want := int(sigSize.Ints[0]), len(data)-rpm.HeaderOffset; got != want {
+		t.Errorf("SIZE = %d，期望 %d（对齐后的 header + 载荷）", got, want)
 	}
 
-	// 载荷的 SHA-256 必须对得上。
+	// PAYLOADSIZE = **解压后**的 cpio 长度。
+	gz, err := gzip.NewReader(bytes.NewReader(rpm.Payload))
+	if err != nil {
+		t.Fatalf("载荷不是 gzip: %v", err)
+	}
+	raw, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = gz.Close() //nolint:errcheck // 只读
+	if got := int(payloadSize.Ints[0]); got != len(raw) {
+		t.Errorf("PAYLOADSIZE = %d，解压后的载荷是 %d 字节 —— "+
+			"这个字段要的是**解压后**的长度，不是文件里 gzip 的长度（%d）",
+			got, len(raw), len(rpm.Payload))
+	}
+
+	// SHA256 = header 结构的摘要（十六进制串）。
+	headerRaw := rpm.HeaderBlob
 	sha, ok := rpm.Signature[tagSigSHA256]
 	if !ok {
 		t.Fatal("签名 header 里缺少 SHA256")
 	}
-	want := sha256Hex(rpm.Payload)
-	if sha.str() != want {
-		t.Errorf("SHA256 = %s，载荷实际是 %s", sha.str(), want)
+	if want := sha256Hex(headerRaw); sha.str() != want {
+		t.Errorf("SHA256 = %s，header 结构实际是 %s —— "+
+			"这个字段是 **header** 的摘要，不是载荷的", sha.str(), want)
+	}
+
+	// MD5 = header 结构 + 载荷。
+	md5v, ok := rpm.Signature[tagSigMD5]
+	if !ok {
+		t.Fatal("签名 header 里缺少 MD5")
+	}
+	h := md5.New()
+	h.Write(headerRaw)
+	h.Write(rpm.Payload)
+	if !bytes.Equal(md5v.Bytes, h.Sum(nil)) {
+		t.Errorf("MD5 = % x，header+载荷实际是 % x", md5v.Bytes, h.Sum(nil))
 	}
 }
 
