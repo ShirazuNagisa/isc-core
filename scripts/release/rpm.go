@@ -43,7 +43,23 @@ import (
 // 被真正的 rpm 命令再验一遍。
 
 const (
-	rpmLeadSize    = 96
+	rpmLeadSize = 96
+
+	// rpmFileTypeBits 是普通文件的 POSIX 类型位（S_IFREG）。
+	//
+	// RPM 的 mode 字段（头部标签与 cpio 条目都是）带这一位，
+	// 而**只写权限位是不对的**：rpm 靠高位区分文件、目录与符号链接。
+	rpmFileTypeBits = 0o100000
+
+	// rpmLeadMagic 是 **lead** 的魔数（0xEDABEEDB）。
+	//
+	// 它与 header 的魔数（0x8EADE8）**不是一回事**，而 rpm 正是靠它识别
+	// "这个文件是不是 RPM 包"。这里踩过一次：lead 里写的是 header 的魔数，
+	// 而当时那条测试用的也是同一个常量 —— 于是测试与实现互相印证，
+	// 一起错，直到 CI 上真正的 `rpm` 命令第一次读到它。
+	rpmLeadMagic = "\xed\xab\xee\xdb"
+
+	// rpmHeaderMagic 是 header 结构的魔数（三个字节，后面跟版本号）。
 	rpmHeaderMagic = "\x8e\xad\xe8"
 
 	// RPM 数据类型。
@@ -151,6 +167,17 @@ func BuildRPM(outPath string, opts RpmOptions) error {
 
 	header := rpmHeaderBytes(opts, files, payload)
 
+	// 主 header 也要补零到 8 字节对齐。
+	//
+	// rpm 的两个 header 结构都补到 8 字节边界，而**载荷必须从 8 的倍数
+	// 处开始**：读的时候 rpm 按同样的规则推进。少了这一步，载荷就会落在
+	// 一个非对齐的偏移上（实测差 5 字节），而 rpm 在那里读到的是填充的零，
+	// 于是报"不是 gzip 数据"—— 一个完全指不到原因的错。
+	//
+	// 注意签名里的 MD5 覆盖的是**补零之后**的 header 加载荷：rpm 的
+	// headerRead 返回的长度本身含填充。
+	header = pad8(header)
+
 	// 签名 header 里含 header + 载荷的校验和，因此必须在 header
 	// 生成**之后**才算得出来。
 	sig := rpmSignatureBytes(header, payload)
@@ -164,6 +191,14 @@ func BuildRPM(outPath string, opts RpmOptions) error {
 	return os.WriteFile(outPath, buf.Bytes(), 0o644)
 }
 
+// pad8 把字节切片补零到 8 的倍数。
+func pad8(b []byte) []byte {
+	if pad := (8 - len(b)%8) % 8; pad > 0 {
+		b = append(b, make([]byte, pad)...)
+	}
+	return b
+}
+
 // rpmLead 生成 96 字节的遗留头。
 //
 // 它唯一还有意义的内容是魔数与类型标记（0 表示二进制包）——
@@ -174,7 +209,7 @@ func BuildRPM(outPath string, opts RpmOptions) error {
 func rpmLead(opts RpmOptions) []byte {
 	lead := make([]byte, rpmLeadSize)
 
-	copy(lead[0:4], rpmHeaderMagic+"\x01")
+	copy(lead[0:4], rpmLeadMagic)
 	// 类型：0 = 二进制包，1 = 源码包。
 	lead[4] = 0
 	// 架构号与操作系统号：现代 rpm 忽略，填 0。
@@ -328,8 +363,13 @@ func rpmHeaderBytes(opts RpmOptions, files []rpmFile, payload []byte) []byte {
 	)
 	for _, f := range files {
 		sizes = append(sizes, uint32(len(f.Data)))
-		// 权限位：RPM 用 POSIX 的 mode，只保留低 16 位。
-		modes = append(modes, uint16(f.Mode.Perm()))
+		// RPM 用 POSIX 的 mode，**必须带上文件类型位**。
+		//
+		// 只写权限位（0755）是不够的：rpm 靠高位判断这个条目是普通文件、
+		// 目录还是符号链接。少了它们，`rpm -qplv` 打出来的第一列不是
+		// `-rwxr-xr-x`，而安装时的行为也没有保证 —— 我们的实现曾经就是
+		// 用 `.Perm()` 把高位丢掉的。
+		modes = append(modes, uint16(rpmFileTypeBits|f.Mode.Perm()))
 		rdevs = append(rdevs, 0)
 		// 时间戳固定为 0 —— 可复现构建。
 		mtimes = append(mtimes, 0)
@@ -499,7 +539,9 @@ func writeCPIOEntry(w io.Writer, ino int, f rpmFile) error {
 	name = strings.TrimPrefix(name, "/")
 
 	data := f.Data
-	return writeCPIORecord(w, ino, f.Mode.Perm(), int64(len(data)), name,
+	// 与 tagFileModes 同一个理由：载荷里的 mode 也要带文件类型位。
+	// rpmbuild 的产物是这样，而我们曾经只写权限位。
+	return writeCPIORecord(w, ino, rpmFileTypeBits|f.Mode.Perm(), int64(len(data)), name,
 		func() error {
 			_, err := w.Write(data)
 			return err

@@ -98,7 +98,24 @@ func parseRPM(t *testing.T, data []byte) rpmParsed {
 		t.Fatalf("解析主 header 失败: %v", err)
 	}
 	out.Header = hdr
-	out.Payload = rest[consumed:]
+
+	// 主 header 之后同样补零到 8 字节对齐 —— 载荷从 8 的倍数处开始。
+	rest = rest[consumed:]
+	if pad := (8 - consumed%8) % 8; pad > 0 {
+		if len(rest) < pad {
+			t.Fatalf("主 header 之后只剩 %d 字节，不足以容纳 %d 字节填充",
+				len(rest), pad)
+		}
+		for i := 0; i < pad; i++ {
+			if rest[i] != 0 {
+				t.Fatalf("主 header 的对齐填充第 %d 字节是 %#x，应当是 0",
+					i, rest[i])
+			}
+		}
+		rest = rest[pad:]
+	}
+
+	out.Payload = rest
 
 	return out
 }
@@ -283,12 +300,129 @@ func TestRPMLead(t *testing.T) {
 	if len(rpm.Lead) != rpmLeadSize {
 		t.Fatalf("lead 是 %d 字节，期望 %d", len(rpm.Lead), rpmLeadSize)
 	}
-	if string(rpm.Lead[0:3]) != rpmHeaderMagic {
-		t.Errorf("lead 魔数 = % x，期望 % x",
-			rpm.Lead[0:3], []byte(rpmHeaderMagic))
+	// **lead 的魔数与 header 的魔数不是一回事**：
+	//
+	//	lead    0xEDABEEDB   ← rpm 靠它识别"这是不是一个 RPM 包"
+	//	header  0x8EADE8     ← header 结构自己的魔数
+	//
+	// 这里曾经写的是 `rpmHeaderMagic` —— 而实现里也用了同一个常量，
+	// 于是测试与实现互相印证、一起错。断言写成**字面量**，这样常量写错
+	// 时它抓得住。
+	if !bytes.HasPrefix(rpm.Lead, []byte{0xed, 0xab, 0xee, 0xdb}) {
+		t.Errorf("lead 魔数 = % x，期望 ed ab ee db（0xEDABEEDB）",
+			rpm.Lead[0:4])
 	}
 	if rpm.Lead[4] != 0 {
 		t.Errorf("包类型 = %d，期望 0（二进制包）", rpm.Lead[4])
+	}
+}
+
+// TestRPMModesCarryFileTypeBits 钉住"mode 必须带文件类型位"。
+//
+// RPM 的头标签 `tagFileModes` 与 cpio 载荷里的 mode 字段都带 POSIX 的
+// **类型位**（普通文件 = 0100000）。只写权限位（0755）时：
+//
+//   - `rpm -qplv` 打出来的第一列不是 `-rwxr-xr-x`，CI 里那条"可执行位"
+//     的检查因此会失败；
+//   - rpm 判断条目类型（文件/目录/符号链接）靠的正是这一位，
+//     少了它，安装时的行为没有保证。
+//
+// 我们的实现曾经用 `.Perm()` 把高位丢掉，而当时的测试只检查权限位
+// （`mode&0o111`），于是这个缺陷一路留到了 CI 上真正的 rpm 命令。
+//
+// 断言刻意用**字面量**（0o100000）而不是实现里的常量。
+func TestRPMModesCarryFileTypeBits(t *testing.T) {
+	t.Parallel()
+
+	data := buildTestRPM(t, "1.0.0")
+	rpm := parseRPM(t, data)
+
+	// 头部标签里的模式。
+	modes, ok := rpm.Header[tagFileModes]
+	if !ok {
+		t.Fatal("主 header 里没有 tagFileModes")
+	}
+	for i, v := range modes.Ints {
+		if v&0o170000 != 0o100000 {
+			t.Errorf("第 %d 个文件的 mode = %04o，没有普通文件类型位（0100000）",
+				i, v)
+		}
+	}
+
+	// cpio 载荷里的模式：解出第一条记录看它的 mode 字段。
+	entry := firstCPIORecord(t, rpm.Payload)
+	if entry.mode&0o170000 != 0o100000 {
+		t.Errorf("cpio 载荷里第一条记录的 mode = %04o，没有普通文件类型位", entry.mode)
+	}
+}
+
+// cpioRecord 是 cpio(newc) 里我们关心的字段。
+type cpioRecord struct {
+	name string
+	mode uint32
+}
+
+// firstCPIORecord 解出 cpio 载荷里的第一条记录。
+//
+// 只为测试而写的最小解析器：这条测试要验证的正是载荷本身，
+// 因此不能依赖被测代码里的解析逻辑。
+func firstCPIORecord(t *testing.T, payload []byte) cpioRecord {
+	t.Helper()
+
+	gz, err := gzip.NewReader(bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("载荷不是 gzip: %v", err)
+	}
+	defer gz.Close() //nolint:errcheck // 只读
+
+	raw, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 110 || string(raw[0:6]) != "070701" {
+		t.Fatal("载荷的开头不是 cpio(newc) 记录")
+	}
+
+	field := func(i int) uint32 {
+		v, err := strconv.ParseUint(string(raw[6+i*8:14+i*8]), 16, 32)
+		if err != nil {
+			t.Fatalf("cpio 第 %d 个字段不是十六进制: %v", i, err)
+		}
+		return uint32(v)
+	}
+	mode := field(1)
+	nameSize := int(field(11))
+	name := string(raw[110 : 110+nameSize-1])
+	return cpioRecord{name: name, mode: mode}
+}
+
+// TestRPMPayloadIsAlignedAndGzipped 钉住"载荷从 8 字节边界开始"。
+//
+// # 为什么值得单独一条
+//
+// rpm 的两个 header 都补到 8 字节边界，载荷因此必须从一个 8 的倍数处开始
+// —— 而我们的实现曾经**只补了签名 header 那一次**，主 header 之后直接写
+// 载荷（实测落到偏移 1739，差 5 字节）。rpm 按自己的规则推进到 1744，
+// 在那里读到的是填充的零，于是报一句"不是 gzip 数据"。
+//
+// 这个缺陷同样是我们自己的测试看不见的：**解析器与写入端用了同一条错误
+// 规则**（都直接接在 header 后面）。因此这里的断言刻意用两条与实现无关的
+// 判据：偏移是不是 8 的倍数，以及那两字节是不是 gzip 的魔数。
+func TestRPMPayloadIsAlignedAndGzipped(t *testing.T) {
+	t.Parallel()
+
+	data := buildTestRPM(t, "1.0.0")
+	rpm := parseRPM(t, data)
+
+	// 载荷在文件里的绝对偏移 = 文件长度 - 载荷长度。
+	offset := len(data) - len(rpm.Payload)
+	if offset%8 != 0 {
+		t.Errorf("载荷从偏移 %d 开始，不是 8 的倍数 —— "+
+			"rpm 会在对齐后的位置读到填充的零，报「不是 gzip 数据」", offset)
+	}
+	if !bytes.HasPrefix(rpm.Payload, []byte{0x1f, 0x8b}) {
+		t.Errorf("载荷的前两字节是 % x，期望 1f 8b（gzip 魔数）",
+			rpm.Payload[0:2])
 	}
 }
 
@@ -415,12 +549,17 @@ func TestRPMContainsExecutableWithMode(t *testing.T) {
 	}
 
 	// 没有执行位就是一个**装得上、跑不起来**的包。
+	//
+	// 比较的是**权限位**：mode 里还带着文件类型位（0100000，见
+	// TestRPMModesCarryFileTypeBits），拿它跟 0755 整体比较是错的 ——
+	// 这条断言原本就是这么写的，于是它把"少了类型位"这个缺陷
+	// 当成了正确行为。
 	mode := rpm.Header[tagFileModes].Ints[binIdx]
 	if mode&0o111 == 0 {
-		t.Errorf("%s 的权限是 %04o，没有执行位", rpmBinPath, mode)
+		t.Errorf("%s 的权限是 %06o，没有执行位", rpmBinPath, mode)
 	}
-	if mode != 0o755 {
-		t.Errorf("%s 的权限是 %04o，期望 0755", rpmBinPath, mode)
+	if perm := mode & 0o7777; perm != 0o755 {
+		t.Errorf("%s 的权限位是 %04o，期望 0755", rpmBinPath, perm)
 	}
 }
 
