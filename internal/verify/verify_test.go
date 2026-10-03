@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -134,6 +135,71 @@ func localURL(s Session) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/%s", s.Port, s.Token)
 }
 
+// selfAddr 返回一个**本机真正拥有**的地址，用于"从本机访问自己的地址"
+// 这一情形的测试。
+//
+// # 为什么不写死一个地址
+//
+// 这里原本写的是 `2409:8a50:6a1:7450::50b` —— 作者家里那条宽带的真实前缀。
+// 于是这条测试只在**恰好拥有那个地址的机器**上通过；在 CI 上，
+// `http.Get` 连一个不属于本机的地址会直接失败，而失败信息是
+// "请求验证地址失败" —— 看起来像内核坏了，实际是测试依赖了作者的网络。
+//
+// # 为什么不退回 127.0.0.1
+//
+// 回环在 ClassifySource 里走的是另一个分支（SourceLoopback），
+// 而这条测试要覆盖的恰恰是**来源地址就是本机自己的全局单播地址、
+// 按类型判断会完全正常**的那一类（SourceSelf）—— 它是最容易被误判成
+// "公网可达"的情形。用回环测，等于把这条测试真正的内容绕过去了。
+//
+// 因此按优先级取一个本机地址：先找全局单播 IPv6（真机上的真实情形），
+// 没有就退回任一本机非回环地址（内网 IPv4 同样会命中 SourceSelf，
+// 因为"是不是本机自己"在类型判断之前）。两者都没有才跳过。
+func selfAddr(t *testing.T) string {
+	t.Helper()
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		t.Skipf("枚举网卡失败，无法构造本机自访问地址: %v", err)
+	}
+
+	fallback := ""
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipNet, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			addr, ok := netip.AddrFromSlice(ipNet.IP)
+			if !ok {
+				continue
+			}
+			addr = addr.Unmap()
+			if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsUnspecified() {
+				continue
+			}
+			if addr.IsGlobalUnicast() && !addr.IsPrivate() {
+				return addr.String()
+			}
+			if fallback == "" {
+				fallback = addr.String()
+			}
+		}
+	}
+
+	if fallback == "" {
+		t.Skip("本机没有非回环地址，无法复现「从本机访问自己的地址」这一情形")
+	}
+	return fallback
+}
+
 func TestStartBindsAndReportsURL(t *testing.T) {
 	t.Parallel()
 
@@ -186,7 +252,7 @@ func TestURLWrapsOnlyIPv6(t *testing.T) {
 func TestLocalHitIsNotProof(t *testing.T) {
 	t.Parallel()
 
-	m := newTestManager(t, "2409:8a50:6a1:7450::50b")
+	m := newTestManager(t, selfAddr(t))
 	sess, err := m.Start(context.Background(), StartRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -195,8 +261,8 @@ func TestLocalHitIsNotProof(t *testing.T) {
 
 	// 从本机访问 —— 这正是用户"在自己电脑上试一下"时的行为。
 	//
-	// 这里**刻意**用公网地址而不是 127.0.0.1：IPv6 没有 NAT，
-	// 用户在自己机器上打开那个公网地址时，连接是直连的，
+	// 目标地址取自 selfAddr(t)（本机真实拥有的地址），而不是 127.0.0.1：
+	// IPv6 没有 NAT，用户在自己机器上打开那个全局地址时连接是直连的，
 	// 来源地址就是机器自己的全局单播地址 —— 那正是最难识别、
 	// 也最容易造成假阳性的一种情形。
 	resp, err := http.Get(sess.URL())

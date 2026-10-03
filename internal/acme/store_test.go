@@ -129,12 +129,21 @@ func TestStoreKeyPermissions(t *testing.T) {
 		t.Errorf("私钥权限 = %o，期望 600 —— 其它用户能读走私钥", perm)
 	}
 
-	// 证书本身是公开的，宽松一点没问题。
+	// 证书本身是公开的（0644），因此**读**权限给出去没问题。
+	//
+	// 但组/其它用户的**写**权限不能有：那意味着同机的另一个用户
+	// 可以把这张证书换成自己的。
+	//
+	// 这里曾经写成 `perm&0o077 != 0` —— 那个断言把读权限也算进去了，
+	// 于是它与 Save 里刻意选择的 0644 直接矛盾，而错误信息说的却是
+	// "不该给组/其它用户写权限"。断言与它自己的说明不一致时，
+	// 失败信息会把人引向错误的方向（看起来像"私钥泄漏"，实际是断言写错）。
+	// 只查写位：0o022。
 	certInfo, err := os.Stat(filepath.Join(dir, "example.com"+certSuffix))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if perm := certInfo.Mode().Perm(); perm&0o077 != 0 {
+	if perm := certInfo.Mode().Perm(); perm&0o022 != 0 {
 		t.Errorf("证书文件权限 = %o，不该给组/其它用户写权限", perm)
 	}
 }
