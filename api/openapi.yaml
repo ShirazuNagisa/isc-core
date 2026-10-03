@@ -2178,6 +2178,7 @@ components:
           enum: [draft, scanning, preparing, building, running, stopped, failed]
         local_port: {type: integer}
         last_error: {type: string}
+        public_service_id: {type: string, format: uuid}
 
     PhecdaDeployment:
       type: object
@@ -2191,6 +2192,7 @@ components:
           enum: [draft, scanning, preparing, building, running, stopped, failed]
         local_port: {type: integer}
         last_error: {type: string}
+        public_service_id: {type: string, format: uuid}
 
     PhecdaDeploymentList:
       type: object

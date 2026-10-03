@@ -152,7 +152,7 @@ func scanPhecdaProject(row phecdaScanner) (gen.PhecdaProject, string, error) {
 }
 
 func (p *PhecdaRepository) SaveDeployment(ctx context.Context, deployment gen.PhecdaDeployment) error {
-	_, err := p.s.db.ExecContext(ctx, `INSERT INTO phecda_deployments (id, project_id, preset_id, state, local_port, last_error) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, preset_id=excluded.preset_id, state=excluded.state, local_port=excluded.local_port, last_error=excluded.last_error`, deployment.Id.String(), deployment.ProjectId.String(), deployment.PresetId, string(deployment.State), nullableInt(deployment.LocalPort), nullableString(deployment.LastError))
+	_, err := p.s.db.ExecContext(ctx, `INSERT INTO phecda_deployments (id, project_id, preset_id, state, local_port, last_error, public_service_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, preset_id=excluded.preset_id, state=excluded.state, local_port=excluded.local_port, last_error=excluded.last_error, public_service_id=excluded.public_service_id`, deployment.Id.String(), deployment.ProjectId.String(), deployment.PresetId, string(deployment.State), nullableInt(deployment.LocalPort), nullableString(deployment.LastError), nullableUUID(deployment.PublicServiceId))
 	return err
 }
 
@@ -168,8 +168,15 @@ func nullableString(v *string) any {
 	}
 	return *v
 }
+func nullableUUID(v *uuid.UUID) any {
+	if v == nil {
+		return nil
+	}
+	return v.String()
+}
+
 func (p *PhecdaRepository) ListDeployments(ctx context.Context) ([]gen.PhecdaDeployment, error) {
-	rows, err := p.s.db.QueryContext(ctx, `SELECT id, project_id, preset_id, state, local_port, last_error FROM phecda_deployments ORDER BY id`)
+	rows, err := p.s.db.QueryContext(ctx, `SELECT id, project_id, preset_id, state, local_port, last_error, public_service_id FROM phecda_deployments ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +186,8 @@ func (p *PhecdaRepository) ListDeployments(ctx context.Context) ([]gen.PhecdaDep
 		var id, project, preset, state string
 		var port sql.NullInt64
 		var last sql.NullString
-		if err := rows.Scan(&id, &project, &preset, &state, &port, &last); err != nil {
+		var publicService sql.NullString
+		if err := rows.Scan(&id, &project, &preset, &state, &port, &last, &publicService); err != nil {
 			return nil, err
 		}
 		d := gen.PhecdaDeployment{Id: uuid.MustParse(id), ProjectId: uuid.MustParse(project), PresetId: preset, State: gen.PhecdaDeploymentState(state)}
@@ -190,6 +198,10 @@ func (p *PhecdaRepository) ListDeployments(ctx context.Context) ([]gen.PhecdaDep
 		if last.Valid {
 			d.LastError = &last.String
 		}
+		if publicService.Valid {
+			value := uuid.MustParse(publicService.String)
+			d.PublicServiceId = &value
+		}
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -199,7 +211,8 @@ func (p *PhecdaRepository) GetDeployment(ctx context.Context, id uuid.UUID) (gen
 	var project, preset, state string
 	var port sql.NullInt64
 	var last sql.NullString
-	err := p.s.db.QueryRowContext(ctx, `SELECT project_id,preset_id,state,local_port,last_error FROM phecda_deployments WHERE id=?`, id.String()).Scan(&project, &preset, &state, &port, &last)
+	var publicService sql.NullString
+	err := p.s.db.QueryRowContext(ctx, `SELECT project_id,preset_id,state,local_port,last_error,public_service_id FROM phecda_deployments WHERE id=?`, id.String()).Scan(&project, &preset, &state, &port, &last, &publicService)
 	if err == sql.ErrNoRows {
 		return gen.PhecdaDeployment{}, false, nil
 	}
@@ -213,6 +226,10 @@ func (p *PhecdaRepository) GetDeployment(ctx context.Context, id uuid.UUID) (gen
 	}
 	if last.Valid {
 		d.LastError = &last.String
+	}
+	if publicService.Valid {
+		value := uuid.MustParse(publicService.String)
+		d.PublicServiceId = &value
 	}
 	return d, true, nil
 }

@@ -1283,12 +1283,13 @@ type NotifyDeliveryList struct {
 
 // PhecdaDeployment defines model for PhecdaDeployment.
 type PhecdaDeployment struct {
-	Id        openapi_types.UUID    `json:"id"`
-	LastError *string               `json:"last_error,omitempty"`
-	LocalPort *int                  `json:"local_port,omitempty"`
-	PresetId  string                `json:"preset_id"`
-	ProjectId openapi_types.UUID    `json:"project_id"`
-	State     PhecdaDeploymentState `json:"state"`
+	Id              openapi_types.UUID    `json:"id"`
+	LastError       *string               `json:"last_error,omitempty"`
+	LocalPort       *int                  `json:"local_port,omitempty"`
+	PresetId        string                `json:"preset_id"`
+	ProjectId       openapi_types.UUID    `json:"project_id"`
+	PublicServiceId *openapi_types.UUID   `json:"public_service_id,omitempty"`
+	State           PhecdaDeploymentState `json:"state"`
 }
 
 // PhecdaDeploymentState defines model for PhecdaDeployment.State.
@@ -1296,11 +1297,12 @@ type PhecdaDeploymentState string
 
 // PhecdaDeploymentInput defines model for PhecdaDeploymentInput.
 type PhecdaDeploymentInput struct {
-	LastError *string                    `json:"last_error,omitempty"`
-	LocalPort *int                       `json:"local_port,omitempty"`
-	PresetId  string                     `json:"preset_id"`
-	ProjectId openapi_types.UUID         `json:"project_id"`
-	State     PhecdaDeploymentInputState `json:"state"`
+	LastError       *string                    `json:"last_error,omitempty"`
+	LocalPort       *int                       `json:"local_port,omitempty"`
+	PresetId        string                     `json:"preset_id"`
+	ProjectId       openapi_types.UUID         `json:"project_id"`
+	PublicServiceId *openapi_types.UUID        `json:"public_service_id,omitempty"`
+	State           PhecdaDeploymentInputState `json:"state"`
 }
 
 // PhecdaDeploymentInputState defines model for PhecdaDeploymentInput.State.
