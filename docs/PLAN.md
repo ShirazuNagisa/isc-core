@@ -2515,6 +2515,67 @@ Ubuntu runner 上装了 `rpm`，因此 release-build job 里多了一步：
 签名的 Windows 安装包会被 SmartScreen 拦下、macOS 上会被 Gatekeeper 拒绝。
 这属于外部依赖，不是代码缺口。
 
+#### 2026-10-03 补记：三平台里有两个**从来没接上**
+
+仓库迁到 macOS 之后，第一次在新平台上跑真机：
+
+```
+$ isc status
+  ✗ service_manager  unsupported:service_manager — launchd 后端将在 M5 实现
+```
+
+而 `service_darwin.go` 里的 launchd 后端（plist 渲染、root 检查、启停、
+状态查询）**早就写完了**。查下去发现两个平台都是这样：
+
+| 平台 | 装配点 | 实现文件 |
+|---|---|---|
+| Windows | ✅ `newServiceManager()` | `service_windows.go` |
+| macOS | ❌ `newUnsupportedServiceManager(launchd_todo)` | `service_darwin.go` |
+| Linux | ❌ `newUnsupportedServiceManager(systemd_todo)` | `service_linux.go` |
+
+**为什么一直没有测试发现。** 后端自己的测试全是**与平台无关的纯逻辑**
+（把渲染函数单独拿出来测），而"装配点接的是实现还是 stub"没有任何检查。
+这正是本项目审计里记过四次的那类问题：**能力存在，但检查它的那段代码看不到它**。
+M5-a 是在 Windows 上开发、也只在 Windows 上真机验证的（R8），于是正好漏掉
+另外两个平台 —— 而上表那一列在 Windows 上是 ✅，看起来就像"都做完了"。
+
+修法是接上真实后端，并新增 `internal/platform/wiring_test.go`：
+
+- `TestServiceManagerIsWired`：装配点指向 stub 就失败，并核对各平台该接的
+  后端名（launchd / systemd / windows-scm）；
+- `TestBundleHasNoStubsWhereImplementationsExist`：普遍形式 —— 按平台声明
+  "这些后端应当是真实现"，逐个检查。名单同时是一份"这个平台做到哪一步"的
+  清单，加后端时它会逼着人更新。
+
+**验证过测试确实能抓到它**：临时把 darwin 的装配点接回 stub，两条测试立刻
+失败并指名道姓；恢复后通过。
+
+#### 同一天的真机结果（macOS，首次）
+
+```
+✓ firewall         pf  — /etc/pf.anchors/isc；需要 root
+✓ service_manager  launchd  — /Library/LaunchDaemons/com.isc.core.plist
+✓ ip_monitor       polling
+✓ secret_store     macos-keychain
+✓ transport        unix-socket
+✓ low_port_binder  darwin-native
+
+$ isc service status
+▶  内核：运行中（本地接口可连通）
+⏹  系统服务：未运行（launchd）
+
+$ isc doctor
+    ✅ 全局 IPv6 地址（en1 上 3 个）
+    ✅ IPv6 委派前缀（1 个 /64 或更粗）
+    ✅ 本机防火墙后端（pf）
+```
+
+数据目录权限也逐项核对过：目录 `0700`、`isc.sock` `0600`、`runtime.json` `0600`。
+
+**仍然没验证的**：真正 `sudo isc service install/start/stop`（要 root，本轮
+无法交互输入密码）。因此"launchd 装得上、起得来"仍属未验证 —— R8 只缩小了，
+没有消失。
+
 **因此这里留下的是一条待决事项而非未完成的功能**：如果将来要做系统级安装包，
 `.deb` 与 `.rpm` 不需要证书、可以纯粹由构建脚本产出（`ar` + `tar` + control
 文件），而 `.msi` / `.pkg` 与签名需要证书到位之后才有意义。
