@@ -35,10 +35,22 @@ import (
 // 独立的 RPM 解析器
 // ---------------------------------------------------------------------------
 
+// rpmRawEntry 是索引里的一条原始记录（保留顺序与偏移）。
+type rpmRawEntry struct {
+	Tag    int
+	Type   int
+	Offset int
+	Count  int
+}
+
 type rpmParsed struct {
-	Lead      []byte
-	Signature map[int]rpmValue
-	Header    map[int]rpmValue
+	Lead []byte
+	// SigIndex / HeaderIndex 是**索引的原始顺序**（已按标签升序），
+	// 用来核对 rpm 的那条不变式：数据区的偏移必须与索引同序。
+	SigIndex    []rpmRawEntry
+	HeaderIndex []rpmRawEntry
+	Signature   map[int]rpmValue
+	Header      map[int]rpmValue
 	// HeaderBlob 是主 header 的**未对齐**原始字节 —— 签名里的摘要算的就是它。
 	HeaderBlob []byte
 	// HeaderOffset 是主 header 在文件里的起点：签名里的 SIZE 字段
@@ -80,7 +92,8 @@ func parseRPM(t *testing.T, data []byte) rpmParsed {
 	if err != nil {
 		t.Fatalf("解析签名 header 失败: %v", err)
 	}
-	out.Signature = sig
+	out.Signature = sig.values
+	out.SigIndex = sig.index
 
 	// 签名 header 之后补零到 8 字节对齐。
 	rest = rest[consumed:]
@@ -104,7 +117,8 @@ func parseRPM(t *testing.T, data []byte) rpmParsed {
 	if err != nil {
 		t.Fatalf("解析主 header 失败: %v", err)
 	}
-	out.Header = hdr
+	out.Header = hdr.values
+	out.HeaderIndex = hdr.index
 	out.HeaderBlob = rest[:consumed]
 
 	// 主 header 之后同样补零到 8 字节对齐 —— 载荷从 8 的倍数处开始。
@@ -129,15 +143,21 @@ func parseRPM(t *testing.T, data []byte) rpmParsed {
 }
 
 // parseRPMHeader 解析一个 header 结构，返回标签表与消耗的字节数。
-func parseRPMHeader(data []byte) (map[int]rpmValue, int, error) {
+// rpmHeaderParsed 是一个 header 的解析结果。
+type rpmHeaderParsed struct {
+	values map[int]rpmValue
+	index  []rpmRawEntry
+}
+
+func parseRPMHeader(data []byte) (rpmHeaderParsed, int, error) {
 	if len(data) < 16 {
-		return nil, 0, fmt.Errorf("头部只有 %d 字节，至少需要 16", len(data))
+		return rpmHeaderParsed{}, 0, fmt.Errorf("头部只有 %d 字节，至少需要 16", len(data))
 	}
 	if string(data[0:3]) != rpmHeaderMagic {
-		return nil, 0, fmt.Errorf("魔数不对: % x", data[0:3])
+		return rpmHeaderParsed{}, 0, fmt.Errorf("魔数不对: % x", data[0:3])
 	}
 	if data[3] != 1 {
-		return nil, 0, fmt.Errorf("版本号是 %d，期望 1", data[3])
+		return rpmHeaderParsed{}, 0, fmt.Errorf("版本号是 %d，期望 1", data[3])
 	}
 
 	count := binary.BigEndian.Uint32(data[8:12])
@@ -146,13 +166,13 @@ func parseRPMHeader(data []byte) (map[int]rpmValue, int, error) {
 	indexEnd := 16 + int(count)*16
 	total := indexEnd + int(dataLen)
 	if len(data) < total {
-		return nil, 0, fmt.Errorf(
+		return rpmHeaderParsed{}, 0, fmt.Errorf(
 			"header 声明 %d 字节（%d 条索引 + %d 字节数据），实际只有 %d",
 			total, count, dataLen, len(data))
 	}
 
 	headerData := data[indexEnd:total]
-	out := make(map[int]rpmValue, count)
+	out := rpmHeaderParsed{values: make(map[int]rpmValue, count)}
 
 	var prevTag int = -1
 	for i := 0; i < int(count); i++ {
@@ -164,23 +184,26 @@ func parseRPMHeader(data []byte) (map[int]rpmValue, int, error) {
 
 		// rpm 要求索引按 tag 升序。
 		if tag <= prevTag {
-			return nil, 0, fmt.Errorf(
+			return rpmHeaderParsed{}, 0, fmt.Errorf(
 				"索引没有按 tag 升序：第 %d 条是 %d，上一条是 %d",
 				i+1, tag, prevTag)
 		}
 		prevTag = tag
 
 		if offset > len(headerData) {
-			return nil, 0, fmt.Errorf(
+			return rpmHeaderParsed{}, 0, fmt.Errorf(
 				"标签 %d 的偏移 %d 超出数据区（%d 字节）",
 				tag, offset, len(headerData))
 		}
 
 		val, err := decodeRPMValue(typ, cnt, headerData[offset:])
 		if err != nil {
-			return nil, 0, fmt.Errorf("标签 %d: %w", tag, err)
+			return rpmHeaderParsed{}, 0, fmt.Errorf("标签 %d: %w", tag, err)
 		}
-		out[tag] = val
+		out.values[tag] = val
+		out.index = append(out.index, rpmRawEntry{
+			Tag: tag, Type: typ, Offset: offset, Count: cnt,
+		})
 	}
 
 	return out, total, nil
@@ -746,6 +769,68 @@ func TestRPMDocFilesAreFlaggedAsDocs(t *testing.T) {
 		}
 		if !isDoc && flagged {
 			t.Errorf("%s 不在文档目录下，却被标成了文档", p)
+		}
+	}
+}
+
+// TestRPMHeaderLayoutMatchesIndexOrder 钉住 rpm 的那条不变式。
+//
+// rpm 的 `hdrblobVerifyInfo` 逐个条目检查：
+//
+//	/* Previous data must not overlap */
+//	if (end > info.offset) goto err;
+//
+// 也就是**数据区的顺序必须与索引顺序一致**（索引按标签升序，所以数据也必须
+// 按标签升序铺）。还要求整数数组按元素宽度对齐（`hdrchkAlign`：INT16 → 2、
+// INT32 → 4）。
+//
+// 这两条我们原先都不满足：数据是"按调用顺序"写的、索引另外排序，而签名
+// header 的调用顺序恰好与标签顺序不同（SIZE(1000) 先写，而 SHA256(273)
+// 的标签更小）。rpm 的原话是：
+//
+//	signature tag[1]: BAD, tag 1000 type 4 offset 0 count 1 len 65
+//	not an rpm package (or package manifest)
+//
+// 两个 header 都要查 —— 踩中的是签名 header，而主 header 只是**碰巧**
+// 调用顺序与标签顺序一致。
+func TestRPMHeaderLayoutMatchesIndexOrder(t *testing.T) {
+	t.Parallel()
+
+	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+
+	for _, h := range []struct {
+		name  string
+		index []rpmRawEntry
+	}{
+		{"签名 header", rpm.SigIndex},
+		{"主 header", rpm.HeaderIndex},
+	} {
+		if len(h.index) == 0 {
+			t.Fatalf("%s 的索引是空的", h.name)
+		}
+
+		prevEnd := 0
+		for i, e := range h.index {
+			// 偏移不得回退：这是 rpm 检查的那一条。
+			if e.Offset < prevEnd {
+				t.Errorf("%s 第 %d 条（tag %d）的偏移 %d 小于上一条数据的末尾 %d —— "+
+					"rpm 会报「Previous data must not overlap」",
+					h.name, i, e.Tag, e.Offset, prevEnd)
+			}
+			prevEnd = e.Offset
+
+			// 整数数组的对齐要求。
+			width := 1
+			switch e.Type {
+			case rpmTypeInt16:
+				width = 2
+			case rpmTypeInt32:
+				width = 4
+			}
+			if e.Offset%width != 0 {
+				t.Errorf("%s 第 %d 条（tag %d，type %d）的偏移 %d 没有按 %d 字节对齐",
+					h.name, i, e.Tag, e.Type, e.Offset, width)
+			}
 		}
 	}
 }

@@ -273,69 +273,103 @@ func rpmLead(opts RpmOptions) []byte {
 
 // rpmEntry 是一个 header 索引条目。
 type rpmEntry struct {
-	Tag    int
-	Type   int
+	Tag  int
+	Type int
+	// Data 是这个条目的数据区内容。**偏移不在这里**：它必须在所有条目
+	// 定下来之后、按标签顺序统一分配（见 rpmHeaderBuilder.bytes）。
+	Data  []byte
+	Count int
+	// Offset 由 bytes() 填充。
 	Offset int
-	Count  int
 }
 
 // rpmHeaderBuilder 累积 header 的数据区与索引。
 type rpmHeaderBuilder struct {
-	data    bytes.Buffer
 	entries []rpmEntry
 }
 
 func (b *rpmHeaderBuilder) addString(tag int, s string) {
 	// 字符串在数据区里以 NUL 结尾，而 count 恒为 1。
 	b.entries = append(b.entries, rpmEntry{
-		Tag: tag, Type: rpmTypeString, Offset: b.data.Len(), Count: 1,
+		Tag: tag, Type: rpmTypeString, Count: 1, Data: append([]byte(s), 0),
 	})
-	b.data.WriteString(s)
-	b.data.WriteByte(0)
 }
 
 func (b *rpmHeaderBuilder) addI18NString(tag int, s string) {
 	b.entries = append(b.entries, rpmEntry{
-		Tag: tag, Type: rpmTypeI18NString, Offset: b.data.Len(), Count: 1,
+		Tag: tag, Type: rpmTypeI18NString, Count: 1,
+		Data: append([]byte(s), 0),
 	})
-	b.data.WriteString(s)
-	b.data.WriteByte(0)
 }
 
 func (b *rpmHeaderBuilder) addStringArray(tag int, items []string) {
-	b.entries = append(b.entries, rpmEntry{
-		Tag: tag, Type: rpmTypeStringArray, Offset: b.data.Len(), Count: len(items),
-	})
+	var data bytes.Buffer
 	for _, s := range items {
-		b.data.WriteString(s)
-		b.data.WriteByte(0)
+		data.WriteString(s)
+		data.WriteByte(0)
 	}
+	b.entries = append(b.entries, rpmEntry{
+		Tag: tag, Type: rpmTypeStringArray, Count: len(items), Data: data.Bytes(),
+	})
 }
 
 func (b *rpmHeaderBuilder) addInt16(tag int, vals []uint16) {
-	b.entries = append(b.entries, rpmEntry{
-		Tag: tag, Type: rpmTypeInt16, Offset: b.data.Len(), Count: len(vals),
-	})
+	var data bytes.Buffer
 	for _, v := range vals {
-		_ = binary.Write(&b.data, binary.BigEndian, v)
+		_ = binary.Write(&data, binary.BigEndian, v)
 	}
+	b.entries = append(b.entries, rpmEntry{
+		Tag: tag, Type: rpmTypeInt16, Count: len(vals), Data: data.Bytes(),
+	})
 }
 
 func (b *rpmHeaderBuilder) addInt32(tag int, vals []uint32) {
-	b.entries = append(b.entries, rpmEntry{
-		Tag: tag, Type: rpmTypeInt32, Offset: b.data.Len(), Count: len(vals),
-	})
+	var data bytes.Buffer
 	for _, v := range vals {
-		_ = binary.Write(&b.data, binary.BigEndian, v)
+		_ = binary.Write(&data, binary.BigEndian, v)
 	}
+	b.entries = append(b.entries, rpmEntry{
+		Tag: tag, Type: rpmTypeInt32, Count: len(vals), Data: data.Bytes(),
+	})
 }
 
 // bytes 返回完整的 header 结构（魔数 + 索引 + 数据）。
 func (b *rpmHeaderBuilder) bytes() []byte {
 	// 索引按 tag 升序：rpm 要求如此，乱序会让它报"header 结构错误"。
-	sort.Slice(b.entries, func(i, j int) bool {
+	sort.SliceStable(b.entries, func(i, j int) bool {
 		return b.entries[i].Tag < b.entries[j].Tag
 	})
+
+	// 数据区**按排序后的顺序**重新铺设。
+	//
+	// rpm 在 hdrblobVerifyInfo 里逐个条目检查 `end > info.offset` ——
+	// 也就是"上一条数据的末尾不得越过下一条的起点"，等价于**数据区必须与
+	// 索引同序**。原先的写法是先按调用顺序写数据、再把索引排序，于是签名
+	// header 直接踩中（`SIZE` 的数据在最前，而标签序里 273 排在它前面）：
+	//
+	//	signature tag[1]: BAD, tag 1000 type 4 offset 0 count 1 len 65
+	//	not an rpm package (or package manifest)
+	//
+	// 另外整数数组要按元素宽度对齐（rpm 的 hdrchkAlign）：INT16 补到 2、
+	// INT32 补到 4。字符串没有对齐要求。
+	var data bytes.Buffer
+	for i := range b.entries {
+		e := &b.entries[i]
+
+		align := 1
+		switch e.Type {
+		case rpmTypeInt16:
+			align = 2
+		case rpmTypeInt32:
+			align = 4
+		}
+		if pad := (align - data.Len()%align) % align; pad > 0 {
+			data.Write(make([]byte, pad))
+		}
+
+		e.Offset = data.Len()
+		data.Write(e.Data)
+	}
 
 	var buf bytes.Buffer
 	buf.WriteString(rpmHeaderMagic)
@@ -343,7 +377,7 @@ func (b *rpmHeaderBuilder) bytes() []byte {
 	buf.Write([]byte{0, 0, 0, 0}) // 保留
 
 	_ = binary.Write(&buf, binary.BigEndian, uint32(len(b.entries)))
-	_ = binary.Write(&buf, binary.BigEndian, uint32(b.data.Len()))
+	_ = binary.Write(&buf, binary.BigEndian, uint32(data.Len()))
 
 	for _, e := range b.entries {
 		_ = binary.Write(&buf, binary.BigEndian, uint32(e.Tag))
@@ -351,7 +385,7 @@ func (b *rpmHeaderBuilder) bytes() []byte {
 		_ = binary.Write(&buf, binary.BigEndian, uint32(e.Offset))
 		_ = binary.Write(&buf, binary.BigEndian, uint32(e.Count))
 	}
-	buf.Write(b.data.Bytes())
+	buf.Write(data.Bytes())
 	return buf.Bytes()
 }
 
@@ -546,11 +580,7 @@ func rpmSignatureBytes(header, payload []byte, paddedSize, rawPayloadSize int) [
 
 	// header 结构的 SHA-256（十六进制串，与真实包一致）。
 	sum := sha256.Sum256(header)
-	b.entries = append(b.entries, rpmEntry{
-		Tag: tagSigSHA256, Type: rpmTypeString, Offset: b.data.Len(), Count: 1,
-	})
-	b.data.WriteString(hex.EncodeToString(sum[:]))
-	b.data.WriteByte(0)
+	b.addString(tagSigSHA256, hex.EncodeToString(sum[:]))
 
 	// header + 载荷的 MD5。
 	//
@@ -560,9 +590,8 @@ func rpmSignatureBytes(header, payload []byte, paddedSize, rawPayloadSize int) [
 	h.Write(header)
 	h.Write(payload)
 	b.entries = append(b.entries, rpmEntry{
-		Tag: tagSigMD5, Type: rpmTypeBin, Offset: b.data.Len(), Count: 16,
+		Tag: tagSigMD5, Type: rpmTypeBin, Count: 16, Data: h.Sum(nil),
 	})
-	b.data.Write(h.Sum(nil))
 
 	// 签名 header 之后要补零到 8 字节对齐 —— rpm 要求如此。
 	out := b.bytes()
