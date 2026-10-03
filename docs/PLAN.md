@@ -2506,6 +2506,50 @@ Ubuntu runner 上装了 `rpm`，因此 release-build job 里多了一步：
 复制进文档目录、以及 `rpm -K` 校验载荷完整性。
 
 这比单元测试更强：单元测试用的是我们自己写的解析器，而这里是 RPM 自己的工具。
+
+#### 2026-10-03 补记：这两条检查**从来没有跑到过**，第一次跑就抓到五个缺陷
+
+「核对 .deb」与「核对 .rpm」写进 CI 很久了，但它们一直没真正执行过 ——
+任务总是死在更前面的「构建全部平台」（发布脚本会先跑测试，而那两条测试
+当时是坏的）。等前面的问题修完、它们终于跑起来，一次就抓出五个缺陷，
+而且**每一个都是"用户装不上"级别的**：
+
+| # | 缺陷 | 症状 |
+|---|---|---|
+| 1 | `.deb` 的载荷里**没有目录条目** | `dpkg -i` 报 `unable to create '…/LICENSE.dpkg-new': No such file or directory` —— dpkg 不像 tar 那样替我们建父目录 |
+| 2 | `.rpm` 的 lead 魔数写成了 header 的魔数 | rpm 直接拒绝："不是 rpm 包" |
+| 3 | 主 header 之后没补零对齐 | 载荷落在非 8 倍数的偏移上，rpm 在那里读到填充的零 |
+| 4 | cpio 条目与 `tagFileModes` 丢了文件类型位 | `rpm -qplv` 的第一列不是 `-rwxr-xr-x` |
+| 5 | `SHA256` 摘要算在了**载荷**上（应为 header），`PAYLOADSIZE` 写的是 gzip 长度（应为解压后长度） | rpm 校验 header 摘要时对不上 |
+
+**为什么本项目的测试全都看不见它们。** 两类原因，都很值得记：
+
+1. **我们自己的解析器与写入端用了同一条（错的）规则。** 更糟的是有两条
+   测试把缺陷**当成了正确行为**：`TestRPMLead` 断言 lead 魔数等于
+   `rpmHeaderMagic`（同一个常量，一起错），`TestRPMSignatureHeader` 断言
+   `PAYLOADSIZE == gzip 长度`。测试与实现互相印证，是最难发现的一类盲区。
+2. **`dpkg-deb --info/--contents` 不真装。** 目录条目那一条只有 `dpkg -i`
+   会撞上，而它正是那一步最后一条命令。
+
+**修法里最有效的一招：拿真实产物对照，而不是查文档猜。** 第 5 条是靠
+下载三个真实的 `.rpm`（GitHub CLI 的 release 资产，其中一个 header 长度
+**不是** 8 的倍数）逐个字段验算出来的 —— 结论因此是"实测"而不是"我记得"：
+
+| 字段 | 实测含义 |
+|---|---|
+| `SIZE` | header（**含**对齐填充）+ 载荷 |
+| `PAYLOADSIZE` | 载荷**解压后**的字节数 |
+| `SHA256` | **header 结构**的摘要（十六进制串，不含对齐填充） |
+| `MD5` | 未对齐的 header 结构 + 载荷 |
+
+新增/改写的守门测试（都做过变异验证：把修复撤掉，它们立刻失败）：
+`TestDebDataTarHasDirectoryEntries`、`TestRPMPayloadIsAlignedAndGzipped`、
+`TestRPMModesCarryFileTypeBits`、以及按实测语义重写的
+`TestRPMSignatureHeader`。
+
+**一条通用的教训**：**一条从未运行过的检查，价值是零 —— 而它的第一次运行
+价值极高。** 这两条检查写下来时是对的，但它们的存在感只体现在 CI 配置里；
+真正让它们开始工作的是把前面的失败清掉。
 关于**为什么压缩包是这类工具的正常形态**：`kubectl`、`terraform`、`caddy`
 这些同为"单一 Go 可执行文件"的工具都是这么分发的 —— 因为产物没有依赖，
 "安装"这个动作本身没有多少内容可做。而本项目的"安装"是
