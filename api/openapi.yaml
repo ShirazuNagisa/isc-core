@@ -63,6 +63,8 @@ tags:
     description: 审计日志
   - name: Config
     description: 配置导入导出与迁移
+  - name: Phecda
+    description: Phecda 项目元数据、只读源码扫描和部署状态
   - name: Debug
     description: 仅用于管线自检的调试端点，不属于产品接口
 
@@ -219,6 +221,157 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /v1/phecda/presets:
+    get:
+      tags: [Phecda]
+      operationId: listPhecdaPresets
+      summary: 列出 Phecda 建站预设
+      responses:
+        "200":
+          description: Phecda 预设目录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaPresetCatalog"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/phecda/projects:
+    get:
+      tags: [Phecda]
+      operationId: listPhecdaProjects
+      summary: 列出 Phecda 项目
+      responses:
+        "200":
+          description: 项目列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaProjectList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      tags: [Phecda]
+      operationId: createPhecdaProject
+      summary: 登记 Phecda 项目来源
+      description: Docker 和非 Docker 来源互斥；image/command Docker 来源不要求源码目录。登记不会执行命令或改变公网配置。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhecdaProjectInput"
+      responses:
+        "201":
+          description: 项目已登记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaProject"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/phecda/projects/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Phecda]
+      operationId: getPhecdaProject
+      summary: 读取 Phecda 项目
+      responses:
+        "200":
+          description: 项目详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaProject"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      tags: [Phecda]
+      operationId: deletePhecdaProject
+      summary: 删除 Phecda 项目登记
+      description: 只删除项目元数据，不删除源文件、部署进程、Docker 资源或 DNS 配置。
+      responses:
+        "204":
+          description: 项目登记已删除
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/phecda/projects/{id}/scan:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Phecda]
+      operationId: scanPhecdaProject
+      summary: 对项目执行只读技术栈扫描
+      description: 不执行源码、安装脚本或 Docker 命令；敏感文件和版本控制目录不得进入结果。Docker 使用独立检测器。
+      responses:
+        "200":
+          description: 扫描结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaScanResult"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/phecda/deployments:
+    get:
+      tags: [Phecda]
+      operationId: listPhecdaDeployments
+      summary: 列出部署状态
+      responses:
+        "200":
+          description: 部署列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaDeploymentList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/phecda/deployments/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Phecda]
+      operationId: getPhecdaDeployment
+      summary: 读取部署状态
+      responses:
+        "200":
+          description: 部署状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaDeployment"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
   /v1/debug/noop:
     post:
       tags: [Debug]
@@ -1876,6 +2029,143 @@ components:
         next_cursor:
           type: string
           description: 为空表示没有更多数据。
+
+    PhecdaPresetCatalog:
+      type: object
+      required: [non_docker, docker]
+      properties:
+        non_docker:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaPreset"
+        docker:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaPreset"
+
+    PhecdaPreset:
+      type: object
+      required: [id, version, title, runtime, docker_only, default_port, detector_files]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        title: {type: string}
+        runtime:
+          type: string
+          enum: [staticFiles, node, python, php, go, java, docker]
+        docker_only: {type: boolean}
+        default_port: {type: integer, minimum: 1, maximum: 65535}
+        detector_files:
+          type: array
+          items: {type: string}
+
+    PhecdaProjectInput:
+      type: object
+      required: [name, purpose, source]
+      properties:
+        name: {type: string, minLength: 1}
+        purpose:
+          type: string
+          enum: [website, api, gameServer, fileService, custom]
+        source:
+          $ref: "#/components/schemas/PhecdaProjectSource"
+
+    PhecdaProjectSource:
+      oneOf:
+        - $ref: "#/components/schemas/PhecdaNonDockerSource"
+        - $ref: "#/components/schemas/PhecdaDockerSource"
+
+    PhecdaNonDockerSource:
+      type: object
+      required: [mode, value]
+      properties:
+        mode:
+          type: string
+          enum: [directory, archive, git]
+        value: {type: string}
+        ref: {type: string}
+
+    PhecdaDockerSource:
+      type: object
+      required: [mode, value]
+      properties:
+        mode:
+          type: string
+          enum: [composeFile, dockerfileDirectory, image, command]
+        value: {type: string}
+
+    PhecdaProject:
+      type: object
+      required: [id, name, purpose, source, evidence]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        purpose: {type: string}
+        source:
+          $ref: "#/components/schemas/PhecdaProjectSource"
+        detected_runtime:
+          type: string
+          enum: [staticFiles, node, python, php, go, java, docker]
+        selected_preset_id: {type: string}
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaScanEvidence"
+
+    PhecdaProjectList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaProject"
+
+    PhecdaScanEvidence:
+      type: object
+      required: [file, signal, confidence]
+      properties:
+        file: {type: string}
+        signal: {type: string}
+        confidence: {type: number, minimum: 0, maximum: 1}
+
+    PhecdaScanResult:
+      type: object
+      required: [project_id, read_only, evidence, candidates]
+      properties:
+        project_id: {type: string, format: uuid}
+        read_only: {type: boolean}
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaScanEvidence"
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaPreset"
+        warning: {type: string}
+
+    PhecdaDeployment:
+      type: object
+      required: [id, project_id, preset_id, state]
+      properties:
+        id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        preset_id: {type: string}
+        state:
+          type: string
+          enum: [draft, scanning, preparing, building, running, stopped, failed]
+        local_port: {type: integer}
+        last_error: {type: string}
+
+    PhecdaDeploymentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhecdaDeployment"
 
     NoopRequest:
       type: object

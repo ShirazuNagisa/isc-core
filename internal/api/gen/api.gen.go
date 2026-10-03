@@ -6,12 +6,14 @@
 package gen
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for AuditResult.
@@ -296,6 +298,177 @@ func (e NotifyChannelMinSeverity) Valid() bool {
 	case NotifyChannelMinSeverityInfo:
 		return true
 	case NotifyChannelMinSeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhecdaDeploymentState.
+const (
+	PhecdaDeploymentStateBuilding  PhecdaDeploymentState = "building"
+	PhecdaDeploymentStateDraft     PhecdaDeploymentState = "draft"
+	PhecdaDeploymentStateFailed    PhecdaDeploymentState = "failed"
+	PhecdaDeploymentStatePreparing PhecdaDeploymentState = "preparing"
+	PhecdaDeploymentStateRunning   PhecdaDeploymentState = "running"
+	PhecdaDeploymentStateScanning  PhecdaDeploymentState = "scanning"
+	PhecdaDeploymentStateStopped   PhecdaDeploymentState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaDeploymentState enum.
+func (e PhecdaDeploymentState) Valid() bool {
+	switch e {
+	case PhecdaDeploymentStateBuilding:
+		return true
+	case PhecdaDeploymentStateDraft:
+		return true
+	case PhecdaDeploymentStateFailed:
+		return true
+	case PhecdaDeploymentStatePreparing:
+		return true
+	case PhecdaDeploymentStateRunning:
+		return true
+	case PhecdaDeploymentStateScanning:
+		return true
+	case PhecdaDeploymentStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhecdaDockerSourceMode.
+const (
+	Command             PhecdaDockerSourceMode = "command"
+	ComposeFile         PhecdaDockerSourceMode = "composeFile"
+	DockerfileDirectory PhecdaDockerSourceMode = "dockerfileDirectory"
+	Image               PhecdaDockerSourceMode = "image"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaDockerSourceMode enum.
+func (e PhecdaDockerSourceMode) Valid() bool {
+	switch e {
+	case Command:
+		return true
+	case ComposeFile:
+		return true
+	case DockerfileDirectory:
+		return true
+	case Image:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhecdaNonDockerSourceMode.
+const (
+	Archive   PhecdaNonDockerSourceMode = "archive"
+	Directory PhecdaNonDockerSourceMode = "directory"
+	Git       PhecdaNonDockerSourceMode = "git"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaNonDockerSourceMode enum.
+func (e PhecdaNonDockerSourceMode) Valid() bool {
+	switch e {
+	case Archive:
+		return true
+	case Directory:
+		return true
+	case Git:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhecdaPresetRuntime.
+const (
+	PhecdaPresetRuntimeDocker      PhecdaPresetRuntime = "docker"
+	PhecdaPresetRuntimeGo          PhecdaPresetRuntime = "go"
+	PhecdaPresetRuntimeJava        PhecdaPresetRuntime = "java"
+	PhecdaPresetRuntimeNode        PhecdaPresetRuntime = "node"
+	PhecdaPresetRuntimePhp         PhecdaPresetRuntime = "php"
+	PhecdaPresetRuntimePython      PhecdaPresetRuntime = "python"
+	PhecdaPresetRuntimeStaticFiles PhecdaPresetRuntime = "staticFiles"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaPresetRuntime enum.
+func (e PhecdaPresetRuntime) Valid() bool {
+	switch e {
+	case PhecdaPresetRuntimeDocker:
+		return true
+	case PhecdaPresetRuntimeGo:
+		return true
+	case PhecdaPresetRuntimeJava:
+		return true
+	case PhecdaPresetRuntimeNode:
+		return true
+	case PhecdaPresetRuntimePhp:
+		return true
+	case PhecdaPresetRuntimePython:
+		return true
+	case PhecdaPresetRuntimeStaticFiles:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhecdaProjectDetectedRuntime.
+const (
+	PhecdaProjectDetectedRuntimeDocker      PhecdaProjectDetectedRuntime = "docker"
+	PhecdaProjectDetectedRuntimeGo          PhecdaProjectDetectedRuntime = "go"
+	PhecdaProjectDetectedRuntimeJava        PhecdaProjectDetectedRuntime = "java"
+	PhecdaProjectDetectedRuntimeNode        PhecdaProjectDetectedRuntime = "node"
+	PhecdaProjectDetectedRuntimePhp         PhecdaProjectDetectedRuntime = "php"
+	PhecdaProjectDetectedRuntimePython      PhecdaProjectDetectedRuntime = "python"
+	PhecdaProjectDetectedRuntimeStaticFiles PhecdaProjectDetectedRuntime = "staticFiles"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaProjectDetectedRuntime enum.
+func (e PhecdaProjectDetectedRuntime) Valid() bool {
+	switch e {
+	case PhecdaProjectDetectedRuntimeDocker:
+		return true
+	case PhecdaProjectDetectedRuntimeGo:
+		return true
+	case PhecdaProjectDetectedRuntimeJava:
+		return true
+	case PhecdaProjectDetectedRuntimeNode:
+		return true
+	case PhecdaProjectDetectedRuntimePhp:
+		return true
+	case PhecdaProjectDetectedRuntimePython:
+		return true
+	case PhecdaProjectDetectedRuntimeStaticFiles:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhecdaProjectInputPurpose.
+const (
+	Api         PhecdaProjectInputPurpose = "api"
+	Custom      PhecdaProjectInputPurpose = "custom"
+	FileService PhecdaProjectInputPurpose = "fileService"
+	GameServer  PhecdaProjectInputPurpose = "gameServer"
+	Website     PhecdaProjectInputPurpose = "website"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaProjectInputPurpose enum.
+func (e PhecdaProjectInputPurpose) Valid() bool {
+	switch e {
+	case Api:
+		return true
+	case Custom:
+		return true
+	case FileService:
+		return true
+	case GameServer:
+		return true
+	case Website:
 		return true
 	default:
 		return false
@@ -1075,6 +1248,113 @@ type NotifyDeliveryList struct {
 	Items []NotifyDelivery `json:"items"`
 }
 
+// PhecdaDeployment defines model for PhecdaDeployment.
+type PhecdaDeployment struct {
+	Id        openapi_types.UUID    `json:"id"`
+	LastError *string               `json:"last_error,omitempty"`
+	LocalPort *int                  `json:"local_port,omitempty"`
+	PresetId  string                `json:"preset_id"`
+	ProjectId openapi_types.UUID    `json:"project_id"`
+	State     PhecdaDeploymentState `json:"state"`
+}
+
+// PhecdaDeploymentState defines model for PhecdaDeployment.State.
+type PhecdaDeploymentState string
+
+// PhecdaDeploymentList defines model for PhecdaDeploymentList.
+type PhecdaDeploymentList struct {
+	Items []PhecdaDeployment `json:"items"`
+}
+
+// PhecdaDockerSource defines model for PhecdaDockerSource.
+type PhecdaDockerSource struct {
+	Mode  PhecdaDockerSourceMode `json:"mode"`
+	Value string                 `json:"value"`
+}
+
+// PhecdaDockerSourceMode defines model for PhecdaDockerSource.Mode.
+type PhecdaDockerSourceMode string
+
+// PhecdaNonDockerSource defines model for PhecdaNonDockerSource.
+type PhecdaNonDockerSource struct {
+	Mode  PhecdaNonDockerSourceMode `json:"mode"`
+	Ref   *string                   `json:"ref,omitempty"`
+	Value string                    `json:"value"`
+}
+
+// PhecdaNonDockerSourceMode defines model for PhecdaNonDockerSource.Mode.
+type PhecdaNonDockerSourceMode string
+
+// PhecdaPreset defines model for PhecdaPreset.
+type PhecdaPreset struct {
+	DefaultPort   int                 `json:"default_port"`
+	DetectorFiles []string            `json:"detector_files"`
+	DockerOnly    bool                `json:"docker_only"`
+	Id            string              `json:"id"`
+	Runtime       PhecdaPresetRuntime `json:"runtime"`
+	Title         string              `json:"title"`
+	Version       string              `json:"version"`
+}
+
+// PhecdaPresetRuntime defines model for PhecdaPreset.Runtime.
+type PhecdaPresetRuntime string
+
+// PhecdaPresetCatalog defines model for PhecdaPresetCatalog.
+type PhecdaPresetCatalog struct {
+	Docker    []PhecdaPreset `json:"docker"`
+	NonDocker []PhecdaPreset `json:"non_docker"`
+}
+
+// PhecdaProject defines model for PhecdaProject.
+type PhecdaProject struct {
+	DetectedRuntime  *PhecdaProjectDetectedRuntime `json:"detected_runtime,omitempty"`
+	Evidence         []PhecdaScanEvidence          `json:"evidence"`
+	Id               openapi_types.UUID            `json:"id"`
+	Name             string                        `json:"name"`
+	Purpose          string                        `json:"purpose"`
+	SelectedPresetId *string                       `json:"selected_preset_id,omitempty"`
+	Source           PhecdaProjectSource           `json:"source"`
+}
+
+// PhecdaProjectDetectedRuntime defines model for PhecdaProject.DetectedRuntime.
+type PhecdaProjectDetectedRuntime string
+
+// PhecdaProjectInput defines model for PhecdaProjectInput.
+type PhecdaProjectInput struct {
+	Name    string                    `json:"name"`
+	Purpose PhecdaProjectInputPurpose `json:"purpose"`
+	Source  PhecdaProjectSource       `json:"source"`
+}
+
+// PhecdaProjectInputPurpose defines model for PhecdaProjectInput.Purpose.
+type PhecdaProjectInputPurpose string
+
+// PhecdaProjectList defines model for PhecdaProjectList.
+type PhecdaProjectList struct {
+	Items []PhecdaProject `json:"items"`
+}
+
+// PhecdaProjectSource defines model for PhecdaProjectSource.
+type PhecdaProjectSource struct {
+	union json.RawMessage
+}
+
+// PhecdaScanEvidence defines model for PhecdaScanEvidence.
+type PhecdaScanEvidence struct {
+	Confidence float32 `json:"confidence"`
+	File       string  `json:"file"`
+	Signal     string  `json:"signal"`
+}
+
+// PhecdaScanResult defines model for PhecdaScanResult.
+type PhecdaScanResult struct {
+	Candidates []PhecdaPreset       `json:"candidates"`
+	Evidence   []PhecdaScanEvidence `json:"evidence"`
+	ProjectId  openapi_types.UUID   `json:"project_id"`
+	ReadOnly   bool                 `json:"read_only"`
+	Warning    *string              `json:"warning,omitempty"`
+}
+
 // Problem RFC 9457 定义的错误对象。
 type Problem struct {
 	// Code 稳定的机器可读错误码，供客户端分支判断。
@@ -1699,6 +1979,9 @@ type RunNoopJobJSONRequestBody = NoopRequest
 // ReplaceNotifyChannelsJSONRequestBody defines body for ReplaceNotifyChannels for application/json ContentType.
 type ReplaceNotifyChannelsJSONRequestBody = NotifyChannelList
 
+// CreatePhecdaProjectJSONRequestBody defines body for CreatePhecdaProject for application/json ContentType.
+type CreatePhecdaProjectJSONRequestBody = PhecdaProjectInput
+
 // ReplaceProxyRoutesJSONRequestBody defines body for ReplaceProxyRoutes for application/json ContentType.
 type ReplaceProxyRoutesJSONRequestBody = ProxyRouteList
 
@@ -1713,6 +1996,68 @@ type UpdateSettingsJSONRequestBody = SettingsPatch
 
 // StartVerifySessionJSONRequestBody defines body for StartVerifySession for application/json ContentType.
 type StartVerifySessionJSONRequestBody = VerifyStartRequest
+
+// AsPhecdaNonDockerSource returns the union data inside the PhecdaProjectSource as a PhecdaNonDockerSource
+func (t PhecdaProjectSource) AsPhecdaNonDockerSource() (PhecdaNonDockerSource, error) {
+	var body PhecdaNonDockerSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPhecdaNonDockerSource overwrites any union data inside the PhecdaProjectSource as the provided PhecdaNonDockerSource
+func (t *PhecdaProjectSource) FromPhecdaNonDockerSource(v PhecdaNonDockerSource) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePhecdaNonDockerSource performs a merge with any union data inside the PhecdaProjectSource, using the provided PhecdaNonDockerSource
+func (t *PhecdaProjectSource) MergePhecdaNonDockerSource(v PhecdaNonDockerSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPhecdaDockerSource returns the union data inside the PhecdaProjectSource as a PhecdaDockerSource
+func (t PhecdaProjectSource) AsPhecdaDockerSource() (PhecdaDockerSource, error) {
+	var body PhecdaDockerSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPhecdaDockerSource overwrites any union data inside the PhecdaProjectSource as the provided PhecdaDockerSource
+func (t *PhecdaProjectSource) FromPhecdaDockerSource(v PhecdaDockerSource) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePhecdaDockerSource performs a merge with any union data inside the PhecdaProjectSource, using the provided PhecdaDockerSource
+func (t *PhecdaProjectSource) MergePhecdaDockerSource(v PhecdaDockerSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t PhecdaProjectSource) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *PhecdaProjectSource) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -1845,6 +2190,30 @@ type ServerInterface interface {
 	// TestNotifyChannels 向全部通道发送一条测试通知
 	// (POST /v1/notify/test)
 	TestNotifyChannels(w http.ResponseWriter, r *http.Request)
+	// ListPhecdaDeployments 列出部署状态
+	// (GET /v1/phecda/deployments)
+	ListPhecdaDeployments(w http.ResponseWriter, r *http.Request)
+	// GetPhecdaDeployment 读取部署状态
+	// (GET /v1/phecda/deployments/{id})
+	GetPhecdaDeployment(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// ListPhecdaPresets 列出 Phecda 建站预设
+	// (GET /v1/phecda/presets)
+	ListPhecdaPresets(w http.ResponseWriter, r *http.Request)
+	// ListPhecdaProjects 列出 Phecda 项目
+	// (GET /v1/phecda/projects)
+	ListPhecdaProjects(w http.ResponseWriter, r *http.Request)
+	// CreatePhecdaProject 登记 Phecda 项目来源
+	// (POST /v1/phecda/projects)
+	CreatePhecdaProject(w http.ResponseWriter, r *http.Request)
+	// DeletePhecdaProject 删除 Phecda 项目登记
+	// (DELETE /v1/phecda/projects/{id})
+	DeletePhecdaProject(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// GetPhecdaProject 读取 Phecda 项目
+	// (GET /v1/phecda/projects/{id})
+	GetPhecdaProject(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// ScanPhecdaProject 对项目执行只读技术栈扫描
+	// (POST /v1/phecda/projects/{id}/scan)
+	ScanPhecdaProject(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// ListProviders 列出支持的 DNS 服务商及其能力与凭据字段
 	// (GET /v1/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -3084,6 +3453,166 @@ func (siw *ServerInterfaceWrapper) TestNotifyChannels(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListPhecdaDeployments operation middleware
+func (siw *ServerInterfaceWrapper) ListPhecdaDeployments(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPhecdaDeployments(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPhecdaDeployment operation middleware
+func (siw *ServerInterfaceWrapper) GetPhecdaDeployment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPhecdaDeployment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPhecdaPresets operation middleware
+func (siw *ServerInterfaceWrapper) ListPhecdaPresets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPhecdaPresets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPhecdaProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListPhecdaProjects(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPhecdaProjects(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePhecdaProject operation middleware
+func (siw *ServerInterfaceWrapper) CreatePhecdaProject(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePhecdaProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePhecdaProject operation middleware
+func (siw *ServerInterfaceWrapper) DeletePhecdaProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePhecdaProject(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPhecdaProject operation middleware
+func (siw *ServerInterfaceWrapper) GetPhecdaProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPhecdaProject(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ScanPhecdaProject operation middleware
+func (siw *ServerInterfaceWrapper) ScanPhecdaProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ScanPhecdaProject(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -3510,6 +4039,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/jobs", wrapper.ListJobs)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/jobs/{id}", wrapper.GetJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/jobs/{id}/cancel", wrapper.CancelJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/presets", wrapper.ListPhecdaPresets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/projects", wrapper.ListPhecdaProjects)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/phecda/projects", wrapper.CreatePhecdaProject)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/phecda/projects/{id}", wrapper.DeletePhecdaProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/projects/{id}", wrapper.GetPhecdaProject)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/phecda/projects/{id}/scan", wrapper.ScanPhecdaProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments", wrapper.ListPhecdaDeployments)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments/{id}", wrapper.GetPhecdaDeployment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials", wrapper.ListCredentials)

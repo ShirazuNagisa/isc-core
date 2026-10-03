@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	apispec "github.com/ShirazuNagisa/isc-core/api"
@@ -131,6 +132,9 @@ type Deps struct {
 // Server 实现 gen.ServerInterface。
 type Server struct {
 	Deps
+	phecdaMu          sync.RWMutex
+	phecdaProjects    map[string]gen.PhecdaProject
+	phecdaDeployments map[string]gen.PhecdaDeployment
 }
 
 // 编译期断言：接口实现必须完整。
@@ -147,7 +151,7 @@ func New(d Deps) *Server {
 	if d.Bus == nil {
 		d.Bus = event.NewBus(0)
 	}
-	return &Server{Deps: d}
+	return &Server{Deps: d, phecdaProjects: make(map[string]gen.PhecdaProject), phecdaDeployments: make(map[string]gen.PhecdaDeployment)}
 }
 
 // Routes 返回挂载了全部路由与中间件的 http.Handler。
