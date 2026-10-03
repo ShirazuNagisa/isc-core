@@ -15,6 +15,15 @@ env:
   # 这样三平台交叉编译与发布都不需要 C 工具链。
   CGO_ENABLED: "0"
 
+  # 构建与检查用的 Go 版本 —— 单一真理来源是 scripts/tool-versions.env，
+  # 两边由 TestCIToolchainMatchesPinnedVersion 钉住。
+  #
+  # 为什么不能"跟 go.mod 的 go 指令走"：gofmt 的输出**随版本变化**
+  # （1.26 与 1.27 对含 CJK 的 map 对齐宽度算法不同），于是同一个文件
+  # 会在一边干净、在另一边被判定未格式化 —— 这一条真实发生过。
+  # matrix-build 那一组刻意保留 go.mod 的版本，验证"最低版本仍能构建"。
+  GO_VERSION: "1.27.1"
+
 jobs:
   # ---------------------------------------------------------------------------
   # 交叉编译矩阵
@@ -40,6 +49,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 这一组刻意**用 go.mod 里的最低版本**，而不是固定的 GO_VERSION：
+      # 别的 job 验证"用我们自己的工具链一切正常"，这里验证
+      # "声明的最低版本仍然能构建"。两条是不同的承诺，不能合成一条。
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -80,7 +92,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: go vet
@@ -107,7 +119,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       # 竞态检测需要 cgo，因此这里显式覆盖全局的 CGO_ENABLED=0。
@@ -135,7 +147,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: 构建全部平台
@@ -189,8 +201,14 @@ jobs:
           # CI 跑在 Ubuntu 上，因此可以用真正的 dpkg 来验证 ——
           # 这是比单元测试更强的证据：单元测试用的是我们自己写的
           # ar 解析器，而这里是 Debian 自己的工具。
-          deb=dist/isc-0.0.0-ci-linux-amd64.deb
-          test -f "$deb" || { echo "::error::缺少 .deb"; exit 1; }
+          # 用通配符找，而不是写死文件名：.deb 的名字是 Debian 约定
+          # （`isc_<版本>_<架构>.deb`），而这里曾经写的是发布压缩包的命名
+          # （`isc-0.0.0-ci-linux-amd64.deb`）—— 那一步因此**从来没有可能
+          # 通过**，只是因为任务在前面就挂了才一直没暴露。
+          # 名字的形状现在由 TestPackageFileNames 钉住。
+          deb=$(ls dist/*.deb)
+          test -n "$deb" || { echo "::error::缺少 .deb"; exit 1; }
+          echo "找到 $deb"
 
           echo "--- dpkg-deb --info ---"
           dpkg-deb --info "$deb"
@@ -227,8 +245,10 @@ jobs:
 
           # Ubuntu runner 上装了 rpm，因此可以用它自己来验证 ——
           # 比单元测试更强：单元测试用的是我们自己写的解析器。
-          rpm=dist/isc-0.0.0_ci-1.amd64.rpm
-          test -f "$rpm" || { echo "::error::缺少 .rpm"; exit 1; }
+          # 同上：名字由 TestPackageFileNames 钉住，这里不重复一遍。
+          rpm=$(ls dist/*.rpm)
+          test -n "$rpm" || { echo "::error::缺少 .rpm"; exit 1; }
+          echo "找到 $rpm"
 
           echo "--- rpm -qip ---"
           rpm -qip "$rpm"
@@ -296,7 +316,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: 用同一个 SOURCE_DATE_EPOCH 构建两次
@@ -345,7 +365,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: 重新生成
@@ -374,7 +394,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - run: go test ./internal/i18n/... -count=1 -v
@@ -399,7 +419,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       # **锁定 5.0.2**：v7 起要求接受 Open Source Maintenance Fee 的 EULA，
@@ -474,7 +494,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: 构建全部平台

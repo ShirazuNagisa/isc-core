@@ -14,7 +14,7 @@
 |---|---|
 | 工作区 | `/Users/shirazu/Documents/project/ISC-Core`（macOS，git 仓库 `main` 分支）。**原先在 Windows 的 `D:\Data\2_Areas\Coding\Project\ISC-Core`，仓库已整体迁移** —— 迁移后本机没有 Go 工具链，见下一行 |
 | `ddns-go-master/` | 上游参考源，v6，131 文件，MIT，**已加入 `.gitignore`**（`git check-ignore` 已验证） |
-| Go 工具链 | ✅ `go1.27.1` darwin/arm64，装在 `~/.local/go`（免管理员，PATH 写进 `~/.zshrc`） |
+| Go 工具链 | ✅ `go1.27.1` darwin/arm64，装在 `~/.local/go`（免管理员，PATH 写进 `~/.zshrc`）。版本**被固定**在 `scripts/tool-versions.env` 的 `GO_VERSION`，CI 用它 —— **gofmt 的输出随版本变化**（1.26 与 1.27 对含 CJK 的 map 字面量用不同的对齐宽度算法），两边不锁同一个版本就会出现"一边干净、另一边未格式化"。`go.mod` 的 `go 1.26.0` 仍是**最低支持版本**，由 `matrix-build` 那一组（唯一继续用 go.mod 版本的 job）验证 |
 | GOMODCACHE 代理 | ✅ `GOPROXY=https://goproxy.cn,direct`、`GOSUMDB=sum.golang.google.cn`、`GOTOOLCHAIN=local`（`go env -w` 持久化）。注意 `proxy.golang.org` 在本机不可达，走 goproxy.cn |
 | 测试的钥匙串隔离 | ✅ 测试统一以 `ISC_SECRET_STORE=file` 运行，**不碰开发机的系统钥匙串**（见 D23 与 `internal/testsupport`） |
 | Node / pnpm | Node v24.18 + pnpm 已就绪（控制台用） |

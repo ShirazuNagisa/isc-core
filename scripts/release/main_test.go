@@ -181,6 +181,85 @@ func TestPackZipIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestPackageFileNames 钉住 .deb / .rpm 的文件名。
+//
+// # 它守的是一个真实发生过的错位
+//
+// CI 的「核对 .deb」那一步写死了 `dist/isc-0.0.0-ci-linux-amd64.deb` ——
+// 那是**发布压缩包**的命名（`isc-<版本>-<平台>`），而 .deb 从第一天起就
+// 按 Debian 约定叫 `isc_<版本>_<架构>.deb`。于是那一步**从来没有可能通过**，
+// / 只是因为任务在前面就挂了（发布脚本会先跑测试）才一直没暴露。
+//
+// 现在两边都靠这条测试对齐：CI 用通配符找产物，名字的形状由这里钉住。
+func TestPackageFileNames(t *testing.T) {
+	t.Parallel()
+
+	// 带连字符的版本是最容易出错的一种：它是 `git describe` 的常见产物。
+	const dashed = "0.0.0-ci"
+
+	if got, want := debFileName(dashed, "amd64"), "isc_0.0.0-ci_amd64.deb"; got != want {
+		t.Errorf("debFileName = %q，期望 %q（Debian 约定：包名_版本_架构）", got, want)
+	}
+	if got, want := rpmFileName(dashed, "amd64"), "isc-0.0.0_ci-1.amd64.rpm"; got != want {
+		t.Errorf("rpmFileName = %q，期望 %q —— "+
+			"RPM 用连字符分隔版本与发布号，版本里的连字符必须先净化，"+
+			"否则文件名会与包内元数据不一致", got, want)
+	}
+	if got, want := rpmFileName("1.2.3", "arm64"), "isc-1.2.3-1.arm64.rpm"; got != want {
+		t.Errorf("rpmFileName = %q，期望 %q", got, want)
+	}
+	if got, want := debFileName("1.2.3", "arm64"), "isc_1.2.3_arm64.deb"; got != want {
+		t.Errorf("debFileName = %q，期望 %q", got, want)
+	}
+
+	// 文件名里不该出现两个连字符夹着的发布号歧义：版本部分必须无连字符。
+	if name := rpmFileName(dashed, "amd64"); strings.Count(name, "-") != 2 {
+		t.Errorf("rpm 文件名 %q 的连字符数量不对（应当是 包名-版本-发布号）", name)
+	}
+}
+
+// TestCIToolchainMatchesPinnedVersion 钉住"CI 用的 Go 版本与 tool-versions.env 一致"。
+//
+// # 为什么需要它
+//
+// **gofmt 的输出随版本变化**：1.26 与 1.27 对含 CJK 的 map 字面量用不同的
+// 对齐宽度算法（1.27 按显示宽度、1.26 按字符数），于是同一个文件在一边
+// 干净、在另一边被判定"未格式化"。这一条真实发生过 —— CI 跟着 go.mod 的
+// 1.26 跑 `gofmt -l .`，而源码是用 1.27 格式化的，于是两个 test job 挂在
+// "gofmt 检查"上，而错误信息只说"以下文件未格式化"。
+//
+// 因此版本必须是**一处声明、两处使用**：`scripts/tool-versions.env` 与
+// ci.yml 的工作流级 env。这条测试把它们钉在一起。
+func TestCIToolchainMatchesPinnedVersion(t *testing.T) {
+	t.Parallel()
+
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	envFile := string(readFile(t, filepath.Join(root, "scripts", "tool-versions.env")))
+	want := ""
+	for _, line := range strings.Split(envFile, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "GO_VERSION="); ok {
+			want = strings.TrimSpace(v)
+		}
+	}
+	if want == "" {
+		t.Fatal("scripts/tool-versions.env 里没有 GO_VERSION")
+	}
+
+	ci := string(readFile(t, filepath.Join(root, ".github", "workflows", "ci.yml")))
+	if !strings.Contains(ci, "GO_VERSION: \""+want+"\"") {
+		t.Errorf("ci.yml 的工作流级 env 里没有 GO_VERSION: %q —— "+
+			"它与 scripts/tool-versions.env 必须是同一个值，"+
+			"否则 gofmt 检查会在一边通过、在另一边失败", want)
+	}
+	// matrix-build 是刻意的例外：它验证"最低版本仍能构建"。
+	if !strings.Contains(ci, "go-version-file: go.mod") {
+		t.Error("matrix-build 应当继续用 go.mod 的最低版本编译")
+	}
+}
+
 // TestBuildArgsDisablesVCSStamping 钉住 `-buildvcs=false`。
 //
 // 它修的是一个只在 CI 上看得见的缺陷：默认的 `-buildvcs=auto` 会把主模块的

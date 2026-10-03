@@ -202,8 +202,7 @@ func run(outDir, versionArg string, runTests bool) error {
 		//
 		// 只有 Linux 需要：Windows 与 macOS 的用户不会用这两个。
 		if t.GOOS == "linux" {
-			debPath := filepath.Join(outDir,
-				fmt.Sprintf("%s_%s_%s.deb", binaryName, version, t.GOARCH))
+			debPath := filepath.Join(outDir, debFileName(version, t.GOARCH))
 			if err := BuildDeb(debPath, DebOptions{
 				Package:     binaryName,
 				Version:     version,
@@ -220,8 +219,7 @@ func run(outDir, versionArg string, runTests bool) error {
 			fmt.Printf("    %s\n", filepath.Base(debPath))
 
 			// RPM 系发行版（RHEL / Fedora / openSUSE）用这个。
-			rpmPath := filepath.Join(outDir,
-				fmt.Sprintf("%s-%s-1.%s.rpm", binaryName, version, t.GOARCH))
+			rpmPath := filepath.Join(outDir, rpmFileName(version, t.GOARCH))
 			if err := BuildRPM(rpmPath, RpmOptions{
 				Package: binaryName,
 				// RPM 的版本号不能含连字符 —— 那是它分隔版本与
@@ -332,6 +330,29 @@ func run(outDir, versionArg string, runTests bool) error {
 
 	fmt.Printf("\n完成：%d 个产物在 %s/\n", len(artifacts), outDir)
 	return nil
+}
+
+// debFileName 返回 .deb 的文件名。
+//
+// Debian 的约定是 `<包名>_<版本>_<架构>.deb`（下划线分隔），而不是发布
+// 压缩包那套 `isc-<版本>-<平台>`。两者**必须分开**：前者是发行版工具链
+// 认识的形状，后者是我们自己的产物命名。
+//
+// 这里刻意用**原始版本号**：Debian 的版本允许连字符（它分隔上游版本与
+// 修订号），而 deb.go 会在控制文件里把它进一步收敛成 Debian 认的形式
+// （见 debVersionString）。
+func debFileName(version, arch string) string {
+	return fmt.Sprintf("%s_%s_%s.deb", binaryName, version, arch)
+}
+
+// rpmFileName 返回 .rpm 的文件名。
+//
+// 约定是 `<包名>-<版本>-<发布号>.<架构>.rpm`，而**版本里的连字符必须
+// 先净化**：RPM 用连字符分隔版本与发布号，`isc-0.0.0-ci-1.amd64.rpm`
+// 会被读成"版本 0.0.0、发布号 ci-1"，与包内元数据（见 rpmVersion）不一致。
+// 文件名与元数据不一致的后果是 `rpm -q` 找到的东西和文件名对不上。
+func rpmFileName(version, arch string) string {
+	return fmt.Sprintf("%s-%s-1.%s.rpm", binaryName, rpmVersion(version), arch)
 }
 
 // rpmVersion 把版本号转成 RPM 认的形式。
