@@ -962,7 +962,13 @@ var messagesEn = map[string]string{
 	"platform.stale_cleanup": "platform: failed to clean up the stale socket %s: %w",
 	"platform.not_socket":    "platform: %s already exists and is not a socket file; refusing to overwrite (check it by hand)",
 	"platform.sock_failed":   "platform: failed to create the Unix socket %s: %w",
-	"platform.chmod_sock":    "platform: failed to tighten the permissions of socket %s: %w",
+	"platform.forced_file": "file storage was requested via ISC_SECRET_STORE=file " +
+		"(the key is protected by file permissions only, without the OS keystore)",
+	"platform.sock_too_long": "platform: the socket path is too long (%d bytes; " +
+		"the limit is 104 on macOS and 108 on Linux, including the trailing NUL): " +
+		"%s — move the data directory to a shorter path (the socket lives in " +
+		"<data-dir>/run/): %w",
+	"platform.chmod_sock": "platform: failed to tighten the permissions of socket %s: %w",
 
 	// --- Linux platform capabilities ---
 	"platform.systemd_todo": "the systemd backend will be implemented in M5",

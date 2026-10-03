@@ -934,7 +934,12 @@ var messagesZh = map[string]string{
 	"platform.stale_cleanup": "platform: 清理残留套接字 %s 失败: %w",
 	"platform.not_socket":    "platform: %s 已存在且不是套接字文件，拒绝覆盖（请手工检查）",
 	"platform.sock_failed":   "platform: 创建 Unix 套接字 %s 失败: %w",
-	"platform.chmod_sock":    "platform: 收紧套接字 %s 权限失败: %w",
+	"platform.forced_file": "由 ISC_SECRET_STORE=file 指定使用文件存储" +
+		"（密钥仅受文件权限保护，没有系统密钥库加持）",
+	"platform.sock_too_long": "platform: 套接字路径过长（%d 字节；" +
+		"macOS 上限 104、Linux 上限 108，含结尾的 NUL）：%s —— " +
+		"请把数据目录换到更短的路径（内核的套接字在 <数据目录>/run/ 下）：%w",
+	"platform.chmod_sock": "platform: 收紧套接字 %s 权限失败: %w",
 
 	// --- Linux 平台能力 ---
 	"platform.systemd_todo": "systemd 后端将在 M5 实现",

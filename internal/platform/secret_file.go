@@ -19,6 +19,36 @@ import (
 // Describe 必须如实报告这一点，绝不能静默降级 —— 用户以为自己受到了
 // 操作系统级保护、实际却只有一个文件，是比"明确不可用"更危险的状态。
 
+// EnvSecretStore 用来**显式**选择密钥存储后端。
+//
+// 目前只认一个值：SecretStoreFile。
+//
+// 它存在的理由有三个，后两个是硬的：
+//
+//  1. 用户就是想自己管这把密钥（比如把它放进自己的密码管理器）；
+//  2. 无人值守的机器（CI、无桌面会话的服务器）上钥匙串要么不可用、
+//     要么会被锁住 —— 那种失败发生在**写入时**，而不是启动时；
+//  3. **测试不该碰开发机的钥匙串**。实测中 macOS 上跑一次
+//     `go test ./...` 会往登录钥匙串里写 60 条条目，而更早的版本
+//     直接把真实安装的主密钥覆盖掉（见 D23）。
+//
+// 放在没有构建标签的文件里：它是**跨平台**的开关，而"某个平台编译不过"
+// 正是这类常量最容易造成的回归（四个目标一起 vet 才看得见）。
+const EnvSecretStore = "ISC_SECRET_STORE"
+
+// SecretStoreFile 是 EnvSecretStore 的取值：强制使用文件存储。
+//
+// 它**降低**保护级别（只有文件权限，没有系统密钥库），因此 Describe 必须
+// 如实说明 —— "用户以为自己受系统密钥库保护、实际只有一个文件"是比
+// 明确不可用更危险的状态。
+const SecretStoreFile = "file"
+
+// forcedFileStore 报告调用方是否显式要求文件存储。
+func forcedFileStore() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(EnvSecretStore)),
+		SecretStoreFile)
+}
+
 // NewSecretStore 返回当前平台的密钥存储实现。
 //
 // dataRoot 是内核的数据根目录 —— 需要落盘保存（兜底实现、以及
@@ -27,27 +57,41 @@ func NewSecretStore(dataRoot string) SecretStore {
 	return newPlatformSecretStore(dataRoot)
 }
 
-// keyFileName 校验密钥名并把映射为文件路径。
+// validateKeyName 校验密钥名。
 //
 // 名称校验是**安全边界**：密钥名最终来自代码而非用户输入，但一旦
 // 有人不小心把外部字符串传进来，未校验的名称会变成路径穿越
 // （`../../etc/passwd`）。因此这里只接受保守的字符集。
-func keyFileName(dir, name string) (string, error) {
+//
+// 它对**所有**后端生效，而不只是文件后端：接口的契约必须是"这个名字
+// 合不合法"与后端无关。否则同一个调用在 macOS 上成功、在 Linux 上失败，
+// 而失败看起来像平台坏了 —— 实测就是如此：
+// internal/platform 的 TestSecretStoreRejectsUnsafeNames 在 macOS 上
+// 全军覆没，因为 Keychain 接受任意 account 名。
+func validateKeyName(name string) error {
 	if name == "" {
-		return "", errors.New(i18n.T("platform.keyname_empty"))
+		return errors.New(i18n.T("platform.keyname_empty"))
 	}
 	if strings.Contains(name, "..") {
-		return "", fmt.Errorf(i18n.T("platform.keyname_dots"), name)
+		return fmt.Errorf(i18n.T("platform.keyname_dots"), name)
 	}
 	for _, r := range name {
 		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
 			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
 		if !ok {
-			return "", fmt.Errorf(i18n.T("platform.keyname_badchar"), name, r)
+			return fmt.Errorf(i18n.T("platform.keyname_badchar"), name, r)
 		}
 	}
 	if strings.HasPrefix(name, ".") {
-		return "", fmt.Errorf(i18n.T("platform.keyname_dot"), name)
+		return fmt.Errorf(i18n.T("platform.keyname_dot"), name)
+	}
+	return nil
+}
+
+// keyFileName 校验密钥名并把映射为文件路径。
+func keyFileName(dir, name string) (string, error) {
+	if err := validateKeyName(name); err != nil {
+		return "", err
 	}
 	return filepath.Join(dir, name), nil
 }

@@ -22,7 +22,11 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
+	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
+
+// TestMain 让整个测试二进制不碰开发机的系统钥匙串（见 testsupport）。
+func TestMain(m *testing.M) { os.Exit(testsupport.IsolateSecretStore(m)) }
 
 // harness 是一次完整的守护进程测试会话。
 type harness struct {
@@ -46,7 +50,7 @@ type harness struct {
 // startDaemon 在临时数据目录里启动一个真实的内核实例。
 func startDaemon(t *testing.T) *harness {
 	t.Helper()
-	return startDaemonIn(t, t.TempDir())
+	return startDaemonIn(t, testsupport.ShortTempDir(t))
 }
 
 // startDaemonIn 在指定数据目录里启动内核。
@@ -619,7 +623,7 @@ func TestEventStreamGapSignalsResync(t *testing.T) {
 // 残留的 runtime.json 会让客户端以为内核还在跑，进而得到
 // "连接被拒绝"这种难以归因的报错。
 func TestDaemonShutdownRemovesRuntimeFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := testsupport.ShortTempDir(t)
 	t.Setenv(paths.EnvDataDir, dir)
 
 	p, err := paths.Resolve()

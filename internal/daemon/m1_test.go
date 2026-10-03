@@ -13,6 +13,7 @@ import (
 
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
 	"github.com/ShirazuNagisa/isc-core/internal/credential"
+	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
 
 // 本文件覆盖 M1 的硬验收标准：
@@ -390,7 +391,7 @@ func truncate(s string, n int) string {
 // 这条要是坏了，症状是"重启后所有凭据都解不开"，而用户会以为
 // 是自己的密钥填错了。
 func TestCredentialSurvivesRestart(t *testing.T) {
-	dir := t.TempDir()
+	dir := testsupport.ShortTempDir(t)
 
 	const secretToken = "survives-restart-token"
 
@@ -688,7 +689,7 @@ func TestSettingsRoundTripThroughAPI(t *testing.T) {
 // M0 时任务只存在内存里，重启即丢。M1 换成了 SQLite 存储 ——
 // 这条测试是"引擎代码一行没改就换了后端"的证据。
 func TestJobsSurviveRestart(t *testing.T) {
-	dir := t.TempDir()
+	dir := testsupport.ShortTempDir(t)
 
 	first := startDaemonIn(t, dir)
 

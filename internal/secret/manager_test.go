@@ -3,11 +3,16 @@ package secret
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
+	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
+
+// TestMain 让整个测试二进制不碰开发机的系统钥匙串（见 testsupport 的说明）。
+func TestMain(m *testing.M) { os.Exit(testsupport.IsolateSecretStore(m)) }
 
 // 本测试使用真实的平台密钥存储（Windows 上是 DPAPI + 文件）。
 // 刻意不做替身：主密钥的生成与持久化正是这一层要验证的东西，

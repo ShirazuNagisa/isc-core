@@ -12,10 +12,11 @@
 
 | 项 | 状态 |
 |---|---|
-| 工作区 | `D:\Data\2_Areas\Coding\Project\ISC-Core`，git 仓库（`main` 分支） |
+| 工作区 | `/Users/shirazu/Documents/project/ISC-Core`（macOS，git 仓库 `main` 分支）。**原先在 Windows 的 `D:\Data\2_Areas\Coding\Project\ISC-Core`，仓库已整体迁移** —— 迁移后本机没有 Go 工具链，见下一行 |
 | `ddns-go-master/` | 上游参考源，v6，131 文件，MIT，**已加入 `.gitignore`**（`git check-ignore` 已验证） |
-| Go 工具链 | ✅ 已安装 `go1.27.1` 到 `%LOCALAPPDATA%\Programs\go`（免管理员），并加入用户 PATH |
-| GOMODCACHE 代理 | ✅ `GOPROXY=https://goproxy.cn,direct`、`GOSUMDB=sum.golang.google.cn`、`GOTOOLCHAIN=local` |
+| Go 工具链 | ✅ `go1.27.1` darwin/arm64，装在 `~/.local/go`（免管理员，PATH 写进 `~/.zshrc`） |
+| GOMODCACHE 代理 | ✅ `GOPROXY=https://goproxy.cn,direct`、`GOSUMDB=sum.golang.google.cn`、`GOTOOLCHAIN=local`（`go env -w` 持久化）。注意 `proxy.golang.org` 在本机不可达，走 goproxy.cn |
+| 测试的钥匙串隔离 | ✅ 测试统一以 `ISC_SECRET_STORE=file` 运行，**不碰开发机的系统钥匙串**（见 D23 与 `internal/testsupport`） |
 | Node / pnpm | Node v24.18 + pnpm 已就绪（控制台用） |
 | Rust | 1.97.1 `x86_64-pc-windows-msvc`（下游 GUI 用，本仓库不依赖） |
 | MSVC 链接器 | 未安装。**不影响内核**——坚持纯 Go（无 cgo）即可 |
@@ -29,10 +30,13 @@
 | M2 动态解析闭环 | ✅ | `eb062c3` → `4a3f643` |
 | M3 可达性与防火墙编排 | ✅ | `b6e9f64` → `8c3de8e` |
 | M4 反向代理与自动 HTTPS | ✅ | `25d086f` → `0f0f9e0` |
-| M5 打磨与打包 | 🔶 | `3994090` → `e8927e4`（差系统级安装包，见下） |
+| M5 打磨与打包 | 🔶 | `3994090` → 最新（`.msi` / `.pkg` 已做；**只剩代码签名与公证，需要证书**） |
 
-**全量测试 630 条 / 19 个包全绿；21 个编译期依赖（全部 GPLv3 兼容）；
-6 个 GOOS/GOARCH 目标编译通过；`go.mod` 无新增直接依赖。**
+**全量测试 780 条 / 22 个有测试的包在 macOS 上全绿；21 个编译期依赖
+（全部 GPLv3 兼容）；7 个 GOOS/GOARCH 目标编译通过；`go.mod` 无新增直接依赖。**
+（2026-10-03 在迁移后的 macOS 上复跑：此前 macOS 上有一批失败，根因三处 ——
+Unix 套接字路径超过 104 字节、钥匙串条目没有与数据目录绑定、以及两处
+测试自身写错，均已修复，见 `docs/DECISIONS.md` D23 与 §7 的 M5-e。）
 
 ### M0 完成情况
 
@@ -2587,12 +2591,60 @@ zip 头，而编译产物每次构建的 mtime 都不同。修法是固定成 `1
 
 #### 可复现性检查为什么值得常驻
 
-它不是一次性的验证。这条性质已经抓到过**两次**：ldflags 里的构建时间，
-以及 `zip.FileInfoHeader` 写进包头的文件 mtime。两次都不是靠肉眼审查发现的，
-而是靠"跑两遍比一比"。
+它不是一次性的验证。这条性质已经抓到过**三次**：ldflags 里的构建时间、
+`zip.FileInfoHeader` 写进包头的文件 mtime，以及下面这一条 —— 三次都不是靠
+肉眼审查发现的，而是靠"跑两遍比一比"。
 
 而它为什么重要：这个内核会拿到用户的 DNS 凭据，因此"校验和一致"应当能证明
 "两个产物来自同一份源码" —— 如果构建本身不可复现，那个证明是不成立的。
+
+#### 第三次：`+dirty` —— 产物取决于构建时工作区里有什么
+
+CI 连着两轮报的是这两行：
+
+```
+SHA256SUMS 两次构建不一致
+isc-1.2.3-windows-amd64.zip 两次构建不一致
+```
+
+而这两句话把人引向**错误的**方向：看起来像 zip 打包不确定（那个坑上一轮
+刚修过），或者像 Windows 目标的编译不确定。
+
+真正的原因与产物格式、与目标平台都无关：
+
+| | 工作区状态 | 二进制里嵌的模块版本 |
+|---|---|---|
+| 第一次构建 | 干净 | `v0.0.0-20261003043809-d2e52b6bc31f` |
+| 第二次构建 | 多了**未跟踪的 `dist-a/`** | `v0.0.0-20261003043809-d2e52b6bc31f`**`+dirty`** |
+
+Go 默认（`-buildvcs=auto`）会把主模块的伪版本写进二进制，而那个伪版本的
+`+dirty` 后缀来自 `git status`。于是**第一次构建自己制造了第二次构建的
+"脏"** —— `-out dist-a` 写在工作区里，且 `.gitignore` 只忽略 `/dist/`。
+
+修法是 `-buildvcs=false`：版本与提交号本来就由 ldflags 显式注入
+（`internal/version`），关掉它不丢任何东西；留着它反而让"产物只取决于源码"
+这句话不成立 —— 它还取决于工作区里有没有杂物。
+
+**在干净仓库里验证过**：默认参数下，干净树与"多一个未跟踪目录"两次构建的
+二进制**不同**；加 `-buildvcs=false` 后**相同**。
+
+#### 一个如实记录的限制：`.pkg` 不是逐字节可复现的
+
+其余 11 个产物可以做到逐字节相同，`.pkg` 不行 —— 而这一条**不是没修，
+是修不动（目前）**：
+
+- 载荷（Payload / Bom / PackageInfo）已经可复现：把暂存树的 mtime 固定到
+  `SOURCE_DATE_EPOCH` 之后，两次构建解出来的三个成员逐字节相同；
+- 但 xar 的目录表（TOC）里还写着构建机的 `inode`、`uid/user`、
+  `atime/mtime/ctime` 与归档创建时刻，而 **pkgbuild 不给关掉它们的开关**；
+- 试过自己改写 TOC：**行不通**。xar 的校验覆盖到了压缩后的 TOC 字节，
+  只要重新压缩 TOC，`xar -t` 就报 `Checksums do not match!`。三种情形
+  全部失败：内容一字不改只重新压缩、改一个时间值、只把 uid 改成 0。
+  要修得连 xar 的校验和重算规则一起实现。
+
+CI 的 `reproducible` 跑在 Linux 上，本来就不产出 `.pkg`，因此它比对的是
+那 11 个产物。在 macOS 上本机跑同一个比对时，`.pkg` 与 `SHA256SUMS`
+（它含 `.pkg` 的哈希）会不同 —— 那是已知的，不是新缺陷。
 
 ## 8. 风险登记
 

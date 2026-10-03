@@ -21,6 +21,16 @@ import (
 // socketName 是套接字文件名。
 const socketName = "isc.sock"
 
+// unixSocketPathWarn 是套接字路径的"该报清楚"阈值。
+//
+// 真正的上限来自 sockaddr_un.sun_path：macOS 104 字节、Linux 108 字节
+// （都含结尾的 NUL）。超过它 net.Listen 只会给出 EINVAL
+// （"bind: invalid argument"）—— 那句话指不到"路径太长"。
+//
+// 阈值取 100 而不是精确上限：报错时把"接近上限"也算进来，
+// 比让用户自己去猜"到底多少字节"要好。
+const unixSocketPathWarn = 100
+
 // pipeName 仅为满足跨平台接口而存在（类 Unix 无命名管道）。
 const pipeName = "isc-core"
 
@@ -66,6 +76,16 @@ func listenLocal(_ context.Context, scheme, addr string) (net.Listener, error) {
 
 	l, err := net.Listen("unix", addr)
 	if err != nil {
+		// 路径长度是 Unix 套接字最容易踩的坑，而内核给出的错误指不到它。
+		//
+		// 它在本项目里真实发生过：macOS 上 `t.TempDir()` 落在
+		// /var/folders/xx/…/T/ 下，一个稍长的测试名再加 `/run/isc.sock`
+		// 就顶到 104 字节 —— 症状是**所有**用到数据目录的测试集体失败，
+		// 而每条错误看上去都像内核坏了。
+		if len(addr) >= unixSocketPathWarn {
+			return nil, fmt.Errorf(i18n.T("platform.sock_too_long"),
+				len(addr), addr, err)
+		}
 		return nil, fmt.Errorf(i18n.T("platform.sock_failed"), addr, err)
 	}
 

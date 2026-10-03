@@ -9,9 +9,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
 
 // 本文件覆盖类 Unix 平台的本地管理通道：Unix 域套接字。
@@ -34,7 +37,10 @@ import (
 func TestUnixSocketRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// 用短临时目录：Unix 套接字路径在 macOS 上不能超过 104 字节，
+	// 而 t.TempDir() 落在 /var/folders/… 下，很容易越线
+	//（症状是 bind: invalid argument）。见 internal/testsupport。
+	dir := testsupport.ShortTempDir(t)
 	sock := filepath.Join(dir, "isc.sock")
 
 	ln, err := listenLocal(context.Background(), SchemeUnix, sock)
@@ -95,7 +101,10 @@ func TestUnixSocketRoundTrip(t *testing.T) {
 func TestUnixSocketPermissionsAre0600(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// 用短临时目录：Unix 套接字路径在 macOS 上不能超过 104 字节，
+	// 而 t.TempDir() 落在 /var/folders/… 下，很容易越线
+	//（症状是 bind: invalid argument）。见 internal/testsupport。
+	dir := testsupport.ShortTempDir(t)
 	sock := filepath.Join(dir, "isc.sock")
 
 	ln, err := listenLocal(context.Background(), SchemeUnix, sock)
@@ -117,6 +126,44 @@ func TestUnixSocketPermissionsAre0600(t *testing.T) {
 	}
 }
 
+// TestLongSocketPathExplainsItself 钉住"路径太长时说的是路径太长"。
+//
+// net.Listen 在路径超过 sockaddr_un.sun_path（macOS 104 / Linux 108）时
+// 只给出 EINVAL —— 也就是 `bind: invalid argument`。那句话把所有人引向
+// "平台后端坏了"，而实际原因只是目录名字太长：本项目在 macOS 上真的
+// 因此让一整批端到端测试集体失败过（见 internal/testsupport 的说明）。
+//
+// 断言刻意只查**与语言无关**的东西：路径本身、以及字节数。
+// 文案是翻译过的，钉住某一种语言的句子会让并行测试间歇性失败
+// （这一类坑在 docs/I18N-MIGRATION.md 里记过）。
+func TestLongSocketPathExplainsItself(t *testing.T) {
+	t.Parallel()
+
+	// 长度必须超过上限，但不要求目录真的存在：Lstat 失败会被跳过，
+	// 而 net.Listen 仍然会先因为路径长度失败。
+	long := filepath.Join(t.TempDir(),
+		strings.Repeat("d", 40), strings.Repeat("e", 40), "isc.sock")
+	if len(long) < unixSocketPathWarn {
+		t.Fatalf("构造出的路径只有 %d 字节，够不到阈值 %d —— 这条测试会变成空测试",
+			len(long), unixSocketPathWarn)
+	}
+
+	_, err := listenLocal(context.Background(), SchemeUnix, long)
+	if err == nil {
+		t.Fatalf("路径 %d 字节时应当报错（上限是 104/108）", len(long))
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, long) {
+		t.Errorf("错误信息里应当带上那个路径：%v", err)
+	}
+	// 字节数是与语言无关的判据：通用文案（platform.sock_failed）里
+	// 不会出现这个数字，只有"路径太长"那条会。
+	if !strings.Contains(msg, strconv.Itoa(len(long))) {
+		t.Errorf("错误信息里应当说明路径有多少字节（%d）：%v", len(long), err)
+	}
+}
+
 // TestCloseRemovesSocketFile 验证退出时清理。
 //
 // 不清理的话，"内核是否在运行"在文件系统上就看不出来，而每次重启都要
@@ -124,7 +171,10 @@ func TestUnixSocketPermissionsAre0600(t *testing.T) {
 func TestCloseRemovesSocketFile(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// 用短临时目录：Unix 套接字路径在 macOS 上不能超过 104 字节，
+	// 而 t.TempDir() 落在 /var/folders/… 下，很容易越线
+	//（症状是 bind: invalid argument）。见 internal/testsupport。
+	dir := testsupport.ShortTempDir(t)
 	sock := filepath.Join(dir, "isc.sock")
 
 	ln, err := listenLocal(context.Background(), SchemeUnix, sock)
@@ -148,7 +198,10 @@ func TestCloseRemovesSocketFile(t *testing.T) {
 func TestStaleSocketIsReclaimed(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// 用短临时目录：Unix 套接字路径在 macOS 上不能超过 104 字节，
+	// 而 t.TempDir() 落在 /var/folders/… 下，很容易越线
+	//（症状是 bind: invalid argument）。见 internal/testsupport。
+	dir := testsupport.ShortTempDir(t)
 	sock := filepath.Join(dir, "isc.sock")
 
 	// 制造一个"残留"：建一个监听再**不关闭**，直接让进程继续，
@@ -184,7 +237,10 @@ func TestStaleSocketIsReclaimed(t *testing.T) {
 func TestRefusesToOverwriteRegularFile(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// 用短临时目录：Unix 套接字路径在 macOS 上不能超过 104 字节，
+	// 而 t.TempDir() 落在 /var/folders/… 下，很容易越线
+	//（症状是 bind: invalid argument）。见 internal/testsupport。
+	dir := testsupport.ShortTempDir(t)
 	sock := filepath.Join(dir, "isc.sock")
 
 	const content = "这是用户自己的文件，不该被删掉"
@@ -257,7 +313,10 @@ func TestLocalEndpointIsUnderRunDir(t *testing.T) {
 func TestConcurrentDial(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// 用短临时目录：Unix 套接字路径在 macOS 上不能超过 104 字节，
+	// 而 t.TempDir() 落在 /var/folders/… 下，很容易越线
+	//（症状是 bind: invalid argument）。见 internal/testsupport。
+	dir := testsupport.ShortTempDir(t)
 	sock := filepath.Join(dir, "isc.sock")
 
 	ln, err := listenLocal(context.Background(), SchemeUnix, sock)

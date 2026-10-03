@@ -35,7 +35,16 @@ type dpapiSecretStore struct {
 
 // newPlatformSecretStore 返回 Windows 的密钥存储。
 func newPlatformSecretStore(root string) SecretStore {
-	return &dpapiSecretStore{dir: filepath.Join(root, secretsDirName)}
+	dir := filepath.Join(root, secretsDirName)
+
+	// 显式指定优先：DPAPI 本身已经与数据目录绑定（密文写在目录里），
+	// 因此这个开关在 Windows 上不是**必需**的，但语义必须一致 ——
+	// 否则"我明明设了 ISC_SECRET_STORE=file"会在一个平台上生效、
+	// 在另一个平台上被忽略，而那种不一致最难排查。
+	if forcedFileStore() {
+		return newFileSecretStore(dir, i18n.T("platform.forced_file"))
+	}
+	return &dpapiSecretStore{dir: dir}
 }
 
 // Describe 实现 describer。

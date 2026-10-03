@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -16,7 +17,11 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
+	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
+
+// TestMain 让整个测试二进制不碰开发机的系统钥匙串（见 testsupport 的说明）。
+func TestMain(m *testing.M) { os.Exit(testsupport.IsolateSecretStore(m)) }
 
 // ---------------------------------------------------------------------------
 // 测试替身
