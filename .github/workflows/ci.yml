@@ -96,6 +96,7 @@ jobs:
           cache: true
 
       - name: go vet
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -110,6 +111,7 @@ jobs:
           echo "$out"
 
       - name: go test
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -444,7 +446,14 @@ jobs:
           echo "$out"
 
           echo "--- 安装结果 ---"
-          if ! out=$(rpm -ql isc 2>&1); then
+          # 用 sudo 查询：rpm 的数据库在 /var/lib/rpm，普通用户读不到时
+          # 它会报 "package isc is not installed"（而不是权限错误），
+          # 那正是上一轮那条注解的由来。
+          if ! out=$(sudo rpm -ql isc 2>&1); then
+            echo "$out"
+            echo "--- rpm 数据库里都有什么 ---"
+            sudo rpm -qa 2>&1 | head -10 || true
+            sudo rpm -q --whatprovides /usr/bin/isc 2>&1 || true
             echo "::error::rpm -ql isc 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -3 | tr '\n' ' ')"
             exit 1
           fi
@@ -1055,7 +1064,7 @@ jobs:
           # 端到端：Swift 链接它、在本进程内启动内核、调契约接口、停掉。
           #
           # 示例脚本自己会把失败原因打在输出里，这里补一层注解兜底。
-          if ! out=$(./examples/swift-smoke/run.sh 2>&1); then
+          if ! out=$(bash examples/swift-smoke/run.sh 2>&1); then
             echo "$out"
             echo "::error::Swift 冒烟测试失败 —— $(printf '%s' "$out" | tail -5 | tr '\n' ' ')"
             exit 1
