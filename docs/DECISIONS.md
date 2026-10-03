@@ -644,6 +644,34 @@ JSON。因此库只是把**同一条路径**搬进进程内 —— GUI、CLI、�
 注意一个行为差异：开 cgo 构建时 `net` 包可能改用系统解析器。若要确定性，
 可在库的构建里加 `GODEBUG=netdns=go` 或 `netgo` 标签 —— 目前未加，先记录。
 
+#### 2026-10-03 第二轮：初步封装完成
+
+接口面从"四个函数"扩到**可用的一版**，并且验证方式也补上了：
+
+| 接口 | 说明 |
+|---|---|
+| `isc_api_version` / `isc_version_json` | 版本与接口版本（GUI 启动时先比对接口版本） |
+| `isc_start` / `isc_stop` / `isc_restart` | 生命周期；启动阻塞到**完全就绪**，停止幂等 |
+| `isc_status_json` | 便捷：`health` + `meta`（含六个后端的能力与后端名）合成一份 |
+| `isc_call(method, path, body)` | **核心**：进程内派发到契约里的任意路径（38 条），新增功能**不用改库** |
+| `isc_events_json(since, timeoutMs)` | 事件订阅：游标式长轮询（**不用 C 回调**，见下） |
+| `isc_free_string` | 内存所有权归调用方，每个返回值都要释放 |
+
+**错误码**（`code` 字段）是这一轮补上的关键一项：GUI 要按错误分支，而不是匹配
+文案（文案会随语言变）：`bad_request` / `unauthorized` / `forbidden` /
+`not_found` / `conflict` / `not_running` / `not_ready` / `already_running` /
+`timeout` / `internal`。
+
+**分层**：行为全在 `internal/libisc`（不依赖 cgo → **默认 CI 就覆盖**），
+`cmd/libisc` 只是 cgo 薄包装。这么分是被工具链逼出来的：Go 不允许在
+`_test.go` 里 `import "C"`。测试覆盖生命周期、通用调用、错误码、事件游标，
+并且**不改开发机的状态**（凭据存储固定成文件后端）。
+
+**为什么事件用长轮询而不是 C 回调**：回调要跨语言、跨线程，还要约定谁负责释放
+内存，出错的方式比轮询多得多；GUI 本来就有自己的主循环，在后台线程里轮询更简单
+也更安全。`gap=true` 表示事件曾因积压被丢弃，此时应当重新全量拉状态，而不是
+试图补齐。
+
 #### 仍未解决
 
 1. **许可证**：Swift/C# GUI **链接**这个库即构成衍生作品，GPLv3 会覆盖 GUI

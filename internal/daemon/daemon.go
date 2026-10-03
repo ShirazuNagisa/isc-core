@@ -141,6 +141,10 @@ type Daemon struct {
 	// ready 在守护进程完全就绪后关闭，供测试等待。
 	ready     chan struct{}
 	readyOnce sync.Once
+
+	// handler 是本地管理接口的处理器，构造一次后缓存。
+	// 库（cmd/libisc）要在本进程内直接派发请求，缓存避免每次重建路由表。
+	handler http.Handler
 }
 
 // New 构造守护进程。此时不会产生任何副作用。
@@ -157,6 +161,23 @@ func New(opts Options) *Daemon {
 		ready: make(chan struct{}),
 	}
 }
+
+// Handler 返回本地管理接口的处理器。
+//
+// 供**库**（cmd/libisc）在本进程内直接派发请求：对 GUI 来说"调用内核功能"
+// 就是一次函数调用，不经过套接字、也不经过 TCP。
+//
+// 复用同一个 handler 而不是另写一套库 API，是刻意的：接口面由
+// api/openapi.yaml 的契约定，契约有 spec-drift 检查守着，因此"库能调的"
+// 与"CLI / 控制台能调的"永远是同一份，不会长出两套实现。
+//
+// 未就绪时返回 nil（调用方应把它当作"内核没起来"）。
+func (d *Daemon) Handler() http.Handler { return d.handler }
+
+// Events 返回事件总线，供库做事件订阅（游标式长轮询）。
+//
+// 未就绪时返回 nil。
+func (d *Daemon) Events() *event.Bus { return d.bus }
 
 // Ready 返回一个在守护进程完全就绪后关闭的通道，供测试同步。
 func (d *Daemon) Ready() <-chan struct{} { return d.ready }
@@ -433,6 +454,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Certs:          d.certMgr,
 		CertRequests:   d.certRequests,
 	})
+
+	// 10.5 缓存接口处理器：库会在进程内直接用它，不必每次重建路由表。
+	d.handler = d.api.Routes()
 
 	// 11. 建立传输通道
 	if err := d.listen(ctx); err != nil {
@@ -869,7 +893,7 @@ func (d *Daemon) listen(_ context.Context) error {
 // addServer 为一个监听器创建 http.Server。
 func (d *Daemon) addServer(ln net.Listener) {
 	srv := &http.Server{
-		Handler: d.api.Routes(),
+		Handler: d.handler,
 		// ReadHeaderTimeout 必须设置：否则一个只连不发的客户端就能
 		// 占住连接不放（Slowloris）。服务端一旦被拖住，
 		// 用户界面上的所有操作都会一起卡死。

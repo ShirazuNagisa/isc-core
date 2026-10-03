@@ -68,6 +68,10 @@ var messagesEn = map[string]string{
 	"libisc.meta_decode_failed":   "decoding the kernel meta response failed: %w",
 	"libisc.unsupported_endpoint": "unsupported endpoint: %s",
 	"libisc.bad_status":           "the kernel returned %d: %s",
+	"libisc.handler_missing":      "the kernel API handler is not ready yet",
+	"libisc.bus_missing":          "the kernel event bus is not ready yet",
+	"libisc.bad_path":             "the path must start with /: %q",
+	"libisc.call_failed":          "the kernel returned %d: %s",
 	"cli.hint_system_dir": "Hint: the system directory %s holds kernel data — " +
 		"it may be running as a system service while you are looking at your own " +
 		"user directory. Viewing it needs administrator rights: sudo isc status",

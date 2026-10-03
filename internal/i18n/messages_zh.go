@@ -69,6 +69,10 @@ var messagesZh = map[string]string{
 	"libisc.meta_decode_failed":   "解析内核元信息失败: %w",
 	"libisc.unsupported_endpoint": "暂不支持的端点：%s",
 	"libisc.bad_status":           "内核返回 %d：%s",
+	"libisc.handler_missing":      "内核的接口处理器尚未就绪",
+	"libisc.bus_missing":          "内核的事件总线尚未就绪",
+	"libisc.bad_path":             "路径必须以 / 开头：%q",
+	"libisc.call_failed":          "内核返回 %d：%s",
 	"cli.hint_system_dir": "提示：系统目录 %s 里有内核的数据 —— " +
 		"它可能是以系统服务运行的，而你现在看的是自己的用户目录。" +
 		"查看它需要管理员权限：sudo isc status",

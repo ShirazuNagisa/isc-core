@@ -1041,7 +1041,18 @@ jobs:
             }
           done
 
-          # 端到端：Swift 链接它、在本进程内启动内核、读状态、停掉。
+          # 库自己的 Go 测试（覆盖生命周期、通用调用、错误码、事件游标）。
+          #
+          # 逻辑在 internal/libisc（不依赖 cgo，默认 CI 也会跑），cmd/libisc 只是
+          # cgo 薄包装、带 //go:build cgo。这里在 cgo 打开的情况下把两处都跑一遍。
+          if ! out=$(CGO_ENABLED=1 go test ./internal/libisc/ ./cmd/libisc/ -count=1 2>&1); then
+            echo "$out"
+            echo "::error::库的 Go 测试失败 —— $(printf '%s' "$out" | grep -E '^(--- FAIL|FAIL|    )' | head -5 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$out"
+
+          # 端到端：Swift 链接它、在本进程内启动内核、调契约接口、停掉。
           #
           # 示例脚本自己会把失败原因打在输出里，这里补一层注解兜底。
           if ! out=$(./examples/swift-smoke/run.sh 2>&1); then

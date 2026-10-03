@@ -31,7 +31,7 @@
 | CI | 19 个 job，**17 绿**；`.deb`（真实 `dpkg -i`）、`.rpm`（`-qip/-qlp/-qplv/-K`）、`.pkg`（真实 `installer`）、可复现构建、三平台测试、Linux race —— 其中安装包核对**此前从未跑通过**，第一次运行共抓出 **13 处缺陷**（含 7 处"装不上/装错位置"级） |
 | 本机（macOS） | 内核可跑、六个后端接上（pf / launchd / polling / macos-keychain / unix-socket / darwin-native）、`status`/`doctor`/`service status` 正常、数据目录 0700、`isc.sock` 0600 |
 | 测试 | 780 条 / 22 包在 macOS 全绿；跨平台 `go vet` 四目标；7 目标编译矩阵 |
-| **内核库（新主交付物）** | ✅ 本机跑通：Swift 6.4 链接 `libisc.dylib`，在**本进程内**启动内核、读到 `health = ok` 与六个后端、停止幂等。复跑 `examples/swift-smoke/run.sh`；CI 加了 `libisc-macos` 守这条链路与 6 个导出符号 |
+| **内核库（新主交付物）** | ✅ **初步封装完成**：接口面覆盖版本 / 生命周期（启动·停止·重启）/ 状态 / **通用调用 `isc_call`**（契约里 38 条路径，新增功能不用改库）/ 事件长轮询 / 内存释放，并带**机器可判别的错误码**。行为在 `internal/libisc`（默认 CI 就测），`cmd/libisc` 是 cgo 薄包装。Swift 6.4 端到端实跑通过（含错误码与事件游标），复跑 `examples/swift-smoke/run.sh`；接口文档见 [`LIBRARY-API.md`](./LIBRARY-API.md) |
 | **仍红的两项（未继续修）** | ① 发布构建 / 核对 .rpm：查询已安装包时报"package is not installed" —— 安装命令本身没报错，却没进数据库（怀疑 initdb 建的库与安装时用的不是同一个，或该查询需要 sudo）。② `test windows-latest / go vet` 失败，原因未取到（注解缺失）。**两项都在 CI 的打包路径上，与"本机可用"无关** |
 | 未验证清单 | 见本文件 §7 的 R13/R14 与 D24 的"待定"；要点：防火墙**实际放行**、服务安装启停（要 root，已在 CI 里补了 systemd/launchd 的真机 job，但尚未绿）、Tier-1/Tier-2 服务商的真实 API 调用、通知通道真实端点、代码签名与公证 |
 
