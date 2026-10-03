@@ -2171,6 +2171,7 @@ components:
       type: object
       required: [project_id, preset_id, state]
       properties:
+        id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
         preset_id: {type: string}
         state:

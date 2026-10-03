@@ -186,7 +186,12 @@ func (s *Server) CreatePhecdaDeployment(w http.ResponseWriter, r *http.Request) 
 		writeProblem(w, r, s.Log, http.StatusBadRequest, CodeInvalidRequest, "error.invalid_request", "invalid Phecda deployment")
 		return
 	}
-	deployment := gen.PhecdaDeployment{Id: uuid.New(), ProjectId: input.ProjectId, PresetId: input.PresetId, State: gen.PhecdaDeploymentState(input.State), LocalPort: input.LocalPort, LastError: input.LastError, PublicServiceId: input.PublicServiceId}
+	deploymentID := input.Id
+	if deploymentID == nil {
+		value := uuid.New()
+		deploymentID = &value
+	}
+	deployment := gen.PhecdaDeployment{Id: *deploymentID, ProjectId: input.ProjectId, PresetId: input.PresetId, State: gen.PhecdaDeploymentState(input.State), LocalPort: input.LocalPort, LastError: input.LastError, PublicServiceId: input.PublicServiceId}
 	if s.Phecda != nil {
 		if err := s.Phecda.SaveDeployment(r.Context(), deployment); err != nil {
 			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to save Phecda deployment")

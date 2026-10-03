@@ -1297,6 +1297,7 @@ type PhecdaDeploymentState string
 
 // PhecdaDeploymentInput defines model for PhecdaDeploymentInput.
 type PhecdaDeploymentInput struct {
+	Id              *openapi_types.UUID        `json:"id,omitempty"`
 	LastError       *string                    `json:"last_error,omitempty"`
 	LocalPort       *int                       `json:"local_port,omitempty"`
 	PresetId        string                     `json:"preset_id"`
