@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -227,6 +228,55 @@ func TestDebDataTarContainsExecutable(t *testing.T) {
 	}
 }
 
+// TestDebDataTarHasDirectoryEntries 钉住"载荷里必须有目录条目"。
+//
+// # 为什么这条测试值得单独存在
+//
+// dpkg 与 GNU tar 在这件事上**不一样**：tar 解包时顺手创建缺失的父目录，
+// **dpkg 不会**。少了目录条目，安装会在解第一个文件时报
+//
+//	unable to create '/usr/share/doc/isc/LICENSE.dpkg-new'
+//	(while processing './usr/share/doc/isc/LICENSE'): No such file or directory
+//
+// 而这条缺陷极难在本地发现：
+//
+//   - 我们自己的测试用 Go 的 archive/tar 读，它不关心目录条目；
+//   - `dpkg-deb --info/--contents` 只看清单，也不真装；
+//   - 只有 `dpkg -i` 会撞上它 —— 而 CI 里那一步直到 2026-10-03 才第一次
+//     真正跑到（在此之前它总是死在更前面）。
+//
+// 因此这里直接检查那条不变式：**每个文件的父目录都必须有一个目录条目**。
+func TestDebDataTarHasDirectoryEntries(t *testing.T) {
+	t.Parallel()
+
+	members := parseAr(t, buildTestDeb(t))
+	files := readTar(t, members[2].Data)
+
+	// 两边都要归一化：tar 里的目录名带结尾的 `/`（那是 tar 表达"这是目录"
+	// 的方式），而 path.Dir 返回的是 Clean 过的形式。
+	dirs := map[string]bool{}
+	for name, e := range files {
+		if e.isDir {
+			dirs[path.Clean(name)] = true
+		}
+	}
+	if len(dirs) == 0 {
+		t.Fatalf("data.tar.gz 里一个目录条目都没有 —— "+
+			"dpkg 不会替我们建父目录，安装会直接失败。现有条目: %v", keysOf(files))
+	}
+
+	for name, e := range files {
+		if e.isDir {
+			continue
+		}
+		parent := path.Dir(name)
+		if !dirs[parent] {
+			t.Errorf("文件 %s 的父目录 %q 没有目录条目 —— "+
+				"dpkg 不会替我们建目录，安装会报 No such file or directory", name, parent)
+		}
+	}
+}
+
 // TestDebShipsLicense 验证许可证随包分发。
 //
 // GPLv3 的要求，也是基本的分发礼节。
@@ -356,10 +406,11 @@ func TestDebValidatesOptions(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type tarEntry struct {
-	mode int64
-	uid  int
-	gid  int
-	data []byte
+	mode  int64
+	uid   int
+	gid   int
+	data  []byte
+	isDir bool
 }
 
 // readTar 解压一个 tar.gz，返回路径 → 条目。
@@ -388,6 +439,7 @@ func readTar(t *testing.T, data []byte) map[string]tarEntry {
 		}
 		out[hdr.Name] = tarEntry{
 			mode: hdr.Mode, uid: hdr.Uid, gid: hdr.Gid, data: byt,
+			isDir: hdr.Typeflag == tar.TypeDir,
 		}
 	}
 	return out

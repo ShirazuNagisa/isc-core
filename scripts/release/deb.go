@@ -158,6 +158,21 @@ func debDataTar(opts DebOptions) ([]byte, error) {
 		return nil, err
 	}
 
+	// 目录条目必须在前，且一个都不能少（见 addTarDir 的说明）。
+	// 顺序是"从根往下"：dpkg 按 tar 里的顺序装，父目录得先存在。
+	for _, dir := range []string{
+		"./",
+		"./usr/",
+		"./usr/bin/",
+		"./usr/share/",
+		"./usr/share/doc/",
+		"./usr/share/doc/" + opts.Package + "/",
+	} {
+		if err := addTarDir(tw, dir, 0o755); err != nil {
+			return nil, err
+		}
+	}
+
 	// 可执行文件：0755 是必须的 —— 装到 /usr/bin 之后没有执行位
 	// 就是一个装得上、跑不起来的包。
 	if err := addTarBytes(tw, "./usr/bin/"+binaryName, 0o755, bin); err != nil {
@@ -351,6 +366,33 @@ func debInstalledSize(opts DebOptions) string {
 // addTarBytes 往 tar 里加一个内存里的文件。
 //
 // 时间戳统一为零值：可复现构建。
+// addTarDir 写入一个**目录条目**。
+//
+// # 为什么必须有目录条目
+//
+// dpkg 与 GNU tar 在这件事上不一样：tar 解包时会顺手创建缺失的父目录，
+// **dpkg 不会**。少了它们，安装会在解第一个文件时报
+//
+//	unable to create '/usr/share/doc/isc/LICENSE.dpkg-new'
+//	(while processing './usr/share/doc/isc/LICENSE'): No such file or directory
+//
+// 而 `dpkg-deb --contents` 只看清单、不真装，因此完全看不出来。
+// 这个缺陷在本项目里是 CI 的「核对 .deb」第一次真正跑到 `dpkg -i` 时才
+// 暴露的 —— 在那之前那一步总是死在更前面。
+//
+// 目录名必须**以 / 结尾**：那是 tar 表达"这是目录"的方式（typeflag '5'）。
+func addTarDir(tw *tar.Writer, name string, mode int64) error {
+	hdr := &tar.Header{
+		Typeflag: tar.TypeDir,
+		Name:     name,
+		Mode:     mode,
+		ModTime:  time.Time{},
+		Uid:      0,
+		Gid:      0,
+	}
+	return tw.WriteHeader(hdr)
+}
+
 func addTarBytes(tw *tar.Writer, name string, mode int64, data []byte) error {
 	hdr := &tar.Header{
 		Name:    name,
