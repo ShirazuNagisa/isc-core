@@ -375,8 +375,14 @@ func (m *Manager) serve(ln net.Listener, id string) {
 // handler 处理一次验证请求。
 func (m *Manager) handler(id string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sess, ok := m.session(id)
-		if !ok || sess.Token == "" {
+		// 在锁内取 Token，而不是拿指针到锁外读。
+		//
+		// Token 在 Start 之后确实不再变，因此这里**当前**不构成竞争 ——
+		// 但它与 Get 当初出错的是同一个形状（拿指针、出锁、再解引用），
+		// 而那种形状只有在字段变成可变之后才暴露。Get 已经因此吃过一次
+		// 数据竞争（见那里的注释），这里没有再犯第二次的理由。
+		token, ok := m.tokenOf(id)
+		if !ok || token == "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -386,13 +392,19 @@ func (m *Manager) handler(id string) http.Handler {
 		// 这让端口上的扫描流量看不到任何特征 —— 一个固定路径的
 		// "验证端点"会被扫描器发现，而它的响应会告诉扫描者
 		// "这台机器上跑着 ISC"。
-		if strings.Trim(r.URL.Path, "/") != sess.Token {
+		if strings.Trim(r.URL.Path, "/") != token {
 			http.NotFound(w, r)
 			return
 		}
 
 		kind := m.recordHit(id, r)
-		writeResultPage(w, kind, sess)
+
+		// 取一份**锁内拷贝**用于渲染页面。
+		//
+		// 必须在这里取（而不是复用上面的任何东西）：recordHit 刚改过
+		// 这个会话，而页面要显示改动之后的状态。
+		sess, _ := m.Get(id)
+		writeResultPage(w, kind, &sess)
 	})
 }
 
@@ -477,19 +489,44 @@ func (m *Manager) expire(id string) {
 }
 
 // Get 取出一个会话。
+//
+// # 拷贝必须在**锁内**完成
+//
+// 最初的写法是 `sess, ok := m.session(id)` 之后再 `return *sess` ——
+// 而 session 在返回前就解锁了，于是那次解引用与 expire 写 sess.Status
+// **并发**。这是个真的数据竞争，而它在本机发现不了：`-race` 需要 cgo，
+// 而本项目禁止 cgo（见 docs/PLAN.md §0），因此只有 CI 的 race job 能看见。
+//
+// 症状会是"偶尔读到一个改了一半的会话"—— 状态已经变成 unreachable
+// 而 Message 还是旧的，或者反过来。那种间歇的、只在并发下出现的读写，
+// 靠读代码找很困难，靠 `-race` 是一行报告。
 func (m *Manager) Get(id string) (Session, bool) {
-	sess, ok := m.session(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sess, ok := m.sessions[id]
 	if !ok {
 		return Session{}, false
 	}
 	return *sess, true
 }
 
-func (m *Manager) session(id string) (*Session, bool) {
+// tokenOf 返回会话的令牌。
+//
+// 它是**唯一**一个允许跨函数边界暴露的字段，因此单独开一个方法而不是
+// 把整个 Session 指针递出去 —— 后者是 Get 当初出错的形状：
+// 拿到指针的人不会意识到"锁在函数返回时就没了"。
+//
+// 只给这一个字段，是因为它在 Start 之后不可变，而调用方（HTTP 处理器）
+// 也确实只需要它。
+func (m *Manager) tokenOf(id string) (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	sess, ok := m.sessions[id]
-	return sess, ok
+	if !ok {
+		return "", false
+	}
+	return sess.Token, true
 }
 
 // List 返回全部会话（最近的在前）。
