@@ -33,6 +33,23 @@ import (
 const (
 	coreServiceName    = "isc-core"
 	darwinServiceLabel = "com.isc.core"
+
+	// 下面是各平台的 unit / plist 名字与落点。
+	//
+	// 它们放在**共享文件**里（而不是各自的平台文件）有两个理由：
+	//
+	//  1. 它们只是取值不同，本身与平台无关；
+	//  2. CI 的 service-linux / service-macos 两个 job 会去找这两个路径 ——
+	//     放在共享文件里，一条测试就能在**任何平台**钉住它们。
+	//     真实踩过的坑：CI 里把 unit 名写成了 isc.service（实为
+	//     isc-core.service），于是 `systemctl show` 什么都不输出，
+	//     断言拿着空路径去 cat。
+	linuxSystemdDir   = "/etc/systemd/system"
+	linuxUnitFileName = coreServiceName + ".service"
+
+	darwinLaunchDir = "/Library/LaunchDaemons"
+	darwinLabel     = darwinServiceLabel
+	darwinPlistName = darwinLabel + ".plist"
 )
 
 // ---------------------------------------------------------------------------

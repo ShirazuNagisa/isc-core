@@ -796,7 +796,7 @@ jobs:
 
           # unit 里必须真的带上我们给的数据目录与可执行文件 ——
           # 服务进程的环境与当前 shell 无关，靠环境变量传不过去。
-          unit=$(run_step sudo systemctl show -p FragmentPath --value isc)
+          unit=$(run_step sudo systemctl show -p FragmentPath --value isc-core)
           echo "unit: $unit"
           run_step sudo cat "$unit"
           echo "$unit" | grep -q . || { echo "::error::拿不到 unit 路径"; exit 1; }
@@ -834,7 +834,7 @@ jobs:
           done
           if [ "$ok" -ne 1 ]; then
             echo "::error::30 秒内没有出现 $DATA/run/isc.sock"
-            sudo journalctl -u isc --no-pager | tail -40 || true
+            sudo journalctl -u isc-core --no-pager | tail -40 || true
             exit 1
           fi
 
@@ -842,7 +842,7 @@ jobs:
           cat /tmp/status.json
           grep -q '"running": *true' /tmp/status.json || {
             echo "::error::服务启动了，但内核没在跑 —— 看上面的输出"
-            sudo journalctl -u isc --no-pager | tail -40 || true
+            sudo journalctl -u isc-core --no-pager | tail -40 || true
             exit 1
           }
 
@@ -855,12 +855,15 @@ jobs:
           sudo "$EXE" service stop || true
           sudo "$EXE" service uninstall
 
-          if systemctl list-unit-files | grep -q '^isc\.service'; then
+          # unit 名来自 platform 的 coreServiceName：**isc-core.service**。
+          # 之前这里写的是 isc.service，于是 `systemctl show` 什么都不输出、
+          # 断言拿着空路径去 cat。
+          if systemctl list-unit-files | grep -q '^isc-core\.service'; then
             echo "::error::卸载之后 unit 还在 systemctl 的列表里"
             exit 1
           fi
-          sudo test ! -e /etc/systemd/system/isc.service || {
-            echo "::error::/etc/systemd/system/isc.service 还在"
+          sudo test ! -e /etc/systemd/system/isc-core.service || {
+            echo "::error::/etc/systemd/system/isc-core.service 还在"
             exit 1
           }
           echo "✅ systemd 安装 / 启动 / 运行 / 卸载 全部通过"

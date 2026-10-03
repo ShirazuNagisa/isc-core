@@ -396,3 +396,38 @@ func TestServiceDefinitionsArePlatformIndependent(t *testing.T) {
 
 	t.Logf("当前平台: %s（这些逻辑不依赖平台）", runtime.GOOS)
 }
+
+// TestServiceNamesAreStable 钉住 unit / plist 的名字。
+//
+// 它们不只是"内部常量"：CI 的 service-linux / service-macos 两个 job 会去
+// 找 `/etc/systemd/system/isc-core.service` 与
+// `/Library/LaunchDaemons/com.isc.core.plist`，而**改名的代价不只是一处** ——
+// 已经装过服务的用户，升级后旧 unit 仍在、新 unit 另起一份，于是同一台机器
+// 上会有两个内核抢同一个端口与数据目录。
+//
+// 顺带说一个真实踩过的坑：CI 里这两个名字**曾经写错**（写成 isc.service），
+// 于是 `systemctl show -p FragmentPath --value isc` 什么都不输出，
+// 断言拿着空路径去 cat —— 而报错只有一句 "cat: ”: No such file or directory"。
+// 那条错误现在会直接指向这里。
+func TestServiceNamesAreStable(t *testing.T) {
+	t.Parallel()
+
+	if coreServiceName != "isc-core" {
+		t.Errorf("coreServiceName = %q，期望 isc-core", coreServiceName)
+	}
+	if linuxUnitFileName != "isc-core.service" {
+		t.Errorf("linuxUnitFileName = %q，期望 isc-core.service", linuxUnitFileName)
+	}
+	if darwinPlistName != "com.isc.core.plist" {
+		t.Errorf("darwinPlistName = %q，期望 com.isc.core.plist", darwinPlistName)
+	}
+	if darwinLabel != "com.isc.core" {
+		t.Errorf("darwinLabel = %q，期望 com.isc.core", darwinLabel)
+	}
+	if linuxSystemdDir != "/etc/systemd/system" {
+		t.Errorf("linuxSystemdDir = %q，期望 /etc/systemd/system", linuxSystemdDir)
+	}
+	if darwinLaunchDir != "/Library/LaunchDaemons" {
+		t.Errorf("darwinLaunchDir = %q，期望 /Library/LaunchDaemons", darwinLaunchDir)
+	}
+}

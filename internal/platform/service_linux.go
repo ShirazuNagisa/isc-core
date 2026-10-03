@@ -29,9 +29,7 @@ import (
 
 // 服务名。与 Windows 保持一致，便于文档与脚本跨平台复用。
 const (
-	linuxServiceName  = coreServiceName
-	linuxSystemdDir   = "/etc/systemd/system"
-	linuxUnitFileName = coreServiceName + ".service"
+	linuxServiceName = coreServiceName
 )
 
 type linuxServiceManager struct{}

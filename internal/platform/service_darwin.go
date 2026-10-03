@@ -30,11 +30,7 @@ import (
 // 因此这里用 SuccessfulExit=false 而不是笼统的 KeepAlive=true：
 // 它表示"只在**异常**退出时重启"，从而让用户主动停止时不被拉起来。
 
-const (
-	darwinLabel     = darwinServiceLabel
-	darwinLaunchDir = "/Library/LaunchDaemons"
-	darwinPlistName = darwinLabel + ".plist"
-)
+const ()
 
 type darwinServiceManager struct{}
 

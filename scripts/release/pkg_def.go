@@ -102,3 +102,44 @@ func pkgVersion(v string) (string, error) {
 	}
 	return v, nil
 }
+
+// stagePkgTree 搭出 pkgbuild 要的目录树，返回它的根。
+//
+// 树里的相对路径**原样**成为安装后的路径（相对 --install-location），
+// 因此这里搭的是完整的 usr/local/bin/isc；install-location 必须是根
+// （见 pkgbuildArgs）。
+func stagePkgTree(dir, binaryPath string) (string, error) {
+	root := filepath.Join(dir, "root")
+	binDir := filepath.Join(root, strings.TrimPrefix(pkgInstallDir, "/"))
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", err
+	}
+
+	binary := filepath.Join(binDir, "isc")
+	if err := copyFile(binaryPath, binary); err != nil {
+		return "", err
+	}
+	// 可执行位必须显式设：Windows 上交叉编译出的产物没有执行位这个概念
+	// （那个坑在 tar 打包时已经踩过一次）。
+	if err := os.Chmod(binary, 0o755); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+// pkgbuildArgs 返回 pkgbuild 的参数。
+//
+// 单独抽出来是为了能被测试钉住 —— 其中 install-location 与暂存树的形状
+// **必须配套**：树里带完整路径（usr/local/bin/isc）时，install-location 只能
+// 是 `/`。写成 `/usr/local/bin` 会与树叠加，文件落到
+// `/usr/local/bin/usr/local/bin/isc` —— 而安装过程一路成功，
+// 只有"装完之后看文件在不在"才能发现。
+func pkgbuildArgs(root, version, out string) []string {
+	return []string{
+		"--root", root,
+		"--identifier", pkgIdentifier,
+		"--version", version,
+		"--install-location", "/",
+		out,
+	}
+}
