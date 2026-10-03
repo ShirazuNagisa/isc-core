@@ -29,6 +29,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
+	"github.com/oapi-codegen/runtime/types"
 )
 
 // Deps 是 API 层的依赖。
@@ -122,14 +123,25 @@ type Deps struct {
 	// NotifyConfig 是配置驱动的通道管理。
 	NotifyConfig *notify.ConfigManager
 
-	// CertRequests 返回当前需要证书的域名集合。
+	// Phecda persists project metadata, scan evidence, and deployment state.
+	Phecda PhecdaStore
+
 	//
 	// 做成回调而不是直接读路由表：api 包因此不需要知道
 	// "证书需要覆盖什么"是由路由决定的。
 	CertRequests func() []acme.CertRequest
 }
 
-// Server 实现 gen.ServerInterface。
+type PhecdaStore interface {
+	ListProjects(context.Context) ([]gen.PhecdaProject, error)
+	GetProject(context.Context, types.UUID) (gen.PhecdaProject, bool, error)
+	SaveProject(context.Context, gen.PhecdaProject) error
+	DeleteProject(context.Context, types.UUID) (bool, error)
+	SaveEvidence(context.Context, types.UUID, []gen.PhecdaScanEvidence) error
+	ListDeployments(context.Context) ([]gen.PhecdaDeployment, error)
+	GetDeployment(context.Context, types.UUID) (gen.PhecdaDeployment, bool, error)
+}
+
 type Server struct {
 	Deps
 	phecdaMu          sync.RWMutex

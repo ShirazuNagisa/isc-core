@@ -17,7 +17,16 @@ func (s *Server) ListPhecdaPresets(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, s.Log, http.StatusOK, "application/json", phecdaCatalog())
 }
 
-func (s *Server) ListPhecdaProjects(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) ListPhecdaProjects(w http.ResponseWriter, r *http.Request) {
+	if s.Phecda != nil {
+		items, err := s.Phecda.ListProjects(r.Context())
+		if err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to list Phecda projects")
+			return
+		}
+		writeJSON(w, s.Log, http.StatusOK, "application/json", gen.PhecdaProjectList{Items: items})
+		return
+	}
 	s.phecdaMu.RLock()
 	defer s.phecdaMu.RUnlock()
 	items := make([]gen.PhecdaProject, 0, len(s.phecdaProjects))
@@ -41,13 +50,33 @@ func (s *Server) CreatePhecdaProject(w http.ResponseWriter, r *http.Request) {
 	}
 	id := uuid.New()
 	project := gen.PhecdaProject{Id: id, Name: input.Name, Purpose: string(input.Purpose), Source: input.Source, Evidence: []gen.PhecdaScanEvidence{}}
-	s.phecdaMu.Lock()
-	s.phecdaProjects[id.String()] = project
-	s.phecdaMu.Unlock()
+	if s.Phecda != nil {
+		if err := s.Phecda.SaveProject(r.Context(), project); err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to save Phecda project")
+			return
+		}
+	} else {
+		s.phecdaMu.Lock()
+		s.phecdaProjects[id.String()] = project
+		s.phecdaMu.Unlock()
+	}
 	writeJSON(w, s.Log, http.StatusCreated, "application/json", project)
 }
 
 func (s *Server) GetPhecdaProject(w http.ResponseWriter, r *http.Request, id types.UUID) {
+	if s.Phecda != nil {
+		project, ok, err := s.Phecda.GetProject(r.Context(), id)
+		if err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to read Phecda project")
+			return
+		}
+		if !ok {
+			writeProblem(w, r, s.Log, http.StatusNotFound, CodeNotFound, "error.not_found", "Phecda project not found")
+			return
+		}
+		writeJSON(w, s.Log, http.StatusOK, "application/json", project)
+		return
+	}
 	s.phecdaMu.RLock()
 	project, ok := s.phecdaProjects[id.String()]
 	s.phecdaMu.RUnlock()
@@ -59,6 +88,19 @@ func (s *Server) GetPhecdaProject(w http.ResponseWriter, r *http.Request, id typ
 }
 
 func (s *Server) DeletePhecdaProject(w http.ResponseWriter, r *http.Request, id types.UUID) {
+	if s.Phecda != nil {
+		ok, err := s.Phecda.DeleteProject(r.Context(), id)
+		if err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to delete Phecda project")
+			return
+		}
+		if !ok {
+			writeProblem(w, r, s.Log, http.StatusNotFound, CodeNotFound, "error.not_found", "Phecda project not found")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	s.phecdaMu.Lock()
 	_, ok := s.phecdaProjects[id.String()]
 	delete(s.phecdaProjects, id.String())
@@ -71,9 +113,20 @@ func (s *Server) DeletePhecdaProject(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (s *Server) ScanPhecdaProject(w http.ResponseWriter, r *http.Request, id types.UUID) {
-	s.phecdaMu.RLock()
-	project, ok := s.phecdaProjects[id.String()]
-	s.phecdaMu.RUnlock()
+	var project gen.PhecdaProject
+	var ok bool
+	var err error
+	if s.Phecda != nil {
+		project, ok, err = s.Phecda.GetProject(r.Context(), id)
+	} else {
+		s.phecdaMu.RLock()
+		project, ok = s.phecdaProjects[id.String()]
+		s.phecdaMu.RUnlock()
+	}
+	if err != nil {
+		writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to read Phecda project")
+		return
+	}
 	if !ok {
 		writeProblem(w, r, s.Log, http.StatusNotFound, CodeNotFound, "error.not_found", "Phecda project not found")
 		return
@@ -90,9 +143,16 @@ func (s *Server) ScanPhecdaProject(w http.ResponseWriter, r *http.Request, id ty
 		result.Evidence = evidence
 		result.Candidates = candidatesForEvidence(evidence)
 		project.Evidence = evidence
-		s.phecdaMu.Lock()
-		s.phecdaProjects[id.String()] = project
-		s.phecdaMu.Unlock()
+		if s.Phecda != nil {
+			if err := s.Phecda.SaveEvidence(r.Context(), id, evidence); err != nil {
+				writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to save Phecda evidence")
+				return
+			}
+		} else {
+			s.phecdaMu.Lock()
+			s.phecdaProjects[id.String()] = project
+			s.phecdaMu.Unlock()
+		}
 	} else {
 		result.Candidates = phecdaNonDockerPresets()
 		warning := "This source cannot be scanned locally; choose a preset and review its commands."
@@ -101,7 +161,16 @@ func (s *Server) ScanPhecdaProject(w http.ResponseWriter, r *http.Request, id ty
 	writeJSON(w, s.Log, http.StatusOK, "application/json", result)
 }
 
-func (s *Server) ListPhecdaDeployments(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) ListPhecdaDeployments(w http.ResponseWriter, r *http.Request) {
+	if s.Phecda != nil {
+		items, err := s.Phecda.ListDeployments(r.Context())
+		if err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to list Phecda deployments")
+			return
+		}
+		writeJSON(w, s.Log, http.StatusOK, "application/json", gen.PhecdaDeploymentList{Items: items})
+		return
+	}
 	s.phecdaMu.RLock()
 	defer s.phecdaMu.RUnlock()
 	items := make([]gen.PhecdaDeployment, 0, len(s.phecdaDeployments))
@@ -112,6 +181,19 @@ func (s *Server) ListPhecdaDeployments(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) GetPhecdaDeployment(w http.ResponseWriter, r *http.Request, id types.UUID) {
+	if s.Phecda != nil {
+		deployment, ok, err := s.Phecda.GetDeployment(r.Context(), id)
+		if err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to read Phecda deployment")
+			return
+		}
+		if !ok {
+			writeProblem(w, r, s.Log, http.StatusNotFound, CodeNotFound, "error.not_found", "Phecda deployment not found")
+			return
+		}
+		writeJSON(w, s.Log, http.StatusOK, "application/json", deployment)
+		return
+	}
 	s.phecdaMu.RLock()
 	deployment, ok := s.phecdaDeployments[id.String()]
 	s.phecdaMu.RUnlock()

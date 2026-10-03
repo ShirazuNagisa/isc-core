@@ -449,6 +449,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
 		Notify:         d.notifier,
 		NotifyConfig:   d.notifyConfig,
+		Phecda:         st.Phecda(),
 		CertProvider:   d.certProvider,
 		CertInvalidate: d.certProvider.Invalidate,
 		Certs:          d.certMgr,
