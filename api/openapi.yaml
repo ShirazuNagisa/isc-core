@@ -335,6 +335,28 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/phecda/deployments:
+    post:
+      tags: [Phecda]
+      operationId: createPhecdaDeployment
+      summary: 登记或更新一个部署状态
+      description: 记录 Supervisor 的部署状态；不会由 ISC-Core 执行构建或启动命令。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhecdaDeploymentInput"
+      responses:
+        "201":
+          description: 部署状态已登记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhecdaDeployment"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
     get:
       tags: [Phecda]
       operationId: listPhecdaDeployments
@@ -2144,6 +2166,18 @@ components:
           items:
             $ref: "#/components/schemas/PhecdaPreset"
         warning: {type: string}
+
+    PhecdaDeploymentInput:
+      type: object
+      required: [project_id, preset_id, state]
+      properties:
+        project_id: {type: string, format: uuid}
+        preset_id: {type: string}
+        state:
+          type: string
+          enum: [draft, scanning, preparing, building, running, stopped, failed]
+        local_port: {type: integer}
+        last_error: {type: string}
 
     PhecdaDeployment:
       type: object

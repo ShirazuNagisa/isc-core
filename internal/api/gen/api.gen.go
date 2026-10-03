@@ -337,6 +337,39 @@ func (e PhecdaDeploymentState) Valid() bool {
 	}
 }
 
+// Defines values for PhecdaDeploymentInputState.
+const (
+	PhecdaDeploymentInputStateBuilding  PhecdaDeploymentInputState = "building"
+	PhecdaDeploymentInputStateDraft     PhecdaDeploymentInputState = "draft"
+	PhecdaDeploymentInputStateFailed    PhecdaDeploymentInputState = "failed"
+	PhecdaDeploymentInputStatePreparing PhecdaDeploymentInputState = "preparing"
+	PhecdaDeploymentInputStateRunning   PhecdaDeploymentInputState = "running"
+	PhecdaDeploymentInputStateScanning  PhecdaDeploymentInputState = "scanning"
+	PhecdaDeploymentInputStateStopped   PhecdaDeploymentInputState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the PhecdaDeploymentInputState enum.
+func (e PhecdaDeploymentInputState) Valid() bool {
+	switch e {
+	case PhecdaDeploymentInputStateBuilding:
+		return true
+	case PhecdaDeploymentInputStateDraft:
+		return true
+	case PhecdaDeploymentInputStateFailed:
+		return true
+	case PhecdaDeploymentInputStatePreparing:
+		return true
+	case PhecdaDeploymentInputStateRunning:
+		return true
+	case PhecdaDeploymentInputStateScanning:
+		return true
+	case PhecdaDeploymentInputStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PhecdaDockerSourceMode.
 const (
 	Command             PhecdaDockerSourceMode = "command"
@@ -1261,6 +1294,18 @@ type PhecdaDeployment struct {
 // PhecdaDeploymentState defines model for PhecdaDeployment.State.
 type PhecdaDeploymentState string
 
+// PhecdaDeploymentInput defines model for PhecdaDeploymentInput.
+type PhecdaDeploymentInput struct {
+	LastError *string                    `json:"last_error,omitempty"`
+	LocalPort *int                       `json:"local_port,omitempty"`
+	PresetId  string                     `json:"preset_id"`
+	ProjectId openapi_types.UUID         `json:"project_id"`
+	State     PhecdaDeploymentInputState `json:"state"`
+}
+
+// PhecdaDeploymentInputState defines model for PhecdaDeploymentInput.State.
+type PhecdaDeploymentInputState string
+
 // PhecdaDeploymentList defines model for PhecdaDeploymentList.
 type PhecdaDeploymentList struct {
 	Items []PhecdaDeployment `json:"items"`
@@ -1979,6 +2024,9 @@ type RunNoopJobJSONRequestBody = NoopRequest
 // ReplaceNotifyChannelsJSONRequestBody defines body for ReplaceNotifyChannels for application/json ContentType.
 type ReplaceNotifyChannelsJSONRequestBody = NotifyChannelList
 
+// CreatePhecdaDeploymentJSONRequestBody defines body for CreatePhecdaDeployment for application/json ContentType.
+type CreatePhecdaDeploymentJSONRequestBody = PhecdaDeploymentInput
+
 // CreatePhecdaProjectJSONRequestBody defines body for CreatePhecdaProject for application/json ContentType.
 type CreatePhecdaProjectJSONRequestBody = PhecdaProjectInput
 
@@ -2193,6 +2241,9 @@ type ServerInterface interface {
 	// ListPhecdaDeployments 列出部署状态
 	// (GET /v1/phecda/deployments)
 	ListPhecdaDeployments(w http.ResponseWriter, r *http.Request)
+	// CreatePhecdaDeployment 登记或更新一个部署状态
+	// (POST /v1/phecda/deployments)
+	CreatePhecdaDeployment(w http.ResponseWriter, r *http.Request)
 	// GetPhecdaDeployment 读取部署状态
 	// (GET /v1/phecda/deployments/{id})
 	GetPhecdaDeployment(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
@@ -3467,6 +3518,20 @@ func (siw *ServerInterfaceWrapper) ListPhecdaDeployments(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// CreatePhecdaDeployment operation middleware
+func (siw *ServerInterfaceWrapper) CreatePhecdaDeployment(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePhecdaDeployment(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPhecdaDeployment operation middleware
 func (siw *ServerInterfaceWrapper) GetPhecdaDeployment(w http.ResponseWriter, r *http.Request) {
 
@@ -4046,6 +4111,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/projects/{id}", wrapper.GetPhecdaProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/phecda/projects/{id}/scan", wrapper.ScanPhecdaProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments", wrapper.ListPhecdaDeployments)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/phecda/deployments", wrapper.CreatePhecdaDeployment)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments/{id}", wrapper.GetPhecdaDeployment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)

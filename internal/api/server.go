@@ -138,6 +138,7 @@ type PhecdaStore interface {
 	SaveProject(context.Context, gen.PhecdaProject) error
 	DeleteProject(context.Context, types.UUID) (bool, error)
 	SaveEvidence(context.Context, types.UUID, []gen.PhecdaScanEvidence) error
+	SaveDeployment(context.Context, gen.PhecdaDeployment) error
 	ListDeployments(context.Context) ([]gen.PhecdaDeployment, error)
 	GetDeployment(context.Context, types.UUID) (gen.PhecdaDeployment, bool, error)
 }

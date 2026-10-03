@@ -180,6 +180,25 @@ func (s *Server) ListPhecdaDeployments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.Log, http.StatusOK, "application/json", gen.PhecdaDeploymentList{Items: items})
 }
 
+func (s *Server) CreatePhecdaDeployment(w http.ResponseWriter, r *http.Request) {
+	var input gen.PhecdaDeploymentInput
+	if r.Body == nil || json.NewDecoder(r.Body).Decode(&input) != nil || input.ProjectId == uuid.Nil || strings.TrimSpace(input.PresetId) == "" {
+		writeProblem(w, r, s.Log, http.StatusBadRequest, CodeInvalidRequest, "error.invalid_request", "invalid Phecda deployment")
+		return
+	}
+	deployment := gen.PhecdaDeployment{Id: uuid.New(), ProjectId: input.ProjectId, PresetId: input.PresetId, State: gen.PhecdaDeploymentState(input.State), LocalPort: input.LocalPort, LastError: input.LastError}
+	if s.Phecda != nil {
+		if err := s.Phecda.SaveDeployment(r.Context(), deployment); err != nil {
+			writeProblem(w, r, s.Log, http.StatusInternalServerError, CodeInternal, "error.internal", "failed to save Phecda deployment")
+			return
+		}
+	} else {
+		s.phecdaMu.Lock()
+		s.phecdaDeployments[deployment.Id.String()] = deployment
+		s.phecdaMu.Unlock()
+	}
+	writeJSON(w, s.Log, http.StatusCreated, "application/json", deployment)
+}
 func (s *Server) GetPhecdaDeployment(w http.ResponseWriter, r *http.Request, id types.UUID) {
 	if s.Phecda != nil {
 		deployment, ok, err := s.Phecda.GetDeployment(r.Context(), id)
