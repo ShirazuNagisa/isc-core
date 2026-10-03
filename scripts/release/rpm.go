@@ -80,23 +80,36 @@ const (
 
 // RPM 标签号。只列用到的那些。
 const (
-	tagName            = 1000
-	tagVersion         = 1001
-	tagRelease         = 1002
-	tagSummary         = 1004
-	tagDescription     = 1005
-	tagBuildTime       = 1006
-	tagBuildHost       = 1007
-	tagSize            = 1009
-	tagLicense         = 1014
-	tagGroup           = 1016
-	tagURL             = 1020
-	tagOS              = 1021
-	tagArch            = 1022
-	tagFileSizes       = 1023
-	tagFileModes       = 1030
-	tagFileRDevs       = 1033
-	tagFileMTimes      = 1034
+	tagName        = 1000
+	tagVersion     = 1001
+	tagRelease     = 1002
+	tagSummary     = 1004
+	tagDescription = 1005
+	tagBuildTime   = 1006
+	tagBuildHost   = 1007
+	tagSize        = 1009
+	tagLicense     = 1014
+	tagGroup       = 1016
+	tagURL         = 1020
+	tagOS          = 1021
+	tagArch        = 1022
+	// tagFileSizes 是**每个文件的大小**（i[]）。
+	//
+	// 这里曾经写着 1023 —— 而 rpm 的标签表里 1023 是 **PREIN**（安装前脚本，
+	// **字符串**）。于是 rpm 读主 header 时（它带着 regionTag =
+	// HEADERIMMUTABLE 读，因此**逐个标签核对类型**）直接拒收：
+	// 一个字符串标签被写成了 int32 数组。
+	//
+	// 真正的 FILESIZES 是 1028 —— 对照 rpm 的 rpmtag.h 逐个标签核对出来的。
+	// 同一个方法还查出 1095 其实是 FILEDEVICES（见 tagFileDigestAlgo）。
+	tagFileSizes  = 1028
+	tagFileModes  = 1030
+	tagFileRDevs  = 1033
+	tagFileMTimes = 1034
+	// 这两个是**每个文件**的设备号与 inode（i[]）。真实包都有；
+	// 我们一律填 0（可复现），rpm 不依赖它们的值。
+	tagFileDevices     = 1095
+	tagFileInodes      = 1096
 	tagFileDigests     = 1035
 	tagFileLinkTos     = 1036
 	tagFileFlags       = 1037
@@ -110,7 +123,12 @@ const (
 	tagRequireName     = 1049
 	tagRequireVersion  = 1050
 	tagRPMVersion      = 1064
-	tagFileDigestAlgo  = 1095
+	// tagFileDigestAlgo 是**摘要算法**的编号（i）。
+	//
+	// 这里曾经写着 1095 —— rpm 的表里 1095 是 FILEDEVICES（每个文件的
+	// 设备号数组），而 FILEDIGESTALGO 是 **5011**。两个标签都是 int32，
+	// 因此类型检查放过了它，但语义完全错位。
+	tagFileDigestAlgo  = 5011
 	tagPayloadFormat   = 1124
 	tagPayloadCompress = 1125
 	tagPayloadFlags    = 1126
@@ -424,7 +442,16 @@ func rpmHeaderBytes(opts RpmOptions, files []rpmFile, payload []byte) []byte {
 		verify = append(verify, 0xFFFFFFFF)
 	}
 
+	devices := make([]uint32, 0, len(files))
+	inodes := make([]uint32, 0, len(files))
+	for range files {
+		devices = append(devices, 0)
+		inodes = append(inodes, 0)
+	}
+
 	b.addInt32(tagFileSizes, sizes)
+	b.addInt32(tagFileDevices, devices)
+	b.addInt32(tagFileInodes, inodes)
 	b.addInt16(tagFileModes, modes)
 	b.addInt16(tagFileRDevs, rdevs)
 	b.addInt32(tagFileMTimes, mtimes)

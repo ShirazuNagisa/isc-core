@@ -349,6 +349,100 @@ func TestRPMLead(t *testing.T) {
 	}
 }
 
+// TestRPMHeaderTagsAreRPMDefined 把每个标签的**号与类型**钉死。
+//
+// # 为什么需要它
+//
+// rpm 读主 header 时带的是 `regionTag = HEADERIMMUTABLE`，因此它会
+// **逐个标签核对类型**（`hdrchkTagType`）。于是"标签号写错"不是小事：
+//
+//	tag 1023 我们当成 FILESIZES（i[]）
+//	rpm 的表里 1023 是 PREIN（**字符串**）
+//	→ 类型不符 → rpm 直接拒收整个包
+//
+// 而当时**所有测试都通过** —— 因为我们自己的解析器只按号取数据，
+// 从不核对"这个号在 rpm 那边是什么"。这一条测试就是那张对照表。
+//
+// 表里的号与类型抄自 rpm 的 `include/rpm/rpmtag.h`（值写成字面量）。
+// 字符串类之间允许不一致（rpm 自己就明确放行 s / s[] / s{} 互换）。
+func TestRPMHeaderTagsAreRPMDefined(t *testing.T) {
+	t.Parallel()
+
+	// tag → rpm 定义的类型（4=INT32 3=INT16 6=STRING 8=STRING_ARRAY 9=I18NSTRING）
+	want := map[int]int{
+		1000: 6, // NAME        s
+		1001: 6, // VERSION     s
+		1002: 6, // RELEASE     s
+		1004: 9, // SUMMARY     s{}
+		1005: 9, // DESCRIPTION s{}
+		1006: 4, // BUILDTIME   i
+		1007: 6, // BUILDHOST   s
+		1009: 4, // SIZE        i
+		1014: 6, // LICENSE     s
+		1016: 9, // GROUP       s{}
+		1020: 6, // URL         s
+		1021: 6, // OS          s
+		1022: 6, // ARCH        s
+		1028: 4, // FILESIZES   i[]   ← 曾经错写成 1023（那是 PREIN，字符串）
+		1030: 3, // FILEMODES   h[]
+		1033: 3, // FILERDEVS   h[]
+		1034: 4, // FILEMTIMES  i[]
+		1035: 8, // FILEDIGESTS s[]
+		1036: 8, // FILELINKTOS s[]
+		1037: 4, // FILEFLAGS   i[]
+		1039: 8, // FILEUSERNAME  s[]
+		1040: 8, // FILEGROUPNAME s[]
+		1044: 6, // SOURCERPM   s
+		1045: 4, // FILEVERIFYFLAGS i[]
+		1046: 4, // ARCHIVESIZE i
+		1047: 8, // PROVIDENAME s[]
+		1048: 4, // REQUIREFLAGS i[]
+		1049: 8, // REQUIRENAME s[]
+		1050: 8, // REQUIREVERSION s[]
+		1064: 6, // RPMVERSION  s
+		1095: 4, // FILEDEVICES i[]
+		1096: 4, // FILEINODES  i[]
+		1116: 4, // DIRINDEXES  i[]
+		1117: 8, // BASENAMES   s[]
+		1118: 8, // DIRNAMES    s[]
+		1124: 6, // PAYLOADFORMAT s
+		1125: 6, // PAYLOADCOMPRESSOR s
+		1126: 6, // PAYLOADFLAGS s
+		5011: 4, // FILEDIGESTALGO i ← 曾经错写成 1095（那是 FILEDEVICES）
+	}
+
+	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+
+	for tag, v := range rpm.Header {
+		expected, ok := want[tag]
+		if !ok {
+			t.Errorf("header 里有 tag %d，但它不在我们的对照表里 —— "+
+				"新增标签时请连同 rpmtag.h 里的号与类型一起加进来", tag)
+			continue
+		}
+		if v.Type == expected {
+			continue
+		}
+		// 字符串类之间允许互换（rpm 的 hdrchkTagType 明确放行）。
+		if isStringClass(v.Type) && isStringClass(expected) {
+			continue
+		}
+		t.Errorf("tag %d 的类型是 %d，rpm 定义的是 %d", tag, v.Type, expected)
+	}
+
+	// 反过来：该有的标签一个都不能少 —— 少了哪个都会让 rpm 报
+	// "缺少必需的标签"。
+	for _, tag := range []int{1000, 1001, 1002, 1004, 1005, 1009, 1014, 1016,
+		1028, 1030, 1033, 1034, 1035, 1036, 1037, 1039, 1040, 1044, 1116,
+		1117, 1118, 5011} {
+		if _, ok := rpm.Header[tag]; !ok {
+			t.Errorf("header 里缺少 tag %d", tag)
+		}
+	}
+}
+
+func isStringClass(typ int) bool { return typ == 6 || typ == 8 || typ == 9 }
+
 // TestRPMModesCarryFileTypeBits 钉住"mode 必须带文件类型位"。
 //
 // RPM 的头标签 `tagFileModes` 与 cpio 载荷里的 mode 字段都带 POSIX 的
