@@ -773,6 +773,37 @@ func TestRPMDocFilesAreFlaggedAsDocs(t *testing.T) {
 	}
 }
 
+// TestRPMHasNoEmptyEntries 钉住"不写零长度的条目"。
+//
+// rpm 的 `hdrblobVerifyInfo` 里有一条 `len <= 0` 就判错：
+//
+//	tag[26]: BAD, tag 1048 type 4 offset 816 count 0 len 4
+//	not an rpm package (or package manifest)
+//
+// 1048 是 REQUIREFLAGS —— 一个没有依赖的包，那几张"依赖"表本来就是空的，
+// 而我们曾把它们**作为空条目**写了进去。rpm 把"标签不存在"当作空数组，
+// 因此正确做法是干脆不写。
+func TestRPMHasNoEmptyEntries(t *testing.T) {
+	t.Parallel()
+
+	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+
+	for _, h := range []struct {
+		name  string
+		index []rpmRawEntry
+	}{
+		{"签名 header", rpm.SigIndex},
+		{"主 header", rpm.HeaderIndex},
+	} {
+		for _, e := range h.index {
+			if e.Count == 0 {
+				t.Errorf("%s 里有零长度的条目（tag %d type %d）—— "+
+					"rpm 会把它判为坏条目并拒收整包", h.name, e.Tag, e.Type)
+			}
+		}
+	}
+}
+
 // TestRPMHeaderLayoutMatchesIndexOrder 钉住 rpm 的那条不变式。
 //
 // rpm 的 `hdrblobVerifyInfo` 逐个条目检查：

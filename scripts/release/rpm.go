@@ -303,6 +303,21 @@ func (b *rpmHeaderBuilder) addI18NString(tag int, s string) {
 }
 
 func (b *rpmHeaderBuilder) addStringArray(tag int, items []string) {
+	// 空数组**不写条目**。
+	//
+	// rpm 的 hdrblobVerifyInfo 里有一条 `if (hdrchkRange(...) || len <= 0)
+	// goto err` —— 长度为零的条目会被它判为坏条目，整包拒收：
+	//
+	//	tag[26]: BAD, tag 1048 type 4 offset 816 count 0 len 4
+	//	not an rpm package (or package manifest)
+	//
+	// 而 1048 是 REQUIREFLAGS：一个没有任何依赖的包，这几张"依赖"表
+	// 本来就是空的。不写条目与写空条目在语义上等价，rpm 把"标签不存在"
+	// 当作空 ✓。
+	if len(items) == 0 {
+		return
+	}
+
 	var data bytes.Buffer
 	for _, s := range items {
 		data.WriteString(s)
@@ -314,6 +329,11 @@ func (b *rpmHeaderBuilder) addStringArray(tag int, items []string) {
 }
 
 func (b *rpmHeaderBuilder) addInt16(tag int, vals []uint16) {
+	// 见 addStringArray：rpm 不接受零长度的条目。
+	if len(vals) == 0 {
+		return
+	}
+
 	var data bytes.Buffer
 	for _, v := range vals {
 		_ = binary.Write(&data, binary.BigEndian, v)
@@ -324,6 +344,11 @@ func (b *rpmHeaderBuilder) addInt16(tag int, vals []uint16) {
 }
 
 func (b *rpmHeaderBuilder) addInt32(tag int, vals []uint32) {
+	// 见 addStringArray：rpm 不接受零长度的条目。
+	if len(vals) == 0 {
+		return
+	}
+
 	var data bytes.Buffer
 	for _, v := range vals {
 		_ = binary.Write(&data, binary.BigEndian, v)
