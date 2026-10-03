@@ -45,6 +45,10 @@ if [ ! -x "$BIN" ]; then
   exit 2
 fi
 
+# macOS 上 /tmp 是 /private/tmp 的符号链接，而 CLI 会把可执行文件路径**解析**
+# 成真实路径写进 plist。断言必须用解析后的路径，否则永远不相等（踩过两次）。
+BIN_REAL="$(cd "$(dirname "$BIN")" && pwd -P)/$(basename "$BIN")"
+
 PLIST=/Library/LaunchDaemons/com.isc.core.plist
 PORT=18080
 HTTP_PID=""
@@ -84,18 +88,15 @@ fi
 
 if [ -f "$PLIST" ]; then
   ok "plist 已写入 $PLIST"
-  if grep -q "<string>$BIN</string>" "$PLIST"; then
+  if grep -q "<string>${BIN_REAL}</string>" "$PLIST"; then
     ok "plist 里的可执行文件是我们给的那个"
   else
-    bad "plist 里的可执行文件不对"; info "$(grep -A2 ProgramArguments "$PLIST" | head -4 | tr '\n' ' ')"
+    bad "plist 里的可执行文件不对（期望 ${BIN_REAL}）"
+    info "$(grep -A3 ProgramArguments "$PLIST" | head -5 | tr '\n' ' ')"
   fi
 else
   bad "plist 没有写出来"
 fi
-
-st=$("$BIN" service status --json 2>/dev/null)
-info "service status: $(printf '%s' "$st" | tr -d '\n ')"
-case "$st" in *'"backend":"launchd"'*) ok "后端是 launchd";; *) bad "后端不是 launchd";; esac
 
 "$BIN" service start >/dev/null 2>&1
 for _ in $(seq 1 30); do
@@ -127,49 +128,86 @@ else
   bad "health 不是 ok"
 fi
 
+# 服务状态要**等到内核就绪之后**再查：早查必然拿到 daemon_reachable=false。
+st=$("$BIN" service status --json 2>/dev/null)
+st_flat=$(printf '%s' "$st" | tr -d ' \n')
+info "service status: ${st_flat}"
+case "$st_flat" in
+  *'"backend":"launchd"'*) ok "后端是 launchd" ;;
+  *) bad "后端不是 launchd" ;;
+esac
+case "$st_flat" in
+  *'"daemon_reachable":true'*) ok "service status 认为内核可达" ;;
+  *) bad "service status 说内核不可达" ;;
+esac
+
 # ---------------------------------------------------------------------------
 head_ "二、真的放行一个端口（pf）"
 # ---------------------------------------------------------------------------
-python3 -m http.server "$PORT" >/dev/null 2>&1 &
+python3 -m http.server "${PORT}" >/dev/null 2>&1 &
 HTTP_PID=$!
 sleep 1
-info "临时服务：python3 -m http.server $PORT（pid $HTTP_PID）"
+info "临时服务：python3 -m http.server ${PORT}（pid ${HTTP_PID}）"
 
-plan=$("$BIN" expose --port "$PORT" --yes --json 2>&1)
-if printf '%s' "$plan" | grep -q '"id"'; then
-  PLAN_ID=$(printf '%s' "$plan" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' | head -1)
-  ok "放行成功（变更 $PLAN_ID）"
+plan=$("$BIN" expose --port "${PORT}" --yes --json 2>&1)
+
+# 应用成功时输出的是**变更记录**（有 status 与 plan_id），不是计划（有 id）。
+# 这一条是踩出来的：有一版 --json 直接返回计划、根本没应用，而脚本只看
+# "输出里有 id" 就以为成功了。
+if printf '%s' "$plan" | grep -q '"status"'; then
+  PLAN_ID=$(printf '%s' "$plan" | sed -n 's/.*"plan_id": *"\([^"]*\)".*/\1/p' | head -1)
+  [ -n "$PLAN_ID" ] || PLAN_ID=$(printf '%s' "$plan" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' | head -1)
+  state=$(printf '%s' "$plan" | sed -n 's/.*"status": *"\([^"]*\)".*/\1/p' | head -1)
+  ok "放行已应用（变更 ${PLAN_ID}，状态 ${state}）"
 else
-  bad "放行失败"; info "$(printf '%s' "$plan" | tail -3 | tr '\n' ' ')"
+  bad "放行**没有应用**（输出还是计划，不是变更记录）"
+  info "$(printf '%s' "$plan" | tr -d '\n' | head -c 200)"
+fi
+
+if [ -f /etc/pf.anchors/isc ]; then
+  ok "anchor 文件已写入 /etc/pf.anchors/isc"
+  info "$(head -3 /etc/pf.anchors/isc | tr '\n' ' ')"
+else
+  bad "anchor 文件不存在 —— 放行没有落到系统上"
+fi
+
+if pfctl -s info >/dev/null 2>&1; then
+  if pfctl -s info 2>/dev/null | grep -q "Status: Enabled"; then
+    ok "pf 已被启用（Enabled）"
+  else
+    bad "pf 仍是 Disabled —— 规则写了但不会生效"
+  fi
 fi
 
 rules=$(pfctl -a isc -sr 2>&1)
-if printf '%s' "$rules" | grep -q "$PORT"; then
-  ok "pf 的 isc anchor 里确实有 $PORT 的规则"
+if printf '%s' "$rules" | grep -q "${PORT}"; then
+  ok "pf 的 isc anchor 里确实有 ${PORT} 的规则"
   info "$(printf '%s' "$rules" | head -3 | tr '\n' ' ')"
 else
-  bad "anchor 里看不到 $PORT 的规则"; info "$(printf '%s' "$rules" | head -3 | tr '\n' ' ')"
+  bad "anchor 里看不到 ${PORT} 的规则"
+  info "$(printf '%s' "$rules" | head -3 | tr '\n' ' ')"
 fi
 
 changes=$("$BIN" changes --json 2>/dev/null)
-if printf '%s' "$changes" | grep -q "$PORT"; then
+if printf '%s' "$changes" | grep -q "${PORT}"; then
   ok "变更记录里有这次放行"
 else
   bad "变更记录里没有这次放行"
 fi
 
-if [ -n "$PLAN_ID" ]; then
-  if "$BIN" rollback "$PLAN_ID" >/dev/null 2>&1; then
+if [ -n "${PLAN_ID}" ]; then
+  if rollback_out=$("$BIN" rollback "${PLAN_ID}" 2>&1); then
     ok "撤销成功"
     PLAN_ID=""
     rules_after=$(pfctl -a isc -sr 2>&1)
-    if printf '%s' "$rules_after" | grep -q "$PORT"; then
-      bad "撤销之后 anchor 里还有 $PORT 的规则"
+    if printf '%s' "$rules_after" | grep -q "${PORT}"; then
+      bad "撤销之后 anchor 里还有 ${PORT} 的规则"
     else
-      ok "撤销之后 anchor 里已经没有 $PORT 的规则"
+      ok "撤销之后 anchor 里已经没有 ${PORT} 的规则"
     fi
   else
     bad "撤销失败"
+    info "$(printf '%s' "$rollback_out" | tail -2 | tr '\n' ' ')"
   fi
 fi
 

@@ -67,7 +67,14 @@ func newExposeCmd(app *App) *cobra.Command {
 				return app.fail(cmd, err)
 			}
 
-			if app.jsonOut {
+			// --json 且**没有** --yes：只把计划交出去，不交互、不应用。
+			//
+			// 这里曾经是无条件的 `if app.jsonOut { return ... }` —— 于是
+			// `expose --port N --yes --json` 打印完计划就退出，**什么都没做**
+			// 却返回 0。脚本判断成败只看退出码，因此这是"看起来成功、实际没做"
+			// 的那一类缺陷。它是在真机验收（CI 里跑 sudo）时被抓出来的，
+			// 回归测试见 expose_json_test.go。
+			if app.jsonOut && !yes {
 				return writeJSONOut(app.out, preview)
 			}
 
@@ -98,6 +105,12 @@ func newExposeCmd(app *App) *cobra.Command {
 			var rec gen.ChangeRecord
 			if err := client.postInto(ctx, "/v1/changes/"+preview.Id+"/apply", nil, &rec); err != nil {
 				return app.fail(cmd, err)
+			}
+
+			// 应用之后，--json 输出的是**变更记录**（有 status / plan_id），
+			// 而不是计划 —— 调用方据此判断"到底应用了没有"。
+			if app.jsonOut {
+				return writeJSONOut(app.out, rec)
 			}
 
 			renderChangeResult(app, rec)

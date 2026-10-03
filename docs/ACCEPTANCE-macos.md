@@ -35,7 +35,39 @@ CGO_ENABLED=0 go build -o /tmp/isc-acc/isc ./cmd/isc
 
 ---
 
-## 二、需要 root 的部分（请手动跑）
+## 二、需要 root 的部分：2026-10-03 已实跑，16/16 通过
+
+用 `scripts/acceptance-macos-sudo.sh` 在真机上跑完（脚本会自动复原）：
+
+| 检查 | 结果 |
+|---|---|
+| launchd 服务 | plist 写入 ✓、里面的可执行文件正确 ✓、套接字出现 ✓、`status --json` 报 `running=true` ✓、`health=ok` ✓、`service status` 认为内核可达 ✓、卸载后 plist 已删 ✓ |
+| pf 真的放行 | `expose --yes` **确实应用**（状态 `applied`）✓、`/etc/pf.anchors/isc` 写入 ✓、**pf 被启用** ✓、内核里真的有这条规则（`pass in inet proto tcp from any to any port = 18080 flags S/SA keep state`）✓、变更记录有 ✓、撤销成功 ✓、撤销后规则消失 ✓ |
+
+### 这一轮抓到的两个问题
+
+1. **`isc expose --port N --yes --json` 静默什么都没做**（已修）。
+   `--json` 分支在生成计划之后直接 `return`，把"确认 + 应用"整段跳过 ——
+   于是它打印计划、退出码 0，而系统里没有任何变化。JSON 输出是给脚本用的，
+   而脚本判断成败只看退出码，因此这是"看起来成功、实际没做"的那一类。
+   修复 + 回归测试见 `internal/cli/expose_json_test.go`（带 `--yes` 必须真的
+   调 apply；不带 `--yes` 只输出计划且绝不应用）。
+
+2. **撤销之后 pf 仍是 Enabled**（已知偏差，未修）。
+   验收前 pf 是 `Disabled`，撤销规则后规则确实清干净了，但 pf 的**启用状态**
+   没被恢复 —— 而变更预览里写的是"撤销时会恢复成添加之前的状态"。
+   anchor 挂载点（`/etc/pf.conf` 里那两行 + anchor 文件）是**有意保留**的：
+   anchor 文件里明确写了"当前没有任何 ISC 规则"以及如何手工移除。
+   要修的话，需要在变更记录里记住"是不是我们启用的 pf"，撤销时按原状恢复。
+
+### 复跑方式
+
+```sh
+CGO_ENABLED=0 go build -o /tmp/isc-acc/isc ./cmd/isc
+sudo scripts/acceptance-macos-sudo.sh /tmp/isc-acc/isc
+```
+
+## 二·原、需要 root 的部分（手动跑的老说明）
 
 三条命令都会**真的改系统**（注册 launchd 服务 / 改 pf 规则），因此没有替你跑。
 每条后面都写了怎么撤销。
