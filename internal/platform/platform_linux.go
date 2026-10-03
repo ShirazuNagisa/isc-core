@@ -12,27 +12,30 @@ import (
 
 // 本文件是 Linux 平台的后端装配点。
 //
-// M0 阶段大部分返回占位实现；随里程碑推进逐个替换：
+// 各后端的落点（M0 的占位实现已随里程碑逐个替换完）：
 //
 //	Firewall       → 已实现（nftables，见 firewall_linux.go）（并探测 ufw / firewalld）
-//	ServiceManager → M5  systemd
-//	IPMonitor      → M2  netlink (RTM_NEWADDR / RTM_DELADDR)
+//	ServiceManager → 已实现（systemd，见 service_linux.go）
+//	IPMonitor      → 已实现（可移植轮询，见 ipmon.go）
 //	SecretStore    → 已实现（Secret Service，无会话时回退文件，见 secret_unix.go）
 //	Transport      → 已实现（Unix 套接字，见 transport_unix.go）
 //	LowPortBinder  → CAP_NET_BIND_SERVICE 检测（本文件已实现）
 //
+// ⚠️ 这里曾经**漏接**：service_linux.go 里 systemd 后端写好了，而装配点
+// 仍返回 stub，于是 `isc service install` 在 Linux 上报"将在 M5 实现"。
+// 与 macOS 同一处缺口，见 platform_darwin.go 的说明。
+//
 // dataRoot 是内核的数据根目录：密钥存储需要它来决定文件落点。
 func Current(dataRoot string) *Bundle {
 	return &Bundle{
-		Firewall: newNftablesFirewall(),
-		ServiceManager: newUnsupportedServiceManager(
-			i18n.T("platform.systemd_todo")),
-		IPMonitor:     newPollingIPMonitor(),
-		SecretStore:   newPlatformSecretStore(dataRoot),
-		Transport:     newLocalTransport(),
-		LowPortBinder: detectLinuxLowPort(),
-		OS:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
+		Firewall:       newNftablesFirewall(),
+		ServiceManager: newServiceManager(),
+		IPMonitor:      newPollingIPMonitor(),
+		SecretStore:    newPlatformSecretStore(dataRoot),
+		Transport:      newLocalTransport(),
+		LowPortBinder:  detectLinuxLowPort(),
+		OS:             runtime.GOOS,
+		Arch:           runtime.GOARCH,
 	}
 }
 
