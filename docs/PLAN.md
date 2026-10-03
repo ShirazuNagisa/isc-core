@@ -2521,6 +2521,7 @@ Ubuntu runner 上装了 `rpm`，因此 release-build job 里多了一步：
 | 3 | 主 header 之后没补零对齐 | 载荷落在非 8 倍数的偏移上，rpm 在那里读到填充的零 |
 | 4 | cpio 条目与 `tagFileModes` 丢了文件类型位 | `rpm -qplv` 的第一列不是 `-rwxr-xr-x` |
 | 5 | `SHA256` 摘要算在了**载荷**上（应为 header），`PAYLOADSIZE` 写的是 gzip 长度（应为解压后长度） | rpm 校验 header 摘要时对不上 |
+| 6 | **两个标签号写错**：`FILESIZES` 写成了 1023（那是 `PREIN`，**字符串**），`FILEDIGESTALGO` 写成了 1095（那是 `FILEDEVICES`） | rpm 读主 header 时带 `regionTag = HEADERIMMUTABLE`，会**逐个标签核对类型** —— 一个字符串标签被写成 int32 数组，整包被拒 |
 
 **为什么本项目的测试全都看不见它们。** 两类原因，都很值得记：
 
@@ -2531,7 +2532,9 @@ Ubuntu runner 上装了 `rpm`，因此 release-build job 里多了一步：
 2. **`dpkg-deb --info/--contents` 不真装。** 目录条目那一条只有 `dpkg -i`
    会撞上，而它正是那一步最后一条命令。
 
-**修法里最有效的一招：拿真实产物对照，而不是查文档猜。** 第 5 条是靠
+### 两招都有效：拿真实产物对照，以及拿上游的定义对照
+
+**第一招：拿真实产物对照，而不是查文档猜。** 第 5 条是靠
 下载三个真实的 `.rpm`（GitHub CLI 的 release 资产，其中一个 header 长度
 **不是** 8 的倍数）逐个字段验算出来的 —— 结论因此是"实测"而不是"我记得"：
 
@@ -2542,10 +2545,19 @@ Ubuntu runner 上装了 `rpm`，因此 release-build job 里多了一步：
 | `SHA256` | **header 结构**的摘要（十六进制串，不含对齐填充） |
 | `MD5` | 未对齐的 header 结构 + 载荷 |
 
+**第二招：拿上游自己的定义对照。** 第 6 条（标签号）是这么查出来的 ——
+把 rpm 的 `include/rpm/rpmtag.h` 拉下来，写脚本把**我们产出的每个标签的
+号与类型**与它逐个比对（39 个）。第一次跑就报出两处不匹配，而这两处是
+"包被整个拒收"与"没人看得出来"的区别。
+
+**为什么我们自己的测试看不见它们**：解析器只按号取数据，从不核对
+"这个号在 rpm 那边是什么"。新增的 `TestRPMHeaderTagsAreRPMDefined`
+把 39 个（标签, 类型）写成字面量表钉住 —— 与 `rpmtag.h` 是同一张表。
+
 新增/改写的守门测试（都做过变异验证：把修复撤掉，它们立刻失败）：
 `TestDebDataTarHasDirectoryEntries`、`TestRPMPayloadIsAlignedAndGzipped`、
-`TestRPMModesCarryFileTypeBits`、以及按实测语义重写的
-`TestRPMSignatureHeader`。
+`TestRPMModesCarryFileTypeBits`、`TestRPMHeaderTagsAreRPMDefined`、
+以及按实测语义重写的 `TestRPMSignatureHeader`。
 
 **一条通用的教训**：**一条从未运行过的检查，价值是零 —— 而它的第一次运行
 价值极高。** 这两条检查写下来时是对的，但它们的存在感只体现在 CI 配置里；
