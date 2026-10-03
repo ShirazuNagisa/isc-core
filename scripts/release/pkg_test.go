@@ -116,7 +116,12 @@ func TestPkgTreeAndInstallLocationAgree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("暂存树里没有 %s: %v", rel, err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	// 权限位只在类 Unix 上有意义。
+	//
+	// Windows 上的 os.Chmod 只切换"只读"属性，因此 Mode().Perm() 报的是
+	// 0666/0444 这类合成值，而不是我们设的 0755 —— 断言它会在 Windows 的
+	// CI 上失败（实际就失败过一次，而那次的日志通过 API 取不到）。
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Errorf("暂存树里的 %s 权限是 %o，期望 0755", rel, info.Mode().Perm())
 	}
 

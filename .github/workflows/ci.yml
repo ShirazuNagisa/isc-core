@@ -96,10 +96,32 @@ jobs:
           cache: true
 
       - name: go vet
-        run: go vet ./...
+        run: |
+          set -euo pipefail
+
+          # 失败时把输出带进注解：CI 日志通过 API 取是 403，注解是唯一
+          # 能看见错误原文的通道（Windows 上尤其重要 —— 那里连测试都不能
+          # 在本地复现）。
+          if ! out=$(go vet ./... 2>&1); then
+            echo "$out"
+            echo "::error::go vet 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -3 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$out"
 
       - name: go test
-        run: go test ./... -count=1
+        run: |
+          set -euo pipefail
+
+          # 同上：把失败的测试名与最后几行放进注解。
+          if ! out=$(go test ./... -count=1 2>&1); then
+            echo "$out"
+            names=$(printf '%s' "$out" | grep -E '^(--- FAIL|    --- FAIL)' | head -5 | tr '\n' ' ')
+            tail3=$(printf '%s' "$out" | grep -v '^$' | tail -3 | tr '\n' ' ')
+            echo "::error::go test 失败：${names} ${tail3}"
+            exit 1
+          fi
+          echo "$out"
 
       - name: gofmt 检查
         if: runner.os != 'Windows'
@@ -395,7 +417,16 @@ jobs:
           # 查询读的是 header，安装读的是载荷与文件清单的**实际效果**。
           #
           # 只有本机架构那个装得上。
-          rpm=$(ls dist/*_amd64.rpm)
+          #
+          # 注意产物名的形状：`isc-<版本>-1.<架构>.rpm` —— 架构在**最后一段**，
+          # 中间是 `.` 而不是 `_`（deb 那边才是 `_amd64.deb`）。这里原先写成
+          # `dist/*_amd64.rpm`，glob 不匹配时 `ls` 返回 **2**，于是整步静默失败
+          # （连注解都没有）。
+          rpm=$(ls dist/*.amd64.rpm 2>/dev/null | head -1)
+          if [ -z "$rpm" ]; then
+            echo "::error::找不到 amd64 的 .rpm（dist 里是：$(ls dist/*.rpm 2>&1 | tr '\n' ' '))"
+            exit 1
+          fi
           if [ -e /usr/bin/isc ]; then
             echo "::error::/usr/bin/isc 已存在（上一步没清干净），无法判断这次安装的效果"
             exit 1
