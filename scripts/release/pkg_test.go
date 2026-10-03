@@ -81,6 +81,65 @@ func TestPkgMissingToolsIsNotFatal(t *testing.T) {
 	}
 }
 
+// TestPkgTreeAndInstallLocationAgree 钉住"树与 install-location 必须配套"。
+//
+// pkgbuild 的规则是：`--root` 里的相对路径**原样**成为安装后的路径，
+// 相对 `--install-location`。于是两种写法都对，但**不能混用**：
+//
+//	树平铺（isc）              + install-location /usr/local/bin → /usr/local/bin/isc
+//	树带完整路径（usr/local/bin/isc） + install-location /          → /usr/local/bin/isc
+//	树带完整路径 + install-location /usr/local/bin              → /usr/local/bin/usr/local/bin/isc ✗
+//
+// 第三种就是本项目踩过的那个坑：安装一路成功、`pkgutil --payload-files`
+// 也显示 `./usr/local/bin/isc`（那是载荷里的相对路径，不是最终落点），
+// 只有 CI 上那条"装完之后文件在不在"才把它抓出来。
+//
+// 这条测试把两者**算成一个最终路径**再比对，因此任何一边改错都会失败。
+func TestPkgTreeAndInstallLocationAgree(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "isc-built")
+	if err := os.WriteFile(fake, []byte("not really a binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := stagePkgTree(dir, fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 树里必须已经带了完整路径 —— 这是与 install-location 配套的前提。
+	rel := "usr/local/bin/isc"
+	staged := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Stat(staged)
+	if err != nil {
+		t.Fatalf("暂存树里没有 %s: %v", rel, err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("暂存树里的 %s 权限是 %o，期望 0755", rel, info.Mode().Perm())
+	}
+
+	// 参数里的 install-location 必须是根。
+	args := pkgbuildArgs(root, "1.0.0", filepath.Join(dir, "out.pkg"))
+	loc := ""
+	for i, a := range args {
+		if a == "--install-location" && i+1 < len(args) {
+			loc = args[i+1]
+		}
+	}
+	if loc != "/" {
+		t.Errorf("install-location = %q，期望 / —— 树里已经带了 %s，"+
+			"两者叠加会装到 %s", loc, rel, filepath.Join(loc, rel))
+	}
+
+	// 把两者算成最终落点，断言它就是用户会敲的那个路径。
+	final := filepath.Join(loc, filepath.FromSlash(rel))
+	if final != filepath.Join(pkgInstallDir, "isc") {
+		t.Errorf("最终安装路径 = %q，期望 %q", final, filepath.Join(pkgInstallDir, "isc"))
+	}
+}
+
 // TestPkgIdentifierIsStable 钉住那个"永远不变"的常量。
 //
 // 它变了，macOS 会认为这是**另一个产品**：用户机器上出现两份，

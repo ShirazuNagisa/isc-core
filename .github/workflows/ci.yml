@@ -402,14 +402,23 @@ jobs:
           fi
 
           sudo rpm --initdb || true
-          sudo rpm -i "$rpm" || {
-            echo "::error::rpm -i 失败：$rpm"
-            sudo rpm -qp --scripts "$rpm" 2>&1 | head -20 || true
+
+          # 每一条外部命令都把**它自己的输出**带进注解：CI 日志通过 API 取
+          # 是 403，注解是唯一能看见错误原文的通道。
+          if ! out=$(sudo rpm -i "$rpm" 2>&1); then
+            echo "$out"
+            echo "::error::rpm -i 失败：$rpm —— $(printf '%s' "$out" | grep -v '^$' | tail -3 | tr '\n' ' ')"
             exit 1
-          }
+          fi
+          echo "$out"
 
           echo "--- 安装结果 ---"
-          rpm -ql isc
+          if ! out=$(rpm -ql isc 2>&1); then
+            echo "::error::rpm -ql isc 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -3 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$out"
+
           test -x /usr/bin/isc || {
             echo "::error::装完之后 /usr/bin/isc 不存在或没有执行位 —— 路径拼错时就是这样"
             exit 1
@@ -738,13 +747,16 @@ jobs:
   # ---------------------------------------------------------------------------
   # 系统服务安装（要 root）
   #
-  # 这一组存在的理由只有一个：**launchd 与 systemd 的后端曾经写好了却根本没
-  # 接上**（装配点还返回 stub，于是 `isc service install` 报"将在 M5 实现"），
+  # 这一组存在的理由只有一个：**launchd 与 systemd 的后端曾经写好了却根本
+  # 没接上**（装配点还返回 stub，于是 `isc service install` 报"将在 M5 实现"），
   # 而当时的测试全都看不见 —— 后端自己的测试是与平台无关的纯逻辑，
   # "装配点接的是实现还是 stub"没人检查。
   #
   # 因此这里做真正的事：注册服务、查状态、启动、确认内核真的起来了、卸载。
   # 这些动作都需要 root，runner 上正好有（sudo）。
+  #
+  # 每一条外部命令都走 run_step：它把命令自己的输出带进注解。
+  # CI 日志通过 API 取是 403，注解是唯一能看见错误原文的通道。
   # ---------------------------------------------------------------------------
   service-linux:
     name: 服务安装 linux (systemd)
@@ -761,64 +773,90 @@ jobs:
         run: |
           set -euo pipefail
 
-          data=/var/lib/isc-ci
-          exe=/tmp/isc-ci/isc
-          mkdir -p /tmp/isc-ci
+          run_step() {
+            local out
+            if ! out=$("$@" 2>&1); then
+              echo "$out"
+              echo "::error::$* 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -4 | tr '\n' ' ')"
+              return 1
+            fi
+            printf '%s\n' "$out"
+          }
+
+          mkdir -p "$RUNNER_TEMP/isc-ci"
+          exe="$RUNNER_TEMP/isc-ci/isc"
+          data="$RUNNER_TEMP/isc-ci/data"
           CGO_ENABLED=0 go build -o "$exe" ./cmd/isc
 
-          # install 会写 unit 并 reload，然后启用它。
-          sudo "$exe" service install --data-dir "$data" --exe "$exe" --no-restart
+          # 解析符号链接：CLI 自己会解析可执行文件路径（macOS 上 /tmp 是
+          # /private/tmp 的符号链接），断言必须拿解析后的路径比。
+          exe=$(cd "$(dirname "$exe")" && pwd -P)/$(basename "$exe")
+
+          run_step sudo "$exe" service install --data-dir "$data" --exe "$exe" --no-restart
 
           # unit 里必须真的带上我们给的数据目录与可执行文件 ——
           # 服务进程的环境与当前 shell 无关，靠环境变量传不过去。
-          unit=$(sudo systemctl show -p FragmentPath --value isc)
+          unit=$(run_step sudo systemctl show -p FragmentPath --value isc)
           echo "unit: $unit"
-          sudo cat "$unit"
+          run_step sudo cat "$unit"
+          echo "$unit" | grep -q . || { echo "::error::拿不到 unit 路径"; exit 1; }
           sudo grep -q "ExecStart=$exe daemon run --data-dir $data" "$unit" || {
             echo "::error::unit 里的 ExecStart 不是我们期望的那一条"
+            sudo cat "$unit"
             exit 1
           }
 
-          sudo "$exe" service status || true
+          run_step sudo "$exe" service status || true
+          echo "DATA=$data" >> "$GITHUB_ENV"
+          echo "EXE=$exe" >> "$GITHUB_ENV"
 
       - name: 启动并确认内核真的活了
         run: |
           set -euo pipefail
 
-          data=/var/lib/isc-ci
-          exe=/tmp/isc-ci/isc
+          run_step() {
+            local out
+            if ! out=$("$@" 2>&1); then
+              echo "$out"
+              echo "::error::$* 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -4 | tr '\n' ' ')"
+              return 1
+            fi
+            printf '%s\n' "$out"
+          }
 
-          sudo "$exe" service start
+          run_step sudo "$EXE" service start
 
-          # 等内核起来（socket 与 runtime.json 都要出现）。
+          # 等内核起来（socket 出现）。
+          ok=0
           for i in $(seq 1 30); do
-            if sudo test -S "$data/run/isc.sock"; then break; fi
+            if sudo test -S "$DATA/run/isc.sock"; then ok=1; break; fi
             sleep 1
           done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::30 秒内没有出现 $DATA/run/isc.sock"
+            sudo journalctl -u isc --no-pager | tail -40 || true
+            exit 1
+          fi
 
-          sudo "$exe" status --data-dir "$data" --json > /tmp/status.json || true
+          run_step sudo "$EXE" status --data-dir "$DATA" --json > /tmp/status.json || true
           cat /tmp/status.json
-          # JSON 里的字段是 "running": true（不是 health.status —— 那个是
-          # "ok"，表示内核自己健康）。本机跑过一遍确认过形状。
           grep -q '"running": *true' /tmp/status.json || {
             echo "::error::服务启动了，但内核没在跑 —— 看上面的输出"
             sudo journalctl -u isc --no-pager | tail -40 || true
             exit 1
           }
 
-          # 服务状态下应当报"内核在跑 + 服务已安装"。
-          sudo "$exe" service status
+          run_step sudo "$EXE" service status
 
       - name: 卸载并确认清理干净
         run: |
           set -euo pipefail
 
-          exe=/tmp/isc-ci/isc
-          sudo "$exe" service stop || true
-          sudo "$exe" service uninstall
+          sudo "$EXE" service stop || true
+          sudo "$EXE" service uninstall
 
           if systemctl list-unit-files | grep -q '^isc\.service'; then
-            echo "::error::卸载之后 unit 文件还在"
+            echo "::error::卸载之后 unit 还在 systemctl 的列表里"
             exit 1
           fi
           sudo test ! -e /etc/systemd/system/isc.service || {
@@ -842,62 +880,91 @@ jobs:
         run: |
           set -euo pipefail
 
-          data=/tmp/isc-ci-data
-          exe=/tmp/isc-ci/isc
-          mkdir -p /tmp/isc-ci
+          run_step() {
+            local out
+            if ! out=$("$@" 2>&1); then
+              echo "$out"
+              echo "::error::$* 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -4 | tr '\n' ' ')"
+              return 1
+            fi
+            printf '%s\n' "$out"
+          }
+
+          mkdir -p "$RUNNER_TEMP/isc-ci"
+          exe="$RUNNER_TEMP/isc-ci/isc"
+          data="$RUNNER_TEMP/isc-ci/data"
           CGO_ENABLED=0 go build -o "$exe" ./cmd/isc
 
-          sudo "$exe" service install --data-dir "$data" --exe "$exe" --no-restart
+          # 解析符号链接：CLI 自己会解析可执行文件路径（macOS 上 /tmp 是
+          # /private/tmp 的符号链接），断言必须拿解析后的路径比。
+          exe=$(cd "$(dirname "$exe")" && pwd -P)/$(basename "$exe")
+
+          run_step sudo "$exe" service install --data-dir "$data" --exe "$exe" --no-restart
 
           plist=/Library/LaunchDaemons/com.isc.core.plist
           sudo test -f "$plist" || { echo "::error::plist 没有写出来：$plist"; exit 1; }
-          sudo cat "$plist"
+          run_step sudo cat "$plist"
 
           # plist 里必须带上数据目录与可执行文件。
           sudo grep -q "<string>$exe</string>" "$plist" || {
-            echo "::error::plist 里的可执行文件不是我们给的那个"
+            echo "::error::plist 里的可执行文件不是我们给的那个（期望 $exe）"
+            sudo cat "$plist"
             exit 1
           }
           sudo grep -q "<string>--data-dir</string>" "$plist" || {
             echo "::error::plist 里没有把数据目录传给服务进程"
+            sudo cat "$plist"
             exit 1
           }
 
-          sudo "$exe" service status || true
+          run_step sudo "$exe" service status || true
+          echo "DATA=$data" >> "$GITHUB_ENV"
+          echo "EXE=$exe" >> "$GITHUB_ENV"
 
       - name: 启动并确认内核真的活了
         run: |
           set -euo pipefail
 
-          data=/tmp/isc-ci-data
-          exe=/tmp/isc-ci/isc
+          run_step() {
+            local out
+            if ! out=$("$@" 2>&1); then
+              echo "$out"
+              echo "::error::$* 失败 —— $(printf '%s' "$out" | grep -v '^$' | tail -4 | tr '\n' ' ')"
+              return 1
+            fi
+            printf '%s\n' "$out"
+          }
 
-          sudo "$exe" service start
+          run_step sudo "$EXE" service start
 
+          ok=0
           for i in $(seq 1 30); do
-            if sudo test -S "$data/run/isc.sock"; then break; fi
+            if sudo test -S "$DATA/run/isc.sock"; then ok=1; break; fi
             sleep 1
           done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::30 秒内没有出现 $DATA/run/isc.sock"
+            sudo launchctl print system/com.isc.core 2>&1 | tail -40 || true
+            exit 1
+          fi
 
-          sudo "$exe" status --data-dir "$data" --json > /tmp/status.json || true
+          run_step sudo "$EXE" status --data-dir "$DATA" --json > /tmp/status.json || true
           cat /tmp/status.json
           grep -q '"running": *true' /tmp/status.json || {
             echo "::error::服务启动了，但内核没在跑 —— 看上面的输出"
-            sudo launchctl print system/com.isc.core 2>&1 | tail -30 || true
+            sudo launchctl print system/com.isc.core 2>&1 | tail -40 || true
             exit 1
           }
 
-          sudo "$exe" service status
+          run_step sudo "$EXE" service status
 
       - name: 卸载并确认清理干净
         run: |
           set -euo pipefail
 
-          exe=/tmp/isc-ci/isc
           plist=/Library/LaunchDaemons/com.isc.core.plist
-
-          sudo "$exe" service stop || true
-          sudo "$exe" service uninstall
+          sudo "$EXE" service stop || true
+          sudo "$EXE" service uninstall
 
           sudo test ! -e "$plist" || { echo "::error::卸载之后 plist 还在"; exit 1; }
           echo "✅ launchd 安装 / 启动 / 运行 / 卸载 全部通过"
