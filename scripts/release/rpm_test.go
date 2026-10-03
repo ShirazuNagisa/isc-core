@@ -53,6 +53,8 @@ type rpmParsed struct {
 	Header      map[int]rpmValue
 	// HeaderBlob 是主 header 的**未对齐**原始字节 —— 签名里的摘要算的就是它。
 	HeaderBlob []byte
+	// SigBlob 是签名 header 的未对齐原始字节（区域结构要从它里面读）。
+	SigBlob []byte
 	// HeaderOffset 是主 header 在文件里的起点：签名里的 SIZE 字段
 	// 就是"从这里到文件末尾"的字节数。
 	HeaderOffset int
@@ -94,6 +96,7 @@ func parseRPM(t *testing.T, data []byte) rpmParsed {
 	}
 	out.Signature = sig.values
 	out.SigIndex = sig.index
+	out.SigBlob = rest[:consumed]
 
 	// 签名 header 之后补零到 8 字节对齐。
 	rest = rest[consumed:]
@@ -393,6 +396,8 @@ func TestRPMHeaderTagsAreRPMDefined(t *testing.T) {
 
 	// tag → rpm 定义的类型（4=INT32 3=INT16 6=STRING 8=STRING_ARRAY 9=I18NSTRING）
 	want := map[int]int{
+		63: 7, // HEADERIMMUTABLE 区域条目（BIN，16 字节）
+
 		1000: 6, // NAME        s
 		1001: 6, // VERSION     s
 		1002: 6, // RELEASE     s
@@ -926,6 +931,13 @@ func TestRPMHeaderLayoutMatchesIndexOrder(t *testing.T) {
 
 		prevEnd := 0
 		for i, e := range h.index {
+			// 首条是**区域条目**时跳过：rpm 迭代时用 `pe+1` / `il-1` 把它
+			// 排除在外（它的 offset 指向数据区末尾的 trailer，是全局最大的，
+			// 因此它本来就不参与"偏移单调"这条检查）。
+			if i == 0 && (e.Tag == 63 || e.Tag == 62) {
+				continue
+			}
+
 			// 偏移不得回退：这是 rpm 检查的那一条。
 			if e.Offset < prevEnd {
 				t.Errorf("%s 第 %d 条（tag %d）的偏移 %d 小于上一条数据的末尾 %d —— "+
@@ -948,6 +960,116 @@ func TestRPMHeaderLayoutMatchesIndexOrder(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestRPMHeaderCarriesImmutableRegion 钉住"不可变区域"的结构。
+//
+// # 为什么必须有它
+//
+// 真实包的**两个** header 都带区域（主 header 用标签 63、签名 header 用 62），
+// 而我们原先没写。后果不是装不上，而是**装上了却查不到**：
+//
+//	rpmdbNextIterator: skipping h# 1  Header SHA256 digest: BAD
+//	(Expected d740a9f9… != 6caedecb…)
+//	package isc is not installed
+//
+// 原因是 rpm 存库时会把 header 重新序列化（带上区域结构），而我们的摘要算的是
+// 没有区域的原始结构 —— 于是存进去之后摘要对不上，`rpm -q` 直接看不到这个包。
+//
+// # 结构（对照真实包逐字节量出来的）
+//
+//	第一条索引     区域条目：tag=63/62 type=7(BIN) count=16 offset=dl-16
+//	数据区末尾 16B trailer：tag/type/count 与区域条目相同，
+//	                        offset = **负的索引区字节数**（-il*16）
+//
+// rpm 读的时候会把它取负后除以 16 得到区域内的索引条数，并要求它等于总条数：
+//
+//	einfo.offset = -einfo.offset;
+//	blob->ril = einfo.offset/sizeof(*blob->pe);
+func TestRPMHeaderCarriesImmutableRegion(t *testing.T) {
+	t.Parallel()
+
+	rpm := parseRPM(t, buildTestRPM(t, "1.0.0"))
+
+	for _, h := range []struct {
+		name      string
+		index     []rpmRawEntry
+		blob      []byte
+		regionTag int
+	}{
+		{"签名 header", rpm.SigIndex, rpm.SigBlob, 62},
+		{"主 header", rpm.HeaderIndex, rpm.HeaderBlob, 63},
+	} {
+		if len(h.index) == 0 {
+			t.Fatalf("%s 的索引是空的", h.name)
+		}
+		first := h.index[0]
+		if first.Tag != h.regionTag {
+			t.Errorf("%s 的第一条索引是 tag %d，期望区域标签 %d —— "+
+				"rpm 迭代时会跳过首条，区域必须是第一条", h.name, first.Tag, h.regionTag)
+			continue
+		}
+		if first.Type != 7 || first.Count != 16 {
+			t.Errorf("%s 的区域条目 type/count = %d/%d，期望 7/16", h.name, first.Type, first.Count)
+		}
+
+		// 区域条目的 offset 必须指向数据区最后 16 字节。
+		dl := headerDataLen(h.blob)
+		if dl == 0 {
+			t.Fatalf("%s 的数据区长度读不出来", h.name)
+		}
+		if first.Offset != dl-16 {
+			t.Errorf("%s 的区域条目 offset = %d，期望 dl-16 = %d", h.name, first.Offset, dl-16)
+		}
+
+		// trailer 就在那个位置，内容是区域条目的副本 + 负 offset。
+		trailer := regionTrailer(h.blob)
+		if len(trailer) != 16 {
+			t.Fatalf("%s 的区域 trailer 读不出来", h.name)
+		}
+		gotTag := int(binary.BigEndian.Uint32(trailer[0:4]))
+		gotType := int(binary.BigEndian.Uint32(trailer[4:8]))
+		gotOff := int32(binary.BigEndian.Uint32(trailer[8:12]))
+		gotCount := int(binary.BigEndian.Uint32(trailer[12:16]))
+
+		if gotTag != h.regionTag || gotType != 7 || gotCount != 16 {
+			t.Errorf("%s 的 trailer 头不对：tag=%d type=%d count=%d", h.name, gotTag, gotType, gotCount)
+		}
+		if want := -int32(len(h.index) * 16); gotOff != want {
+			t.Errorf("%s 的 trailer.offset = %d，期望 %d（负的索引区字节数 = -%d×16）",
+				h.name, gotOff, want, len(h.index))
+		}
+	}
+}
+
+// headerDataLen 返回某个 header 的数据区长度。
+//
+// 直接用解析器存下来的未对齐原始字节算：
+//
+//	blob = 16（magic + 版本 + 保留 + 索引条数 + 数据区长度）+ 索引 + 数据区
+//
+// 早先这里想从文件偏移反推，写错了公式，测试于是报出"期望 dl-16 = -16"
+// 这种自相矛盾的数字 —— 手上的数据已经有，就不该再推一遍。
+func headerDataLen(blob []byte) int {
+	if len(blob) < 16 {
+		return 0
+	}
+	nindex := int(binary.BigEndian.Uint32(blob[8:12]))
+	dl := int(binary.BigEndian.Uint32(blob[12:16]))
+	if 16+nindex*16+dl > len(blob) {
+		return 0
+	}
+	return dl
+}
+
+// regionTrailer 取出区域 trailer 的 16 字节。
+func regionTrailer(blob []byte) []byte {
+	dl := headerDataLen(blob)
+	if dl < 16 {
+		return nil
+	}
+	start := len(blob) - dl
+	return blob[start+dl-16 : start+dl]
 }
 
 // TestRPMSignatureHeader 验证签名 header 里的长度与摘要。

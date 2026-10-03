@@ -66,6 +66,26 @@ const (
 	// rpmHeaderMagic 是 header 结构的魔数（三个字节，后面跟版本号）。
 	rpmHeaderMagic = "\x8e\xad\xe8"
 
+	// 不可变区域（immutable region）的标签。
+	//
+	//	rpmTagHeaderImmutable  主 header 用
+	//	rpmTagHeaderSignatures 签名 header 用
+	//
+	// 区域是 rpm 的"header 结构自校验"机制：区域内所有条目的索引与数据都记在
+	// 一个 trailer 里，rpm 读的时候据此确认结构没被动过。**真实包两个 header
+	// 都有**，而我们原先没写 —— 包能装，但 rpm 存进数据库后再读会报：
+	//
+	//	rpmdbNextIterator: skipping h# 1  Header SHA256 digest: BAD
+	//	(Expected d740a9f9… != 6caedecb…)
+	//
+	// 原因是 rpm 存库时会把 header 重新序列化（带上区域结构），而我们摘要
+	// 算的是没有区域的原始结构 —— 于是存进去就对不上，`rpm -q` 也查不到包。
+	rpmTagHeaderImmutable  = 63
+	rpmTagHeaderSignatures = 62
+
+	// 区域 trailer 的长度：一个完整的索引条目（tag/type/offset/count 各 4 字节）。
+	rpmRegionTrailerSize = 16
+
 	// RPM 数据类型。
 	rpmTypeChar        = 1 // 单字节
 	rpmTypeInt8        = 2
@@ -285,6 +305,9 @@ type rpmEntry struct {
 // rpmHeaderBuilder 累积 header 的数据区与索引。
 type rpmHeaderBuilder struct {
 	entries []rpmEntry
+	// regionTag 非零时，header 会带上"不可变区域"（主 header 用 63、
+	// 签名 header 用 62）。见 rpmTagHeaderImmutable 的注释。
+	regionTag int
 }
 
 func (b *rpmHeaderBuilder) addString(tag int, s string) {
@@ -359,6 +382,17 @@ func (b *rpmHeaderBuilder) addInt32(tag int, vals []uint32) {
 
 // bytes 返回完整的 header 结构（魔数 + 索引 + 数据）。
 func (b *rpmHeaderBuilder) bytes() []byte {
+	// 区域条目：没有自己的数据，它的 offset 指向数据区末尾的 trailer。
+	//
+	// 必须在**第一条**：rpm 迭代条目时跳过首条（`pe+1` / `il-1`），区域本身
+	// 不是一条要交付的标签。62/63 比我们所有标签都小，因此按 tag 排序后自然
+	// 落在最前。
+	if b.regionTag != 0 {
+		b.entries = append(b.entries, rpmEntry{
+			Tag: b.regionTag, Type: rpmTypeBin, Count: rpmRegionTrailerSize,
+		})
+	}
+
 	// 索引按 tag 升序：rpm 要求如此，乱序会让它报"header 结构错误"。
 	sort.SliceStable(b.entries, func(i, j int) bool {
 		return b.entries[i].Tag < b.entries[j].Tag
@@ -380,6 +414,11 @@ func (b *rpmHeaderBuilder) bytes() []byte {
 	for i := range b.entries {
 		e := &b.entries[i]
 
+		// 区域条目自己不占数据区（它的内容在末尾的 trailer 里）。
+		if e.Tag == b.regionTag {
+			continue
+		}
+
 		align := 1
 		switch e.Type {
 		case rpmTypeInt16:
@@ -393,6 +432,31 @@ func (b *rpmHeaderBuilder) bytes() []byte {
 
 		e.Offset = data.Len()
 		data.Write(e.Data)
+	}
+
+	// 数据区末尾追加区域 trailer。
+	//
+	// trailer 是"区域条目自身的副本"，只有 offset 不同：它取**负的索引区
+	// 字节数**（rpm 的 hdrblobVerifyRegion 会把它取负后 /16 得到区域内的
+	// 索引条数，并要求它等于总条数）：
+	//
+	//	einfo.offset = -einfo.offset;
+	//	blob->ril = einfo.offset/sizeof(*blob->pe);
+	//
+	// 对照真实包验算过：主 header 46 条 → trailer.offset = -736（46×16）；
+	// 签名 header 5 条 → -80（5×16）。
+	if b.regionTag != 0 {
+		region := &b.entries[0]
+
+		region.Offset = data.Len()
+
+		var trailer [rpmRegionTrailerSize]byte
+		binary.BigEndian.PutUint32(trailer[0:4], uint32(region.Tag))
+		binary.BigEndian.PutUint32(trailer[4:8], uint32(region.Type))
+		indexBytes := len(b.entries) * 16
+		binary.BigEndian.PutUint32(trailer[8:12], uint32(-int32(indexBytes)))
+		binary.BigEndian.PutUint32(trailer[12:16], uint32(region.Count))
+		data.Write(trailer[:])
 	}
 
 	var buf bytes.Buffer
@@ -418,7 +482,7 @@ func (b *rpmHeaderBuilder) bytes() []byte {
 // ---------------------------------------------------------------------------
 
 func rpmHeaderBytes(opts RpmOptions, files []rpmFile, payload []byte) []byte {
-	var b rpmHeaderBuilder
+	b := rpmHeaderBuilder{regionTag: rpmTagHeaderImmutable}
 
 	// BUILDTIME 固定为 0：与载荷里的文件 mtime 一致，为的是可复现构建。
 	// 真实包的这一项是构建时刻，但"构建时刻进产物"正是可复现性要避免的。
@@ -626,7 +690,7 @@ func rpmInstalledSize(files []rpmFile) int {
 // 早先的实现把 SHA-256 算在了**载荷**上 —— 语义完全相反，而 rpm 校验的是
 // header，于是包会被拒。
 func rpmSignatureBytes(header, payload []byte, paddedSize, rawPayloadSize int) []byte {
-	var b rpmHeaderBuilder
+	b := rpmHeaderBuilder{regionTag: rpmTagHeaderSignatures}
 
 	// 这两项描述的是 header 与载荷的**总长度**，
 	// 而 rpm 用它们做边界检查。
