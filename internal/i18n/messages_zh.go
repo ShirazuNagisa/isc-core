@@ -57,7 +57,18 @@ var messagesZh = map[string]string{
 	"platform.low_port_granted": "可绑定低端口",
 
 	// --- CLI ---
-	"cli.daemon_not_running": "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。",
+	"cli.daemon_not_running":      "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。",
+	"libisc.already_running":      "内核已在本进程内运行",
+	"libisc.not_running":          "内核没有在运行",
+	"libisc.not_running_note":     "内核本来就没在跑",
+	"libisc.exited_during_start":  "内核在启动过程中退出，详见日志",
+	"libisc.start_timeout":        "内核在 %d 秒内没有就绪",
+	"libisc.stop_timeout":         "内核在 %d 秒内没有退出",
+	"libisc.runtime_info_failed":  "读取运行信息失败: %w",
+	"libisc.health_decode_failed": "解析健康信息失败: %w",
+	"libisc.meta_decode_failed":   "解析内核元信息失败: %w",
+	"libisc.unsupported_endpoint": "暂不支持的端点：%s",
+	"libisc.bad_status":           "内核返回 %d：%s",
 	"cli.hint_system_dir": "提示：系统目录 %s 里有内核的数据 —— " +
 		"它可能是以系统服务运行的，而你现在看的是自己的用户目录。" +
 		"查看它需要管理员权限：sudo isc status",

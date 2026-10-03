@@ -56,7 +56,18 @@ var messagesEn = map[string]string{
 	"platform.low_port_granted": "Low ports can be bound",
 
 	// --- CLI ---
-	"cli.daemon_not_running": "ISC core is not running. Start it with 'isc daemon run' or install it as a system service.",
+	"cli.daemon_not_running":      "ISC core is not running. Start it with 'isc daemon run' or install it as a system service.",
+	"libisc.already_running":      "the kernel is already running in this process",
+	"libisc.not_running":          "the kernel is not running",
+	"libisc.not_running_note":     "the kernel was not running",
+	"libisc.exited_during_start":  "the kernel exited during startup; see the log",
+	"libisc.start_timeout":        "the kernel was not ready within %d seconds",
+	"libisc.stop_timeout":         "the kernel did not stop within %d seconds",
+	"libisc.runtime_info_failed":  "reading runtime info failed: %w",
+	"libisc.health_decode_failed": "decoding the health response failed: %w",
+	"libisc.meta_decode_failed":   "decoding the kernel meta response failed: %w",
+	"libisc.unsupported_endpoint": "unsupported endpoint: %s",
+	"libisc.bad_status":           "the kernel returned %d: %s",
 	"cli.hint_system_dir": "Hint: the system directory %s holds kernel data — " +
 		"it may be running as a system service while you are looking at your own " +
 		"user directory. Viewing it needs administrator rights: sudo isc status",

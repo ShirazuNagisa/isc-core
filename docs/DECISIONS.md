@@ -594,3 +594,65 @@ SYSTEM 运行、能够修改防火墙的服务 —— 这是一条本地提权�
 
 在这两个问题有答案之前，**不开始** API 面的大改（避免按 A 的形状设计完
 再发现要走 B）。
+
+---
+
+### D24 补记（2026-10-03）：路线 B 已跑通，并记下三个坑
+
+项目主明确了 GUI 的技术栈：**macOS 用 Swift、Windows 用 C#**，两者都只链接
+**功能接口**。能同时被这两种语言链接的只有 C ABI，因此路线定为 **B（c-shared）**，
+并且已经在本机跑通：
+
+| 产物 / 组件 | 说明 |
+|---|---|
+| `cmd/libisc` | c-shared 目标，带 `//go:build cgo` 标签（**唯一**要求 cgo 的地方） |
+| `scripts/build-libisc.sh` | 构建 `libisc.dylib` + 头文件；Windows 上是 `isc.dll` |
+| `examples/swift-smoke/` | Swift 冒烟测试：链接库 → 进程内启动内核 → 读状态 → 停止 |
+| CI `libisc-macos` | 在 macOS runner 上重复上面这条链路，并检查 6 个导出符号齐全 |
+
+**实测证据**（本机 macOS arm64，Swift 6.4 / clang 21）：`swiftc` 链接
+`libisc.dylib` 成功；内核在 Swift 进程内启动，返回 `health = ok`、
+`version`、以及六个后端（pf / polling / darwin-native / macos-keychain /
+launchd / unix-socket）；停止幂等。复跑：`examples/swift-smoke/run.sh`。
+
+#### 接口形状：JSON 进 / JSON 出
+
+结构体跨语言传递会引入 ABI 对齐与版本漂移；JSON 两端都稳，而且内核已有的
+API 面（`internal/api`，版本 v1，有 openapi 契约与 spec-drift 检查）本身就是
+JSON。因此库只是把**同一条路径**搬进进程内 —— GUI、CLI、控制台看到的行为一致，
+不会出现"库一套实现、CLI 另一套"。
+
+#### 三个坑（都已修，记下来是因为它们会再出现）
+
+1. **DNS rebinding 防护拦下了自己的请求**：第一版把 Host 写成 `isc`，内核
+   如实拒绝（`拒绝非本机 Host 的请求`）。**改的是调用方**（用 `127.0.0.1`），
+   不是去放宽内核 —— 那层防护挡的是浏览器发起的跨站请求。
+2. **猜接口路径拿到 404**：写了 `/v1/status`，而契约里没有这个路径。库的功能
+   面必须**对着 `api/openapi.yaml` 写**，不能凭印象。这也是"库的接口 = 契约的
+   路径"这条设计的现实理由。
+3. **`dyld: Library not loaded`**：c-shared 默认把 install name 写成**裸文件名**，
+   于是链接它的程序运行时找不到库、rpath 也不生效。构建脚本里显式设成
+   `-Wl,-install_name,@rpath/libisc.dylib` —— GUI 打包时库要放进
+   `Contents/Frameworks/`，正是靠 `@rpath` 定位。
+
+#### cgo 的边界（已验证不破坏既有约束）
+
+只有 `cmd/libisc` 需要 cgo，且用 `//go:build cgo` 隔离：`CGO_ENABLED=0` 下
+`go build ./...`、`go vet ./...`、`go test ./...` 与发布矩阵**全部照常**
+（22 个包全绿）。内核本体、CLI、守护进程仍然零 cgo。
+
+注意一个行为差异：开 cgo 构建时 `net` 包可能改用系统解析器。若要确定性，
+可在库的构建里加 `GODEBUG=netdns=go` 或 `netgo` 标签 —— 目前未加，先记录。
+
+#### 仍未解决
+
+1. **许可证**：Swift/C# GUI **链接**这个库即构成衍生作品，GPLv3 会覆盖 GUI
+   （R7）。要么 GUI 也以 GPLv3 兼容许可发布，要么由作为著作权人的项目主
+   给出**明确的例外/双许可**。这件事不影响构建，但决定能否发布闭源 GUI。
+2. **最终 API 面**：目前只有版本 / 启动 / 状态 / 停止四个函数。要覆盖生命周期、
+   配置读写、凭据、事件订阅（状态变化、IP 变化、证书结果）、以及错误类型。
+   设计时遵守两条：**路径与语义对齐 openapi 契约**、**字符串统一走 i18n**
+   （项目已有的守门测试会检查后者 —— 它当场就抓到了本库的 11 处硬编码中文）。
+3. **Windows 端未验证**：本机没有 .NET，也没有 MinGW/MSVC；`isc.dll` 的构建与
+   C# `[DllImport("isc", CallingConvention = CallingConvention.Cdecl)]` 要在
+   Windows 机器上验。

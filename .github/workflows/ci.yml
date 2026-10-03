@@ -1002,3 +1002,55 @@ jobs:
 
           sudo test ! -e "$plist" || { echo "::error::卸载之后 plist 还在"; exit 1; }
           echo "✅ launchd 安装 / 启动 / 运行 / 卸载 全部通过"
+
+  # ---------------------------------------------------------------------------
+  # 内核库（c-shared）：GUI 链接的那个产物
+  #
+  # 这一组守的是**新的主交付物**：内核编成 libisc.dylib，由 Swift / C# 这类
+  # 原生 GUI 链接调用（见 docs/DECISIONS.md D24）。跑的是仓库里的示例，
+  # 因此"示例能不能用"与"库能不能用"是同一件事。
+  # ---------------------------------------------------------------------------
+  libisc-macos:
+    name: 内核库 macos (c-shared + Swift)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 构建库并跑 Swift 冒烟测试
+        run: |
+          set -euo pipefail
+
+          # 需要 cgo（c-shared 的硬要求）：runner 上有 Xcode 的 clang。
+          if ! out=$(CGO_ENABLED=1 go build -buildmode=c-shared -o /tmp/libisc.dylib ./cmd/libisc 2>&1); then
+            echo "$out"
+            echo "::error::c-shared 构建失败 —— $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+            exit 1
+          fi
+
+          # 导出的符号必须齐全：少一个，某个语言的 GUI 就调不到。
+          for sym in isc_api_version isc_version_json isc_start isc_stop isc_status_json isc_free_string; do
+            nm -gU /tmp/libisc.dylib | grep -q "_$sym" || {
+              echo "::error::库里缺少导出符号 $sym"
+              nm -gU /tmp/libisc.dylib | grep "_isc_" || true
+              exit 1
+            }
+          done
+
+          # 端到端：Swift 链接它、在本进程内启动内核、读状态、停掉。
+          #
+          # 示例脚本自己会把失败原因打在输出里，这里补一层注解兜底。
+          if ! out=$(./examples/swift-smoke/run.sh 2>&1); then
+            echo "$out"
+            echo "::error::Swift 冒烟测试失败 —— $(printf '%s' "$out" | tail -5 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$out"
+          echo "$out" | grep -q "health  = ok" || {
+            echo "::error::Swift 侧没有读到内核健康状态"
+            exit 1
+          }

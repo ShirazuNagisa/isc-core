@@ -19,7 +19,8 @@
 | **v0.1.0 的验收范围** | **只针对本机（这台 Mac，macOS arm64）**：功能全部可用、无已知问题即可。跨平台打包、其它平台的真机验证**不作为 v0.1.0 的阻塞项**（CI 里那些 job 仍保留，但优先级下调） |
 | **内核的交付形态** | **可调用库**，而不是独立应用。GUI 嵌入它来实现功能；`isc daemon` 与 `isc` CLI 是库的**第一个消费者**，也是目前**唯一被完整验证过**的消费者 |
 | **由此产生的重心变化** | 从"独立应用的打包与分发"转向"**稳定的可调用 API 面**"：生命周期、事件流、配置读写、错误类型、以及不依赖 CLI/HTTP 的进程内调用 |
-| **必须先解决的前置问题** | 许可证边界（R7：GPLv3 会传染链接它的 GUI）与"GUI 用什么技术栈"这两件事**尚未定**，它们决定库的技术形态 —— 见 D24 |
+| **库的技术形态** | ✅ **已定并已跑通**：C ABI（`-buildmode=c-shared`）→ `libisc.dylib`，Swift / C# 直接链接；接口是 JSON 进 / JSON 出，语义对齐 `api/openapi.yaml` 契约。见 D24 补记 |
+| **仍待决定** | **许可证边界**（R7）：GUI 链接这个库即构成衍生作品，GPLv3 会覆盖 GUI —— 要么 GUI 也以 GPLv3 兼容许可发布，要么由著作权人给出明确例外/双许可。这件事不影响构建，但决定能否发布闭源 GUI |
 
 ### 进度快照（2026-10-03）
 
@@ -30,7 +31,8 @@
 | CI | 19 个 job，**17 绿**；`.deb`（真实 `dpkg -i`）、`.rpm`（`-qip/-qlp/-qplv/-K`）、`.pkg`（真实 `installer`）、可复现构建、三平台测试、Linux race —— 其中安装包核对**此前从未跑通过**，第一次运行共抓出 **13 处缺陷**（含 7 处"装不上/装错位置"级） |
 | 本机（macOS） | 内核可跑、六个后端接上（pf / launchd / polling / macos-keychain / unix-socket / darwin-native）、`status`/`doctor`/`service status` 正常、数据目录 0700、`isc.sock` 0600 |
 | 测试 | 780 条 / 22 包在 macOS 全绿；跨平台 `go vet` 四目标；7 目标编译矩阵 |
-| **仍红的两项（未继续修）** | ① `发布构建 / 核对 .rpm`：`rpm -ql isc` 报 "package isc is not installed" —— `rpm -i` 没报错却没进数据库（怀疑 `rpm --initdb` 建的库与 `rpm -i` 用的不是同一个，或该查询需要 sudo）。② `test windows-latest / go vet` 失败，原因未取到（注解缺失）。**两项都在 CI 的打包路径上，与"本机可用"无关** |
+| **内核库（新主交付物）** | ✅ 本机跑通：Swift 6.4 链接 `libisc.dylib`，在**本进程内**启动内核、读到 `health = ok` 与六个后端、停止幂等。复跑 `examples/swift-smoke/run.sh`；CI 加了 `libisc-macos` 守这条链路与 6 个导出符号 |
+| **仍红的两项（未继续修）** | ① 发布构建 / 核对 .rpm：查询已安装包时报"package is not installed" —— 安装命令本身没报错，却没进数据库（怀疑 initdb 建的库与安装时用的不是同一个，或该查询需要 sudo）。② `test windows-latest / go vet` 失败，原因未取到（注解缺失）。**两项都在 CI 的打包路径上，与"本机可用"无关** |
 | 未验证清单 | 见本文件 §7 的 R13/R14 与 D24 的"待定"；要点：防火墙**实际放行**、服务安装启停（要 root，已在 CI 里补了 systemd/launchd 的真机 job，但尚未绿）、Tier-1/Tier-2 服务商的真实 API 调用、通知通道真实端点、代码签名与公证 |
 
 ### 环境与工具链
