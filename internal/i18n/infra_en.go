@@ -20,12 +20,15 @@ var infraMessagesEn = map[string]string{
 	"dns.err.no_verify":   "dns: this provider does not support credential verification",
 
 	// --- job engine ---
-	"job.err.closed":        "job: the engine is closed and refuses new jobs",
-	"job.err.persist":       "job: failed to persist the new job: %w",
-	"job.err.drain_timeout": "job: timed out waiting for in-flight jobs to drain: %w",
-	"job.err.not_found":     "job: the job does not exist",
-	"job.err.finished":      "job: the job has finished and cannot be cancelled",
-	"job.err.gen_id":        "job: failed to generate the job ID: %w",
+	"job.err.closed":             "job: the engine is closed and refuses new jobs",
+	"job.err.persist":            "job: failed to persist the new job: %w",
+	"job.err.drain_timeout":      "job: timed out waiting for in-flight jobs to drain: %w",
+	"job.err.not_found":          "job: the job does not exist",
+	"job.err.finished":           "job: the job has finished and cannot be cancelled",
+	"job.err.gen_id":             "job: failed to generate the job ID: %w",
+	"job.err.unknown_kind":       "job: unknown job kind %q",
+	"job.err.interrupted":        "The kernel stopped while this job was running",
+	"job.err.interrupted_detail": "The job did not finish: the kernel shut down while it was executing. Run it again.",
 
 	// --- runtime file ---
 	"runtime.err.mkdir":    "runtimeinfo: failed to create the runtime directory: %w",

@@ -24,12 +24,15 @@ var infraMessagesZh = map[string]string{
 	"dns.err.no_verify":   "dns: 该服务商不支持凭据校验",
 
 	// --- 任务引擎 ---
-	"job.err.closed":        "job: 引擎已关闭，拒绝新任务",
-	"job.err.persist":       "job: 持久化新任务: %w",
-	"job.err.drain_timeout": "job: 等待在途任务收尾超时: %w",
-	"job.err.not_found":     "job: 任务不存在",
-	"job.err.finished":      "job: 任务已结束，无法取消",
-	"job.err.gen_id":        "job: 生成任务 ID 失败: %w",
+	"job.err.closed":             "job: 引擎已关闭，拒绝新任务",
+	"job.err.persist":            "job: 持久化新任务: %w",
+	"job.err.drain_timeout":      "job: 等待在途任务收尾超时: %w",
+	"job.err.not_found":          "job: 任务不存在",
+	"job.err.finished":           "job: 任务已结束，无法取消",
+	"job.err.gen_id":             "job: 生成任务 ID 失败: %w",
+	"job.err.unknown_kind":       "job: 未登记的任务类型 %q",
+	"job.err.interrupted":        "内核在任务执行期间退出",
+	"job.err.interrupted_detail": "任务没有跑完：内核在这次任务执行期间停止运行。请重新执行。",
 
 	// --- 运行时文件 ---
 	"runtime.err.mkdir":    "runtimeinfo: 创建运行时目录: %w",

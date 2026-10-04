@@ -37,6 +37,8 @@ var messagesZh = map[string]string{
 	"daemon.stale_runtime_file":   "发现残留的运行时文件（PID %d 已不存在），已清理",
 	"daemon.runtime_write_failed": "写入运行时文件失败：%s",
 	"daemon.transport_failed":     "本地管理通道建立失败：%s",
+	"daemon.recovered_jobs":       "已把上次运行遗留的 %d 个任务标记为中断",
+	"daemon.recover_jobs_failed":  "归位上次遗留的任务失败：%s",
 
 	// --- 传输 ---
 	"transport.named_pipe": "命名管道",

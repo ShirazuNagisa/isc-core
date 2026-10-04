@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
@@ -376,11 +375,7 @@ func TestShutdownCancelsRunningJobs(t *testing.T) {
 	defer cancel()
 	e, _ := newTestEngine(t, ctx)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-
 	j, err := e.Submit(context.Background(), "test.slow", func(ctx context.Context, _ Reporter) (any, error) {
-		defer wg.Done()
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
@@ -394,8 +389,11 @@ func TestShutdownCancelsRunningJobs(t *testing.T) {
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		t.Fatalf("关闭失败: %v", err)
 	}
-	wg.Wait()
 
+	// 断言的是**状态**，而不是"任务体一定执行过"：任务可能在抢到执行
+	// 槽位之前就被取消，此时任务体不会运行（见 Engine.run 的排队逻辑）。
+	// Shutdown 本身必须不因这种任务而挂住 —— 它等的是 run 的 wg，
+	// 而排队中的分支同样会 Done。
 	got, _, _ := e.Get(context.Background(), j.ID)
 	if got.Status != StatusCanceled {
 		t.Errorf("关闭后在途任务应被取消，得到 %s", got.Status)

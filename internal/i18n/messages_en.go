@@ -36,6 +36,8 @@ var messagesEn = map[string]string{
 	"daemon.stale_runtime_file":   "Found a stale runtime file (PID %d no longer exists); cleaned up",
 	"daemon.runtime_write_failed": "Failed to write runtime file: %s",
 	"daemon.transport_failed":     "Failed to establish the local management channel: %s",
+	"daemon.recovered_jobs":       "Marked %d job(s) from the previous run as interrupted",
+	"daemon.recover_jobs_failed":  "Failed to reconcile jobs from the previous run: %s",
 
 	// --- transport ---
 	"transport.named_pipe": "named pipe",

@@ -420,6 +420,23 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 任务状态落进 SQLite：进程重启后历史任务仍可查询。
 	d.jobs = job.NewEngine(runCtx, d.bus, st.Jobs(), d.log)
 
+	// 登记内核支持的任务类型。
+	//
+	// 登记之后，拼错的 kind 会在提交时被拒绝，而不是留下一个永远失败、
+	// 又查不出原因的任务。新增任务类型的子系统必须在这里补一行。
+	d.jobs.RegisterKinds("debug.noop")
+
+	// 把上次运行遗留的 pending / running 任务归位。
+	//
+	// 任务体是进程内的 goroutine，而状态在 SQLite 里：内核退出后那些行会
+	// 永远停在 running，界面于是显示一堆"正在执行"的任务，而实际上什么都
+	// 没在跑。必须在传输通道开始监听之前做 —— 否则新任务会与归位竞争。
+	if recovered, err := d.jobs.RecoverInterrupted(runCtx); err != nil {
+		d.log.Error(i18n.T("daemon.recover_jobs_failed"), "err", err)
+	} else if recovered > 0 {
+		d.log.Warn(i18n.T("daemon.recovered_jobs"), "count", recovered)
+	}
+
 	// 9. 访问令牌
 	if d.token, err = newToken(); err != nil {
 		return err
