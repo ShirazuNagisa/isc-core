@@ -30,7 +30,7 @@ var messagesEn = map[string]string{
 	// --- daemon ---
 	"daemon.starting":             "ISC core is starting",
 	"daemon.started":              "ISC core started",
-	"daemon.outbound_proxy":       "Outbound requests use %s",
+	"daemon.outbound_proxy":       "Outbound requests use %s, falling back to the other route on failure",
 	"daemon.stopping":             "ISC core is shutting down",
 	"daemon.stopped":              "ISC core stopped",
 	"daemon.already_running":      "ISC core already appears to be running (PID %d); refusing to start a second instance",

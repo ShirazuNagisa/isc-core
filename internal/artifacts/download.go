@@ -136,10 +136,9 @@ func (d *Downloader) client() *http.Client {
 	// 不设整体超时：下载可能持续数分钟，超时应当由 ctx 控制。
 	// 但响应头必须限时 —— 否则一个只连不答的服务端会永久挂住任务。
 	return &http.Client{
-		Transport: &http.Transport{
+		Transport: sysproxy.Transport(&http.Transport{
 			ResponseHeaderTimeout: 30 * time.Second,
-			Proxy:                 sysproxy.Func(),
-		},
+		}),
 	}
 }
 

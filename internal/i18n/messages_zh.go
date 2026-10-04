@@ -31,7 +31,7 @@ var messagesZh = map[string]string{
 	// --- 守护进程 ---
 	"daemon.starting":             "ISC 内核启动中",
 	"daemon.started":              "ISC 内核已启动",
-	"daemon.outbound_proxy":       "出站请求走 %s",
+	"daemon.outbound_proxy":       "出站请求走 %s，失败时自动改走另一条路",
 	"daemon.stopping":             "ISC 内核正在关闭",
 	"daemon.stopped":              "ISC 内核已停止",
 	"daemon.already_running":      "检测到内核已在运行（PID %d），请勿重复启动",

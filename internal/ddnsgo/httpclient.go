@@ -72,9 +72,9 @@ func newHTTPDialer(localAddr *net.TCPAddr) *net.Dialer {
 	}
 }
 
-var defaultTransport = &http.Transport{
+// defaultTransport 走系统代理，并在代理坏掉时自动回落到直连。
+var defaultTransport = sysproxy.Transport(&http.Transport{
 	// from http.DefaultTransport
-	Proxy: sysproxy.Func(),
 	DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		return dialer.DialContext(ctx, network, address)
 	},
@@ -83,7 +83,7 @@ var defaultTransport = &http.Transport{
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
-}
+})
 
 // insecureSkipVerify 全局TLS验证跳过标志
 var insecureSkipVerify bool
@@ -127,8 +127,7 @@ func CreateHTTPClientWithInterface(ifaceName string) *http.Client {
 	localAddr := &net.TCPAddr{IP: net.ParseIP(localIP)}
 	boundDialer := newHTTPDialer(localAddr)
 	setLinuxBindToDevice(boundDialer, ifaceName)
-	transport := &http.Transport{
-		Proxy: sysproxy.Func(),
+	transport := sysproxy.Transport(&http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return boundDialer.DialContext(ctx, network, address)
 		},
@@ -137,9 +136,9 @@ func CreateHTTPClientWithInterface(ifaceName string) *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-	}
+	})
 	if insecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		transport.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
 	}
 	return &http.Client{
 		Timeout:   30 * time.Second,
@@ -236,9 +235,9 @@ func CreateNoProxyHTTPClient(network string) *http.Client {
 // SetInsecureSkipVerify 将所有 http.Transport 的 InsecureSkipVerify 设置为 true
 func SetInsecureSkipVerify() {
 	insecureSkipVerify = true
-	transports := []*http.Transport{defaultTransport, noProxyTcp4Transport, noProxyTcp6Transport}
-
-	for _, transport := range transports {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	insecureTLS := &tls.Config{InsecureSkipVerify: true}
+	defaultTransport.SetTLSClientConfig(insecureTLS)
+	for _, transport := range []*http.Transport{noProxyTcp4Transport, noProxyTcp6Transport} {
+		transport.TLSClientConfig = insecureTLS
 	}
 }

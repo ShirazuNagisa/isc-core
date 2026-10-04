@@ -247,14 +247,13 @@ func (l *LogChannel) Send(_ context.Context, msg Message) error {
 //
 // 与 provider 包同理：Go 只认代理环境变量，不读 macOS 系统代理。
 // 用户把 Webhook 指向外网服务时，少了这一行就会"浏览器能开、通知发不出"。
-var outboundTransport = &http.Transport{
-	Proxy:                 sysproxy.Func(),
+var outboundTransport = sysproxy.Transport(&http.Transport{
 	ForceAttemptHTTP2:     true,
 	MaxIdleConns:          10,
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
-}
+})
 
 // newOutboundClient 构造使用统一传输层的客户端。
 func newOutboundClient(timeout time.Duration) *http.Client {

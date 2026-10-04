@@ -30,14 +30,13 @@ const verifyTimeout = 15 * time.Second
 // 而 macOS 用户的代理配置在系统设置里。少了这一行的后果不是"没走代理"
 // 这么轻描淡写 —— 用户开着代理时，直连出去会被本地网络拦截，
 // 界面上显示的是"凭据验证失败"，用户会一路去怀疑自己的 API Token。
-var outboundTransport = &http.Transport{
-	Proxy:                 sysproxy.Func(),
+var outboundTransport = sysproxy.Transport(&http.Transport{
 	ForceAttemptHTTP2:     true,
 	MaxIdleConns:          10,
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
-}
+})
 
 // newOutboundClient 构造使用统一传输层的客户端。
 func newOutboundClient(timeout time.Duration) *http.Client {
