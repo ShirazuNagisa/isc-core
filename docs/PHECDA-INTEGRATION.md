@@ -1,67 +1,143 @@
 # ISC Phecda Integration Boundary
 
-This document defines the boundary between ISC-Core and ISC Phecda. It is a design contract for the next API extension; it does not make ISC-Core depend on the GUI repository.
+This document defines the boundary between ISC-Core and ISC Phecda as of v0.2.0. It does not
+make ISC-Core depend on the GUI repository: the GUI consumes the kernel through the versioned
+`libisc` C ABI only.
+
+**This document was rewritten in v0.2.0.** It previously assigned runtime downloads, dependency
+installation, build processes, application lifecycle, health checks, logs, ports and recovery to
+a separate Phecda Supervisor component. That split is reversed by [D25](./DECISIONS.md#d25-内核托管业务服务生命周期),
+[D26](./DECISIONS.md#d26-进程模型与引擎的可分离性) and [D28](./DECISIONS.md#d28-运行时供给策略).
 
 ## Responsibilities
 
-ISC-Core remains responsible for machine-facing public access:
+ISC-Core owns the entire path from a source directory to a public HTTPS site:
 
-- DNS credentials, zones and records
-- Dynamic DNS tasks and address monitoring
-- Reverse proxy routes
-- ACME certificates and renewal
-- Reachability probes, firewall plans and rollback
-- External verification sessions
-- Kernel jobs, audit records and events
+- **Source inspection** — read-only stack detection over a local directory.
+- **Runtime provisioning** — detecting system interpreters, downloading and verifying
+  prebuilt distributions, caching them locally.
+- **Build** — dependency installation and build steps for the selected preset.
+- **Process supervision** — start, stop, restart policy, health checks, log capture,
+  local port allocation and crash recovery.
+- **Public access** — DNS records and dynamic DNS tasks, reverse proxy routes, ACME
+  certificates and renewal, reachability probes, firewall plans and rollback, external
+  verification sessions.
+- **Kernel services** — jobs, audit records and events for everything above.
 
-ISC Phecda is responsible for user application deployment:
+ISC Phecda is a **presentation client and nothing else**:
 
-- Project source selection and read-only source scanning
-- Stack and framework evidence
-- Runtime downloads, checksums and local caches
-- Dependency installation and build processes
-- Application and container lifecycle
-- Health checks, logs, local port allocation and deployment recovery
-- Presets and custom server commands
-
-The GUI remains a binary C ABI consumer. It must not import Go packages or internal ISC-Core types.
+- It renders kernel state and issues kernel commands.
+- It contains no functional logic: no process management, no downloads, no build steps,
+  no persistence of authoritative state.
+- It must not import Go packages or internal ISC-Core types. It links the versioned
+  `libisc.dylib` / `libisc.h` C ABI, and every functional call goes through
+  `isc_call(method, path, body)` against paths defined in `api/openapi.yaml`.
 
 ## Server creation modes
 
-Non-Docker projects use a source directory, archive or Git source and are scanned without executing source-provided commands. Docker is a separate mode and does not require a source directory by default. Its inputs are one of:
+**Presets.** The user picks a source directory. The kernel inspects it read-only — never
+executing anything the source provides — and reports evidence, a recommended preset, the
+runtime it requires, and how much will be downloaded. Supported website presets in v0.2.0:
 
-- Compose file
-- Dockerfile directory
-- Existing image reference
-- Simple Docker command
-- Explicit advanced Docker command
+- Static HTML/CSS/JavaScript
+- Node.js
+- Python
+- PHP
+- Go
+- Java
+- .NET
+- Docker (Compose file, Dockerfile directory, existing image, simple command)
 
-Docker host networking, privileged mode and arbitrary host mounts require explicit confirmation in Phecda. ISC-Core does not install Docker Desktop or manage container internals.
+Game-server presets are not part of v0.2.0; the `gameServer` purpose field exists but has no
+presets behind it.
+
+**Custom server.** When no preset fits, the user supplies an executable and its arguments
+directly. This is the only place the kernel runs a user-supplied command line; see
+"Execution boundary" below for the rules that apply.
+
+## Runtime provisioning
+
+Resolution order, first match wins ([D28](./DECISIONS.md#d28-运行时供给策略)):
+
+1. A system interpreter on `PATH` that satisfies the preset's minimum version.
+2. A runtime already provisioned under the kernel's data directory.
+3. A prebuilt distribution downloaded from a pinned URL and verified against a pinned
+   SHA-256.
+
+PHP and Python are obtained from established third-party prebuilt distributions because
+neither language publishes official macOS binaries. The first start prefetches only the
+small default set; Go, Java and .NET are fetched on demand with their size shown before the
+download begins.
+
+Every redistributed runtime is registered in `THIRD_PARTY_NOTICES.md`
+([D29](./DECISIONS.md#d29-再分发运行时的许可登记)). Downloaded runtimes are untrusted
+content: HTTPS only, checksum verified while streaming, path-traversal and symlink-escape
+rejected during extraction, staged and atomically renamed into place.
 
 ## Public binding
 
-The relationship is intentionally explicit:
+A deployed application exposes one or more domains. The public side is materialized through
+the kernel's existing DDNS, proxy, certificate and verification APIs; the binding record
+itself is persisted by the kernel, so a deployment's reference to it always resolves.
 
-```text
-PhecdaProject -> PhecdaDeployment -> ISC public binding
-```
+A DNS record, a proxy route or a certificate is not itself an application. Failure to
+complete the public side does not stop the application from running locally: it stays
+`running`, the public part is reported as pending, and the advisory engine explains why.
 
-A public binding references a deployment's local listener and is materialized through existing ISC-Core DDNS, proxy, certificate and verification APIs. A DNS record, proxy route or certificate is not itself a Phecda project.
+## Execution boundary
 
-## Future API extension
+Presets run **fixed `argv` arrays defined in the kernel**, never through a shell
+([D30](./DECISIONS.md#d30-业务进程的执行与隔离边界)). The custom-server path accepts an
+executable and argument array, also without a shell, and requires explicit confirmation in
+the GUI.
 
-When implementation begins, extend `api/openapi.yaml` first and regenerate the Go server contract. Phecda-specific endpoints should be grouped separately from existing DNS and public-access tags:
+Child processes receive a **minimal environment** — an explicit allowlist plus variables the
+user declared for that application — and do not inherit the kernel's environment, so the
+kernel's access token and secrets cannot leak into a hosted site.
 
-- project metadata and source references
-- read-only scan results and evidence
-- preset catalog and versioned runtime requirements
-- deployment state and local listener binding
-- deployment job status, cancellation and events
+This is a **trusted local client** boundary, not a sandbox: applications run as the same user
+who runs the kernel, which is equivalent to that user typing the command themselves.
+Untrusted third-party code must not be hosted this way. (The existing shell-based "command"
+IP source in the DDNS engine predates this rule and is a known inconsistency.)
 
-Long-running operations must use the existing job/event semantics. Secrets must remain references to the platform secret store and never be returned in project exports or scan logs.
+## API surface (v2)
 
-Runtime downloads and process supervision should initially remain in a Phecda Supervisor component. ISC-Core should only gain APIs needed to persist or expose a public binding, not arbitrary shell execution or package-manager behavior.
+The v2 contract is defined in `api/openapi.yaml`, which remains the single source of truth
+([D07](./DECISIONS.md#d07-api-契约形式)). Functionality added in v0.2.0:
+
+- `/v1/presets` — preset catalog, runtime requirements and size estimates
+- `/v1/sources/inspect` — read-only detection over a directory
+- `/v1/runtimes`, `/v1/runtimes/provision`, `/v1/runtimes/{kind}` — runtime inventory and provisioning
+- `/v1/apps`, `/v1/apps/{id}`, `/v1/apps/{id}/start|stop|restart`, `/v1/apps/{id}/logs` — application lifecycle
+- `/v1/metrics` — host and per-application resource samples
+- `/v1/advisories` — actionable suggestions derived from current state
+
+The v1 Phecda endpoints (`/v1/phecda/*` and `/v1/public-services`) were **removed**, not
+deprecated; the GUI is the only consumer and no Phecda release had shipped against them. The
+interface version was therefore bumped to `v2` ([D27](./DECISIONS.md#d27-契约破坏性变更与接口版本-v2)).
+The nine C functions are unchanged — the library is a generic dispatcher, so new endpoints
+never require touching it.
+
+Old SQLite tables from the v1 Phecda work are retained rather than dropped: published
+migration files are immutable, and deleting user data has no upside. They are simply no
+longer served.
+
+Long-running operations use the existing job and event semantics: submit a job, report
+progress through `job.progress`, observe completion through `job.finished` and
+`app.state_changed`. Application logs are **pulled** from `/v1/apps/{id}/logs` rather than
+pushed as events, because the event ring buffer is small and slow subscribers are
+disconnected — log volume would evict real state changes.
+
+Secrets remain references to the platform secret store and never appear in exports, scan
+results or logs.
 
 ## Product boundaries
 
-ISC Mizar is a future remote monitoring client and requires a separate authenticated remote-management service. ISC Dubhe is a future cluster control plane and requires agents, node identity, scheduling and multi-node state. Neither product is enabled by this local API boundary.
+ISC Mizar is a future remote monitoring client and requires a separate authenticated
+remote-management service. ISC Dubhe is a future cluster control plane and requires agents,
+node identity, scheduling and multi-node state. Neither product is enabled by this local API
+boundary.
+
+The kernel also does not install Docker Desktop, does not manage container internals beyond
+invoking the `docker` CLI, and (per [D26](./DECISIONS.md#d26-进程模型与引擎的可分离性)) does not
+install itself as a system service in v0.2.0.
