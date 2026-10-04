@@ -2370,14 +2370,26 @@ components:
 
     AdvisoryAction:
       type: object
-      required: [label, method, path]
+      required: [label]
       properties:
         label: {type: string}
-        method: {type: string}
+        # 一个动作要么是一次 API 调用（method + path），要么是一次界面跳转
+        # （navigation）。早先只有前者，于是"去添加凭据"这种纯粹是导航的
+        # 建议只能伪装成 `POST /v1/credentials` —— 而它不带请求体，内核会
+        # 直接返回 400，用户在界面上点到一个坏掉的按钮。
+        navigation:
+          type: string
+          description: |
+            跳转到界面上的某个位置，而不是发请求。与 method/path 互斥。
+          enum: [credentials, settings, ddns, services]
+        method:
+          type: string
+          description: 与 path 一起构成一次 API 调用；与 navigation 互斥。
         path: {type: string}
         body:
           type: object
           additionalProperties: true
+
 
     Advisory:
       type: object

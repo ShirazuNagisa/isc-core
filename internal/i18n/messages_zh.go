@@ -101,6 +101,7 @@ var messagesZh = map[string]string{
 	"advisory.ddns_failing.title":             "%s 的动态解析上次失败了",
 	"advisory.ddns_failing.detail":            "域名可能仍指向旧的地址。请检查 DNS 凭据与网络。",
 	"advisory.action.open_dns":                "去添加",
+	"advisory.action.open_settings":           "去设置",
 	"advisory.action.enable_proxy":            "启用反向代理",
 	"advisory.action.provision_runtime":       "现在准备",
 

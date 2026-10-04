@@ -92,12 +92,18 @@ func (s *Server) ListAdvisories(w http.ResponseWriter, r *http.Request) {
 			entry.Detail = &detail
 		}
 		if item.Action != nil {
-			entry.Action = &gen.AdvisoryAction{
-				Label:  cat.T(item.Action.LabelKey),
-				Method: item.Action.Method,
-				Path:   item.Action.Path,
-				Body:   &item.Action.Body,
+			action := &gen.AdvisoryAction{Label: cat.T(item.Action.LabelKey)}
+			if item.Action.Navigation != "" {
+				// 跳转类动作没有 method/path —— 界面据此渲染成"跳到某处"
+				// 而不是"发一个请求"。
+				navigation := gen.AdvisoryActionNavigation(item.Action.Navigation)
+				action.Navigation = &navigation
+			} else {
+				action.Method = &item.Action.Method
+				action.Path = &item.Action.Path
+				action.Body = &item.Action.Body
 			}
+			entry.Action = action
 		}
 		items = append(items, entry)
 	}

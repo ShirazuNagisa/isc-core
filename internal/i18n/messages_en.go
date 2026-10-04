@@ -100,6 +100,7 @@ var messagesEn = map[string]string{
 	"advisory.ddns_failing.title":             "The last dynamic-DNS update for %s failed",
 	"advisory.ddns_failing.detail":            "The domain may still point at an old address. Check the DNS credential and your network.",
 	"advisory.action.open_dns":                "Add one",
+	"advisory.action.open_settings":           "Open settings",
 	"advisory.action.enable_proxy":            "Enable the reverse proxy",
 	"advisory.action.provision_runtime":       "Prepare it now",
 

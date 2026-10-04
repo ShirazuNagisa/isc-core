@@ -19,6 +19,17 @@ package advisories
 
 import "sort"
 
+// 建议动作可以跳转到的界面位置。
+//
+// 它们是**稳定的标识符**而不是路径：界面怎么组织是自己的事，内核只表达
+// "这件事需要用户去那个地方做"。
+const (
+	NavigationCredentials = "credentials"
+	NavigationSettings    = "settings"
+	NavigationDDNS        = "ddns"
+	NavigationServices    = "services"
+)
+
 // Severity 是建议的严重程度。
 type Severity string
 
@@ -41,13 +52,21 @@ func severityRank(s Severity) int {
 
 // Action 是"一键修好"所需的最小信息。
 //
-// 它是**方法 + 路径 + 载荷**而不是一个回调：建议引擎不该知道怎么改内核
-// 状态，界面也不该猜。内核补上了这个动作，界面把它渲染成一个按钮。
+// 两种形态，界面按哪一种存在来渲染：
+//
+//   - **一次 API 调用**（Method + Path + Body）：内核能自己把这件事做完时用；
+//   - **一次界面跳转**（Navigation）：需要用户在界面上输入点什么时用。
+//
+// 第二种是后来补的。早先只有第一种，于是"去添加凭据"这种纯粹是导航的建议
+// 只能伪装成 `POST /v1/credentials` —— 而它不带请求体，内核会返回 400，
+// 用户在界面上点到一个坏掉的按钮。
 type Action struct {
 	LabelKey string
-	Method   string
-	Path     string
-	Body     map[string]any
+	// Navigation 非空时表示跳到界面的某个位置（credentials/settings/ddns/services）。
+	Navigation string
+	Method     string
+	Path       string
+	Body       map[string]any
 }
 
 // Advisory 是一条建议。
@@ -129,9 +148,8 @@ func Evaluate(in Input) []Advisory {
 			TitleKey:  "advisory.first_run_setup.title",
 			DetailKey: "advisory.first_run_setup.detail",
 			Action: &Action{
-				LabelKey: "advisory.action.open_dns",
-				Method:   "POST",
-				Path:     "/v1/credentials",
+				LabelKey:   "advisory.action.open_dns",
+				Navigation: NavigationCredentials,
 			},
 		})
 	}
@@ -161,12 +179,18 @@ func Evaluate(in Input) []Advisory {
 				},
 			})
 		}
+		// 邮箱与 DNS 凭据都要用户自己填，内核替不了 —— 因此这两个给的是
+		// 跳转动作而不是 API 调用。
 		if in.ACMEEmail == "" {
 			out = append(out, Advisory{
 				ID:        "acme_email_missing",
 				Severity:  SeverityBlocking,
 				TitleKey:  "advisory.acme_email_missing.title",
 				DetailKey: "advisory.acme_email_missing.detail",
+				Action: &Action{
+					LabelKey:   "advisory.action.open_settings",
+					Navigation: NavigationSettings,
+				},
 			})
 		}
 		if in.ACMECredentialID == "" {
@@ -175,6 +199,10 @@ func Evaluate(in Input) []Advisory {
 				Severity:  SeverityBlocking,
 				TitleKey:  "advisory.acme_credential_missing.title",
 				DetailKey: "advisory.acme_credential_missing.detail",
+				Action: &Action{
+					LabelKey:   "advisory.action.open_settings",
+					Navigation: NavigationSettings,
+				},
 			})
 		}
 	}
@@ -264,16 +292,18 @@ func Evaluate(in Input) []Advisory {
 					DetailArgs: []any{domain.CertError},
 				})
 			case domain.CertPresent && domain.CertNeedsRenew:
-				key := "advisory.cert_expiring.detail"
+				// 用测试环境签出来的证书**不被浏览器信任**，而用户在界面上
+				// 只会看到"证书无效"。因此这一条的正文要单独说清楚。
+				detailKey := "advisory.cert_expiring.detail"
 				if domain.CertStaging {
-					key = "advisory.cert_staging.detail"
+					detailKey = "advisory.cert_staging.detail"
 				}
 				out = append(out, Advisory{
 					ID:        "cert_expiring:" + domain.Name,
 					Severity:  SeverityWarning,
 					TitleKey:  "advisory.cert_expiring.title",
 					TitleArgs: []any{domain.Name},
-					DetailKey: key,
+					DetailKey: detailKey,
 				})
 			}
 		}

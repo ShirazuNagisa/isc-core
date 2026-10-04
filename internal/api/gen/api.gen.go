@@ -35,6 +35,30 @@ func (e AdvisorySeverity) Valid() bool {
 	}
 }
 
+// Defines values for AdvisoryActionNavigation.
+const (
+	AdvisoryActionNavigationCredentials AdvisoryActionNavigation = "credentials"
+	AdvisoryActionNavigationDdns        AdvisoryActionNavigation = "ddns"
+	AdvisoryActionNavigationServices    AdvisoryActionNavigation = "services"
+	AdvisoryActionNavigationSettings    AdvisoryActionNavigation = "settings"
+)
+
+// Valid indicates whether the value is a known member of the AdvisoryActionNavigation enum.
+func (e AdvisoryActionNavigation) Valid() bool {
+	switch e {
+	case AdvisoryActionNavigationCredentials:
+		return true
+	case AdvisoryActionNavigationDdns:
+		return true
+	case AdvisoryActionNavigationServices:
+		return true
+	case AdvisoryActionNavigationSettings:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppHealth.
 const (
 	AppHealthHealthy   AppHealth = "healthy"
@@ -679,11 +703,19 @@ type AdvisorySeverity string
 
 // AdvisoryAction defines model for AdvisoryAction.
 type AdvisoryAction struct {
-	Body   *map[string]interface{} `json:"body,omitempty"`
-	Label  string                  `json:"label"`
-	Method string                  `json:"method"`
-	Path   string                  `json:"path"`
+	Body  *map[string]interface{} `json:"body,omitempty"`
+	Label string                  `json:"label"`
+
+	// Method 与 path 一起构成一次 API 调用；与 navigation 互斥。
+	Method *string `json:"method,omitempty"`
+
+	// Navigation 跳转到界面上的某个位置，而不是发请求。与 method/path 互斥。
+	Navigation *AdvisoryActionNavigation `json:"navigation,omitempty"`
+	Path       *string                   `json:"path,omitempty"`
 }
+
+// AdvisoryActionNavigation 跳转到界面上的某个位置，而不是发请求。与 method/path 互斥。
+type AdvisoryActionNavigation string
 
 // AdvisoryList defines model for AdvisoryList.
 type AdvisoryList struct {

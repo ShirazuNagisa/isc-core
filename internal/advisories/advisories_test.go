@@ -190,3 +190,73 @@ func TestUnknownRuntimeKindDoesNotRaiseAdvice(t *testing.T) {
 		t.Fatalf("an unknown kind must not be reported as missing: %#v", got)
 	}
 }
+
+// 一个动作必须是**恰好一种**形态：要么跳转，要么一次 API 调用。
+//
+// 这条约束是补出来的：早先只有 API 调用一种形态，于是纯导航的建议只能伪装成
+// `POST /v1/credentials`，而它不带请求体，内核返回 400 —— 界面上就是一个
+// 点下去必然报错的按钮。两种形态混在一个结构里，就必须有人保证不会同时出现。
+func TestActionsAreExactlyOneKind(t *testing.T) {
+	full := Input{
+		ProxyEnabled:     false,
+		ACMEEmail:        "",
+		ACMECredentialID: "",
+		HasDNSCredential: false,
+		Apps: []AppState{
+			{ID: "a", Name: "A", State: "failed", Kind: "node", LastError: "boom"},
+			{ID: "b", Name: "B", State: "stopped", Kind: "node"},
+		},
+		AvailableRuntimes: map[string]bool{"node": false},
+		DDNSTasks:         []DDNSTaskState{{ID: "t", Label: "T", Enabled: true, LastStatus: "failed"}},
+	}
+
+	seen := 0
+	for _, advisory := range Evaluate(full) {
+		action := advisory.Action
+		if action == nil {
+			continue
+		}
+		seen++
+		if action.LabelKey == "" {
+			t.Errorf("%s: an action without a label cannot be rendered", advisory.ID)
+		}
+		hasNavigation := action.Navigation != ""
+		hasCall := action.Method != "" || action.Path != ""
+		switch {
+		case hasNavigation && hasCall:
+			t.Errorf("%s: an action must be either a navigation or a call, not both", advisory.ID)
+		case !hasNavigation && action.Method == "":
+			t.Errorf("%s: a call action needs a method", advisory.ID)
+		case !hasNavigation && action.Path == "":
+			t.Errorf("%s: a call action needs a path", advisory.ID)
+		}
+		if hasNavigation {
+			switch action.Navigation {
+			case NavigationCredentials, NavigationSettings, NavigationDDNS, NavigationServices:
+			default:
+				t.Errorf("%s: unknown navigation target %q", advisory.ID, action.Navigation)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatalf("the fixture produced no actions at all, so nothing was checked")
+	}
+}
+
+// 首次引导给的是**跳转**而不是一次写得不对的请求。
+func TestFirstRunSetupNavigatesInsteadOfCallingAnEndpoint(t *testing.T) {
+	got := Evaluate(Input{})
+	if len(got) != 1 || got[0].ID != "first_run_setup" {
+		t.Fatalf("unexpected advice for a bare kernel: %#v", got)
+	}
+	action := got[0].Action
+	if action == nil {
+		t.Fatalf("the first-run advice should come with somewhere to go")
+	}
+	if action.Navigation != NavigationCredentials {
+		t.Fatalf("navigation = %q, want %q", action.Navigation, NavigationCredentials)
+	}
+	if action.Method != "" || action.Path != "" {
+		t.Fatalf("a navigation action must not also be an API call: %#v", action)
+	}
+}
