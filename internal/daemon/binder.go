@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ShirazuNagisa/isc-core/internal/apps"
+	"github.com/ShirazuNagisa/isc-core/internal/ddns"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 )
 
@@ -26,10 +27,139 @@ type appBinder struct {
 	manager *proxy.Manager
 	routes  proxy.RouteStore
 	log     *slog.Logger
+	// tasks 是动态解析服务；为空表示这台内核没有它（库的使用者可以只要
+	// 反代那部分能力），此时解析维护整段跳过。
+	tasks *ddns.Service
+	// dnsCredential 返回"做 DNS 操作该用哪个凭据"。
+	//
+	// 用的是设置里的 ACME DNS 凭据：用户已经在那里指定过一次"这是我的
+	// DNS 凭据"，再让他指定第二次没有道理。
+	dnsCredential func(context.Context) string
 }
 
-func newAppBinder(manager *proxy.Manager, log *slog.Logger) *appBinder {
-	return &appBinder{manager: manager, routes: manager.RouteStore(), log: log}
+func newAppBinder(manager *proxy.Manager, tasks *ddns.Service, dnsCredential func(context.Context) string, log *slog.Logger) *appBinder {
+	return &appBinder{
+		manager: manager, routes: manager.RouteStore(),
+		tasks: tasks, dnsCredential: dnsCredential, log: log,
+	}
+}
+
+// EnsureDNS 保证这些域名有动态解析在维护。
+//
+// # 为什么部署时要顺手做这件事
+//
+// 只配反向代理的话，域名指向的是**配置那一刻**的本机地址。家宽的地址会变
+// （IPv6 前缀重拨就换），于是"站点发布成功了，第二天打不开"。用户没有理由
+// 知道这两件事要分别配置。
+//
+// 复用已有任务而不是每次新建：同一个域名被两个任务同时更新会互相打架，
+// 而任务列表也会变得没法看。
+func (b *appBinder) EnsureDNS(ctx context.Context, app apps.App) (string, error) {
+	if b.tasks == nil || len(app.Domains) == 0 {
+		return "", nil
+	}
+	credentialID := ""
+	if b.dnsCredential != nil {
+		credentialID = b.dnsCredential(ctx)
+	}
+	if credentialID == "" {
+		// 没有可用的 DNS 凭据：这不是失败，只是这件事现在做不了。
+		return "", nil
+	}
+
+	tasks, err := b.tasks.List(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// 已经有任务在管这些域名时，把缺的域名补进去就好。
+	for _, task := range tasks {
+		if !coversAny(task, app.Domains) {
+			continue
+		}
+		missing := missingDomains(task, app.Domains)
+		if len(missing) == 0 {
+			return task.ID, nil
+		}
+		task.IPv4.Domains = append(task.IPv4.Domains, missing...)
+		if task.IPv6.Enable {
+			task.IPv6.Domains = append(task.IPv6.Domains, missing...)
+		}
+		if _, err := b.tasks.Update(ctx, task.ID, task); err != nil {
+			return "", err
+		}
+		return task.ID, nil
+	}
+
+	// 两种记录类型都开：内核的地址快照会过滤掉不能用于公网的地址，
+	// 因此没有可用 IPv4 时它不会硬写一个私网地址进去。
+	created, err := b.tasks.Create(ctx, ddns.Task{
+		CredentialID: credentialID,
+		Label:        app.Name,
+		Enabled:      true,
+		IPv4:         ddns.Source{Enable: true, GetType: ddns.GetTypeNetInterface, Domains: app.Domains},
+		IPv6:         ddns.Source{Enable: true, GetType: ddns.GetTypeNetInterface, Domains: app.Domains},
+	})
+	if err != nil {
+		return "", err
+	}
+	return created.ID, nil
+}
+
+// RemoveDNS 撤销某个域名的动态解析。
+func (b *appBinder) RemoveDNS(ctx context.Context, app apps.App, domain string) error {
+	if b.tasks == nil || app.DDNSTaskID == "" {
+		return nil
+	}
+	tasks, err := b.tasks.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.ID != app.DDNSTaskID {
+			continue
+		}
+		task.IPv4.Domains = removeDomain(task.IPv4.Domains, domain)
+		task.IPv6.Domains = removeDomain(task.IPv6.Domains, domain)
+		// 一个域名都不剩的任务什么也不做，留着只会让列表变脏。
+		if len(task.IPv4.Domains) == 0 && len(task.IPv6.Domains) == 0 {
+			return b.tasks.Delete(ctx, task.ID)
+		}
+		_, err := b.tasks.Update(ctx, task.ID, task)
+		return err
+	}
+	return nil
+}
+
+func coversAny(task ddns.Task, domains []string) bool {
+	for _, want := range domains {
+		if containsHost(task.IPv4.Domains, want) || containsHost(task.IPv6.Domains, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingDomains(task ddns.Task, domains []string) []string {
+	out := make([]string, 0, len(domains))
+	for _, want := range domains {
+		if containsHost(task.IPv4.Domains, want) || containsHost(task.IPv6.Domains, want) {
+			continue
+		}
+		out = append(out, want)
+	}
+	return out
+}
+
+func removeDomain(domains []string, drop string) []string {
+	out := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		if strings.EqualFold(strings.TrimSpace(domain), drop) {
+			continue
+		}
+		out = append(out, domain)
+	}
+	return out
 }
 
 // EnsureRoute 保证 domain 指向该应用的本地端口。幂等。

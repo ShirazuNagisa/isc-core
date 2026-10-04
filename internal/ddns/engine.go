@@ -340,12 +340,21 @@ func (e *Engine) addrFromMonitor(ctx context.Context, src Source, wantIPv6 bool)
 		return ""
 	}
 
+	// Value 为空表示"自动挑一个"。
+	//
+	// 网卡名因机器而异（en0 / eth0 / 一堆 utun），而用户没有理由知道自己的
+	// 是哪个 —— 要求他填一个猜出来的名字，结果是首次配置必然失败一次。
+	// 自动挑时的规则是"第一个能给出可用地址的网卡"，快照本身已经过滤掉了
+	// 链路本地与 ULA，因此这里挑出来的地址是可以写进 DNS 的。
 	for _, iface := range snapshot {
-		if iface.Name != src.Value {
+		if src.Value != "" && iface.Name != src.Value {
 			continue
 		}
 		if wantIPv6 {
-			return selectIPv6(iface.GlobalIPv6(), src.Selector)
+			if addr := selectIPv6(iface.GlobalIPv6(), src.Selector); addr != "" {
+				return addr
+			}
+			continue
 		}
 		if len(iface.IPv4) > 0 {
 			return iface.IPv4[0].String()

@@ -141,6 +141,18 @@ type Binder interface {
 	// 带上 app 是为了**只**撤销属于它的规则：同一个域名可能被用户手工
 	// 配过一条指向别处的规则，删应用时把它一并删掉是越权。
 	RemoveRoute(ctx context.Context, app App, domain string) error
+
+	// EnsureDNS 保证这些域名有动态解析在维护，返回任务 id。
+	//
+	// 没有可用的 DNS 凭据时返回空 id 与 nil 错误：那不是失败，只是这件事
+	// 现在做不了（建议引擎会说明原因）。
+	EnsureDNS(ctx context.Context, app App) (string, error)
+
+	// RemoveDNS 撤销某个域名的动态解析。
+	//
+	// 与 RemoveRoute 同理，只动这个应用相关的部分：任务上可能还有别的
+	// 域名在靠它更新。
+	RemoveDNS(ctx context.Context, app App, domain string) error
 }
 
 // Store 是应用的持久化后端。

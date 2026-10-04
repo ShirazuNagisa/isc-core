@@ -155,7 +155,10 @@ func (t Task) Validate() error {
 		if !s.GetType.Valid() {
 			return ErrBadGetType
 		}
-		if strings.TrimSpace(s.Value) == "" {
+		// netInterface 允许留空：留空表示自动挑一个能给出可用地址的网卡
+		// （见 Engine.addrFromMonitor）。url 与 cmd 没有可推断的默认值，
+		// 因此仍然要求填写。
+		if s.GetType != GetTypeNetInterface && strings.TrimSpace(s.Value) == "" {
 			return ErrSourceValueEmpty
 		}
 		if len(NormalizeDomains(s.Domains)) == 0 {
@@ -186,10 +189,18 @@ func NormalizeDomains(in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, d := range in {
 		d = strings.TrimSpace(d)
-		if d == "" || seen[d] {
+		if d == "" {
 			continue
 		}
-		seen[d] = true
+		// 去重按**不区分大小写**：DNS 名字本来就不区分大小写，把
+		// `A.example.com` 与 `a.example.com` 当成两个域名，会让同一个地址
+		// 被写两遍 —— 多一次 API 调用，还可能撞上服务商限流。
+		key := strings.ToLower(d)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		// 保留用户第一次写下的那个拼写。
 		out = append(out, d)
 	}
 	return out

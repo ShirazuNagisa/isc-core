@@ -364,6 +364,15 @@ func (m *Manager) bind(ctx context.Context, app *App) {
 		}
 	}
 	app.RouteID = routeID
+
+	// 解析也要跟着走：家宽的地址会变，只配反代的话域名很快会指向一个
+	// 早就不是本机的地址。这一步同样是尽力而为的 —— 没有 DNS 凭据时
+	// 它什么也不做，而不是把部署判成失败。
+	if taskID, err := m.binder.EnsureDNS(ctx, *app); err != nil {
+		m.log.Warn("could not set up dynamic DNS for the app", "app_id", app.ID, "err", err)
+	} else if taskID != "" {
+		app.DDNSTaskID = taskID
+	}
 	_ = m.persist(ctx, *app)
 }
 
@@ -821,6 +830,9 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		for _, domain := range app.Domains {
 			if err := m.binder.RemoveRoute(ctx, app, domain); err != nil {
 				m.log.Warn("could not remove a public binding", "app_id", id, "domain", domain, "err", err)
+			}
+			if err := m.binder.RemoveDNS(ctx, app, domain); err != nil {
+				m.log.Warn("could not remove the dynamic-DNS entry", "app_id", id, "domain", domain, "err", err)
 			}
 		}
 	}

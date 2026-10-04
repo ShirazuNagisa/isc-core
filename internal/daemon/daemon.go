@@ -432,8 +432,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// 托管站点（D25）：静态站点由内核自己托管，其余走平台进程控制。
 	d.apps = appsvc.NewManager(appsvc.Deps{
-		Store:     st.Apps(),
-		Binder:    newAppBinder(d.proxyMgr, d.log),
+		Store: st.Apps(),
+		Binder: newAppBinder(d.proxyMgr, d.tasks, func(context.Context) string {
+			if d.settings != nil {
+				return d.settings.Get().ACMEDNSCredentialID
+			}
+			return ""
+		}, d.log),
 		Runtimes:  d.runtimes,
 		Processes: d.bundle.Processes,
 		Logs:      appsvc.NewLogStore(filepath.Join(d.opts.Paths.LogDir(), "apps")),
