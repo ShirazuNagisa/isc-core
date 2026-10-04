@@ -561,7 +561,7 @@ func (m *Manager) startWithRestarts(ctx context.Context, app *App, progress func
 	app.Health = HealthStarting
 	app.HealthDetail = ""
 	app.RestartCount = restarts
-	inst.app = *app
+	m.updateInstance(app.ID, *app)
 	if err := m.persist(ctx, *app); err != nil {
 		return err
 	}
@@ -578,7 +578,7 @@ func (m *Manager) startWithRestarts(ctx context.Context, app *App, progress func
 	}
 
 	app.Health = HealthHealthy
-	inst.app = *app
+	m.updateInstance(app.ID, *app)
 	if err := m.persist(ctx, *app); err != nil {
 		return err
 	}
@@ -622,8 +622,10 @@ func (m *Manager) startStatic(inst *instance) error {
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	m.mu.Lock()
 	inst, ok := m.running[id]
+	var snapshot App
 	if ok {
 		inst.stopRequested.Store(true)
+		snapshot = inst.app
 		delete(m.running, id)
 	}
 	m.mu.Unlock()
@@ -645,7 +647,7 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	}
 	m.stopInstance(inst)
 
-	app := inst.app
+	app := snapshot
 	app.State = StateStopped
 	app.Health = HealthUnknown
 	app.HealthDetail = ""
@@ -673,6 +675,29 @@ func (m *Manager) stopInstance(inst *instance) {
 			<-inst.process.Done()
 		}
 	}
+}
+
+// updateInstance 在锁内刷新实例上的应用快照。
+//
+// `inst.app` 是 Get/List 用来报告**实时**状态的副本，因此它的每一次写入都
+// 必须与那些读取用同一把锁 —— 否则 -race 会（也确实）在这里报出竞争。
+func (m *Manager) updateInstance(id string, app App) {
+	m.mu.Lock()
+	if inst, ok := m.running[id]; ok {
+		inst.app = app
+	}
+	m.mu.Unlock()
+}
+
+// instanceSnapshot 在锁内取一份实例上的应用快照。
+func (m *Manager) instanceSnapshot(id string) (App, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inst, ok := m.running[id]
+	if !ok {
+		return App{}, false
+	}
+	return inst.app, true
 }
 
 // teardown 停掉一个实例的进程/服务器并把它从运行表里摘掉。
@@ -713,7 +738,11 @@ func (m *Manager) supervise(app App, inst *instance) {
 		m.mu.Lock()
 		delete(m.running, app.ID)
 		m.mu.Unlock()
-		failed := inst.app
+		failed, ok := m.instanceSnapshot(app.ID)
+		if !ok {
+			// 已经被替换掉（例如重启期间又被停了一次）：不该把它置为失败。
+			failed = app
+		}
 		failed.State = StateFailed
 		failed.Health = HealthUnhealthy
 		failed.LastError = reason
@@ -737,7 +766,10 @@ func (m *Manager) supervise(app App, inst *instance) {
 		return
 	}
 
-	restarting := inst.app
+	restarting, ok := m.instanceSnapshot(app.ID)
+	if !ok {
+		restarting = app
+	}
 	restarting.State = StateStarting
 	_ = m.persist(context.Background(), restarting)
 
