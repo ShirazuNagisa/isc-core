@@ -149,48 +149,34 @@ func (d *Downloader) maxBytes() int64 {
 	return DefaultMaxBytes
 }
 
-// Download 把 url 下载到 dest，并在写入过程中校验 wantSHA256。
+// maxDownloadAttempts 是单个产物的下载尝试次数。
+//
+// 运行时都是几十到几百 MB，而家用网络的连接会中途断掉 —— 实测一个
+// 200 MB 的 JDK 下到 69% 被掐断。没有续传的话，前面十几分钟全部作废，
+// 用户看到的是"装不上运行时"，而网络其实一直是通的。
+const maxDownloadAttempts = 5
+
+// Download 把 url 下载到 dest，并在写入过程中校验 want。
 //
 // 语义要点：
 //
 //   - 只接受 **https**（本机回环上的测试服务除外，见 allowInsecure）；
 //   - 内容先写 dest+".part"，校验通过才改名到 dest —— 中断或校验失败
 //     都不会在目标位置留下一个看似完整的文件；
-//   - 摘要不符时**删除**已下载内容并返回 ErrChecksumMismatch，
-//     不做"重试时复用半个文件"这种优化（那会引入新的失败模式）。
+//   - 传输中断**保留**已下载的部分，下次带 Range 续传：文件大、链路差时
+//     这是"能不能装上"和"装不上"的区别；
+//   - 摘要不符时删除全部内容并返回 ErrChecksumMismatch，绝不把半个文件
+//     当成完整的用 —— 续传的前提是最终整份校验，而不是相信分片。
 //
 // 返回值为写入的字节数。
 func (d *Downloader) Download(ctx context.Context, rawURL string, want Digest, dest string) (int64, error) {
 	if err := validateURL(rawURL); err != nil {
 		return 0, err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := d.client().Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("%w: %s returned %s", ErrBadStatus, rawURL, resp.Status)
-	}
-	total := resp.ContentLength
-	if total > d.maxBytes() {
-		return 0, fmt.Errorf("%w: %d bytes announced, limit is %d", ErrTooLarge, total, d.maxBytes())
-	}
-
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return 0, err
 	}
 	partial := dest + ".part"
-	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return 0, err
-	}
 
 	var hasher hash.Hash
 	if want.Algorithm == "sha512" {
@@ -198,8 +184,100 @@ func (d *Downloader) Download(ctx context.Context, rawURL string, want Digest, d
 	} else {
 		hasher = sha256.New()
 	}
+
 	var written int64
-	// copyErr 单独保存：即使拷贝失败也要先把文件关掉再返回。
+	var lastErr error
+	for attempt := 1; attempt <= maxDownloadAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			_ = os.Remove(partial)
+			return written, err
+		}
+		transient, err := d.fetch(ctx, rawURL, partial, hasher, &written)
+		if err == nil {
+			return written, d.finish(partial, dest, want, hasher, written)
+		}
+		lastErr = err
+		if !transient {
+			_ = os.Remove(partial)
+			return written, err
+		}
+		if attempt < maxDownloadAttempts {
+			select {
+			case <-ctx.Done():
+				_ = os.Remove(partial)
+				return written, ctx.Err()
+			case <-time.After(time.Duration(attempt) * 2 * time.Second):
+			}
+		}
+	}
+	_ = os.Remove(partial)
+	return written, fmt.Errorf("download failed after %d attempts: %w", maxDownloadAttempts, lastErr)
+}
+
+// finish 校验摘要并把临时文件改名到位。
+func (d *Downloader) finish(partial, dest string, want Digest, hasher hash.Hash, written int64) error {
+	got := hex.EncodeToString(hasher.Sum(nil))
+	if got != want.Hex {
+		_ = os.Remove(partial)
+		return fmt.Errorf("%w: expected %s, got %s:%s", ErrChecksumMismatch, want, want.Algorithm, got)
+	}
+	// 改名是原子的：目标路径要么不存在，要么就是校验通过的完整内容。
+	if err := os.Rename(partial, dest); err != nil {
+		_ = os.Remove(partial)
+		return err
+	}
+	return nil
+}
+
+// fetch 发起一次下载尝试，从 written 处续传。
+//
+// 返回的 transient 表示"这个失败值得再试一次"（链路问题），而不是
+// 服务端明确拒绝或内容确实不对。
+func (d *Downloader) fetch(ctx context.Context, rawURL, partial string, hasher hash.Hash, written *int64) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return false, err
+	}
+	if *written > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", *written))
+	}
+	resp, err := d.client().Do(req)
+	if err != nil {
+		return true, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// 408/429/5xx 是"稍后再来"，其余是明确拒绝。
+		retry := resp.StatusCode == http.StatusRequestTimeout ||
+			resp.StatusCode == http.StatusTooManyRequests ||
+			resp.StatusCode >= 500
+		return retry, fmt.Errorf("%w: %s returned %s", ErrBadStatus, rawURL, resp.Status)
+	}
+
+	// 服务端不支持 Range（回了 200 而不是 206）就只能从头来：
+	// 否则会把整份内容接在半截文件后面，得到一份长度翻倍的东西。
+	if *written > 0 && resp.StatusCode != http.StatusPartialContent {
+		*written = 0
+		hasher.Reset()
+	}
+
+	total := *written + resp.ContentLength
+	if resp.ContentLength >= 0 && total > d.maxBytes() {
+		return false, fmt.Errorf("%w: %d bytes announced, limit is %d", ErrTooLarge, total, d.maxBytes())
+	}
+
+	flags := os.O_CREATE | os.O_WRONLY
+	if *written > 0 {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	out, err := os.OpenFile(partial, flags, 0o600)
+	if err != nil {
+		return false, err
+	}
+
 	copyErr := func() error {
 		defer func() { _ = out.Close() }()
 		buf := make([]byte, 128<<10)
@@ -209,8 +287,8 @@ func (d *Downloader) Download(ctx context.Context, rawURL string, want Digest, d
 			}
 			n, readErr := resp.Body.Read(buf)
 			if n > 0 {
-				written += int64(n)
-				if written > d.maxBytes() {
+				*written += int64(n)
+				if *written > d.maxBytes() {
 					return fmt.Errorf("%w: limit is %d", ErrTooLarge, d.maxBytes())
 				}
 				if _, err := out.Write(buf[:n]); err != nil {
@@ -218,7 +296,7 @@ func (d *Downloader) Download(ctx context.Context, rawURL string, want Digest, d
 				}
 				_, _ = hasher.Write(buf[:n])
 				if d.Progress != nil {
-					d.Progress(written, total)
+					d.Progress(*written, *written+resp.ContentLength)
 				}
 			}
 			if readErr == io.EOF {
@@ -231,22 +309,19 @@ func (d *Downloader) Download(ctx context.Context, rawURL string, want Digest, d
 	}()
 
 	if copyErr != nil {
-		_ = os.Remove(partial)
-		return written, copyErr
+		// 刻意**不删** .part：下一次尝试从这里续传。
+		if errors.Is(copyErr, ErrTooLarge) || ctx.Err() != nil {
+			return false, copyErr
+		}
+		return true, copyErr
 	}
-
-	got := hex.EncodeToString(hasher.Sum(nil))
-	if got != want.Hex {
-		_ = os.Remove(partial)
-		return written, fmt.Errorf("%w: expected %s, got %s:%s", ErrChecksumMismatch, want, want.Algorithm, got)
+	// 声明了长度却没给够：这是被截断的响应，续传前不能当作完成。
+	if resp.ContentLength >= 0 && resp.ContentLength > 0 {
+		if got := *written; got < total {
+			return true, fmt.Errorf("%w: got %d of %d bytes", io.ErrUnexpectedEOF, got, total)
+		}
 	}
-
-	// 改名是原子的：目标路径要么不存在，要么就是校验通过的完整内容。
-	if err := os.Rename(partial, dest); err != nil {
-		_ = os.Remove(partial)
-		return written, err
-	}
-	return written, nil
+	return false, nil
 }
 
 // validateURL 只放行 https。
