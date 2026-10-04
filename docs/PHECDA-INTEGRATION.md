@@ -77,6 +77,26 @@ recorded honestly rather than dressed up as an upstream checksum, and it still b
 something real: every later provision must produce byte-identical content or it fails
 loudly instead of silently installing something else.
 
+### Re-verifying a pinned entry
+
+Two things about a manifest entry can rot without any test failing: the URL stops serving, and
+the archive's *layout* changes (so `Executable` points at nothing). Both are cheap to check
+without pulling hundreds of megabytes:
+
+```bash
+# 1. Header only: does the URL still serve, and what do the first entries look like?
+curl -sSL -r 0-200000 <url> -o head.tar.gz
+tar -tzf head.tar.gz | head -20          # truncated gzip; the error at the end is expected
+
+# 2. Full pull, digest check (what the kernel itself does)
+curl -sSL <url> -o full.tar.gz && shasum -a 256 full.tar.gz
+```
+
+Verified on 2026-10-04 by that method: Go wraps everything in `go/` and .NET SDK has **no**
+wrapper directory (its first entry is `./dotnet`), Temurin wraps in `jdk-21.0.12.1+1/` with the
+JDK under `Contents/Home/`. Python and PHP were verified end to end instead — Python was
+downloaded, verified and deployed, PHP re-downloaded byte-identical to its pinned digest.
+
 A runtime is only treated as "installed by the kernel" when the directory carries a marker
 file naming its kind, version and digest. A directory the user placed there by hand is
 neither used nor deleted.
