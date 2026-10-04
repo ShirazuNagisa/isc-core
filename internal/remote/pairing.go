@@ -70,10 +70,13 @@ type PairingSession struct {
 	Role  Role
 	Label string
 
-	// Secret 是二维码里携带的高熵配对密钥（base64url）。
+	// Secret 是二维码/配对链接里携带的高熵配对密钥（base64url）。
+	//
+	// 它是**唯一**的配对凭证。以前还有一条六位码的手输路径，已删除：
+	// 六位码只有约 10 亿种可能，靠按来源锁定兜底，而它携带不了任何
+	// 身份信息（所以那时必须让用户人工比对公钥指纹）。二维码与链接
+	// 两条路都自带指纹，人工比对那一步因此也一并消失了。
 	Secret string
-	// Code 是给用户手输的六位码。
-	Code string
 
 	CreatedAt time.Time
 	ExpiresAt time.Time
@@ -98,25 +101,49 @@ type pairingManager struct {
 	// 立刻建一个新的"这条路径不会因为时序而在两个请求之间互相踩。
 	sessions map[string]*pairingEntry
 
-	// consecutive 是跨会话的连续失败次数。
+	// failures 是**按来源**统计的跨会话连续失败次数。
 	//
 	// 单个会话限制 5 次是不够的：攻击者可以让每个会话只失败 4 次，
 	// 然后等它过期再开一个新的 —— 那样单会话计数永远不触发。
 	// 跨会话的计数才是真正拦住枚举的那一道。
-	consecutive int
+	//
+	// # 为什么必须是按来源，而不是一个全局计数
+	//
+	// 全局计数在局域网上是对的（来源就那么几个，锁了就是锁了）。
+	// 一旦内核被暴露在公网上，它立刻变成**拒绝服务**：任何一个路人
+	// 反复输错十次，就能把真正的用户锁在门外十五分钟，而且可以
+	// 一直锁下去。
+	//
+	// 按来源之后，攻击者只能把自己锁住。
+	//
+	// 那"分布式枚举"怎么办？靠的是**别处**已经有的那道闸：
+	// 任何一个来源的失败都会销毁当前会话（见 recordFailureLocked），
+	// 因此无论多少个来源同时猜，一个会话总共只接受 5 次猜测 ——
+	// 而 5 / 32^6 约等于 1e-8。会话销毁与会话计数都是全局的，
+	// 而它们才是真正决定枚举成本的东西。
+	failures map[string]*sourceFailures
+}
+
+// sourceFailures 是一个来源的失败计数与锁定时间。
+type sourceFailures struct {
+	count       int
 	lockedUntil time.Time
+	last        time.Time
 }
 
 func newPairingManager() *pairingManager {
-	return &pairingManager{sessions: map[string]*pairingEntry{}}
+	return &pairingManager{
+		sessions: map[string]*pairingEntry{},
+		failures: map[string]*sourceFailures{},
+	}
 }
 
 // start 开一个新会话。已有未过期的会话时返回 ErrPairingConflict。
-func (m *pairingManager) start(role Role, label string, now time.Time) (PairingSession, error) {
+func (m *pairingManager) start(role Role, label, source string, now time.Time) (PairingSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.locked(now) {
+	if m.lockedFrom(source, now) {
 		return PairingSession{}, ErrPairingLocked
 	}
 	m.expireLocked(now)
@@ -132,17 +159,11 @@ func (m *pairingManager) start(role Role, label string, now time.Time) (PairingS
 	if err != nil {
 		return PairingSession{}, err
 	}
-	code, err := randomPairingCode()
-	if err != nil {
-		return PairingSession{}, err
-	}
-
 	session := PairingSession{
 		ID:        id,
 		Role:      role,
 		Label:     label,
 		Secret:    secret,
-		Code:      code,
 		CreatedAt: now,
 		ExpiresAt: now.Add(PairingTTL),
 	}
@@ -177,8 +198,25 @@ func (m *pairingManager) current(now time.Time) (PairingSession, bool) {
 // locked 报告配对是否处于锁定状态。
 //
 // 调用方必须已持有 m.mu。
-func (m *pairingManager) locked(now time.Time) bool {
-	return now.Before(m.lockedUntil)
+// lockedFrom 报告某个来源现在是否被锁。
+//
+// 注意 `lockedUntil` 的**零值**要单独判：`time.Time{}` 是公元 1 年，
+// 而 `now.After(零值)` 永远为真 —— 少了这个判断，"锁到期就清零"
+// 会在每一次失败上触发，计数器永远到不了阈值，
+// **整个锁定功能静默失效**。
+func (m *pairingManager) lockedFrom(source string, now time.Time) bool {
+	entry, ok := m.failures[source]
+	if !ok || entry.lockedUntil.IsZero() {
+		return false
+	}
+	if !now.Before(entry.lockedUntil) {
+		// 锁到期：计数一并清零。不清的话下一次失败会立刻重新锁上，
+		// 于是"锁 15 分钟"变成"锁到世界末日"。
+		entry.count = 0
+		entry.lockedUntil = time.Time{}
+		return false
+	}
+	return true
 }
 
 // expireLocked 清掉已过期的会话。
@@ -196,25 +234,30 @@ func (m *pairingManager) expireLocked(now time.Time) {
 //
 // 成功即销毁会话（一次性）；失败会累计到会话与全局两个计数器上。
 // 返回的会话只用于读取角色与名字。
-func (m *pairingManager) claim(credential string, now time.Time) (PairingSession, error) {
+func (m *pairingManager) claim(credential, source string, now time.Time) (PairingSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.locked(now) {
+	if m.lockedFrom(source, now) {
 		return PairingSession{}, ErrPairingLocked
 	}
 	m.expireLocked(now)
 
 	entry := m.matchLocked(credential)
 	if entry == nil {
-		m.recordFailureLocked(now)
+		m.recordFailureLocked(source, now)
 		return PairingSession{}, ErrPairingMismatch
 	}
 
 	// 命中即销毁：配对码是一次性的。留着一个已经用过的会话会让
 	// "同一个码再扫一次"变成一次静默的重放。
 	delete(m.sessions, entry.session.ID)
-	m.consecutive = 0
+	// 配对成功即清掉这个来源的失败计数：一个人输错两次之后终于输对，
+	// 不该因为那两次而离锁定更近。
+	if entry, ok := m.failures[source]; ok {
+		entry.count = 0
+		entry.lockedUntil = time.Time{}
+	}
 	return entry.session, nil
 }
 
@@ -235,24 +278,17 @@ func (m *pairingManager) matchLocked(credential string) *pairingEntry {
 		}
 	}
 
-	code := NormalizePairingCode(credential)
-	if code == "" {
-		return nil
-	}
-	for _, entry := range m.sessions {
-		if entry.session.Code == code {
-			return entry
-		}
-	}
 	return nil
 }
 
-// recordFailureLocked 记一次失败，必要时把会话销毁或整体锁定。
+// recordFailureLocked 记一次失败，必要时把会话销毁或锁定来源。
 //
 // 调用方必须已持有 m.mu。
-func (m *pairingManager) recordFailureLocked(now time.Time) {
-	m.consecutive++
-
+func (m *pairingManager) recordFailureLocked(source string, now time.Time) {
+	// 会话销毁是**全局**的：任何一个来源猜错都会推进它。
+	//
+	// 这一条才是真正决定枚举成本的：无论攻击者用多少个来源并发猜，
+	// 一个会话总共只接受 5 次猜测，然后就必须让用户重新生成。
 	for id, entry := range m.sessions {
 		entry.failures++
 		if entry.failures >= pairingMaxFailures {
@@ -260,88 +296,66 @@ func (m *pairingManager) recordFailureLocked(now time.Time) {
 		}
 	}
 
-	if m.consecutive >= pairingLockThreshold {
-		m.lockedUntil = now.Add(pairingLockDuration)
-		m.consecutive = 0
+	if m.failures == nil {
+		m.failures = map[string]*sourceFailures{}
+	}
+	entry, ok := m.failures[source]
+	if !ok {
+		// 来源表也要有上限，否则被刷时它会无界增长。
+		// 满了就不再记新来源：那些来源失去的是"被锁定"的能力，
+		// 而它们仍然受令牌桶限流 —— 不会因此变得不受限。
+		if len(m.failures) >= maxTrackedSources {
+			m.sweepFailuresLocked(now)
+			if len(m.failures) >= maxTrackedSources {
+				return
+			}
+		}
+		entry = &sourceFailures{}
+		m.failures[source] = entry
+	}
+	// 锁已经过期：从零开始数，否则会"一次失败立刻重新锁上"。
+	// 同样要判零值 —— 见 lockedFrom 的说明。
+	if !entry.lockedUntil.IsZero() && !now.Before(entry.lockedUntil) {
+		entry.count = 0
+		entry.lockedUntil = time.Time{}
+	}
+	entry.count++
+	entry.last = now
+
+	if entry.count >= pairingLockThreshold {
+		entry.lockedUntil = now.Add(pairingLockDuration)
+		entry.count = 0
 	}
 }
 
-// 跨会话连续失败达到这个次数就锁定。
+// sweepFailuresLocked 丢掉很久没有活动的来源记录。
+//
+// 调用方必须已持有 m.mu。
+func (m *pairingManager) sweepFailuresLocked(now time.Time) {
+	for source, entry := range m.failures {
+		if now.Sub(entry.last) > sourceIdleTTL && now.After(entry.lockedUntil) {
+			delete(m.failures, source)
+		}
+	}
+}
+
+// 跨会话连续失败达到这个次数就锁定**该来源**。
 //
 // 10 次：正常用户输错两次就会去重新生成二维码，而这个阈值给真正的
 // 手误留足了余量（六位码有 32^6 种，10 次猜测的成功概率约 1e-8）。
 const pairingLockThreshold = 10
+
+// maxTrackedSources 是按来源记账表的容量上限。
+const maxTrackedSources = 4096
+
+// sourceIdleTTL 是来源记录的保留时长。
+const sourceIdleTTL = 30 * time.Minute
 
 // pairingLockDuration 是锁定时长。
 //
 // 十五分钟：它比一个人愿意对着手机反复输码的时间长，又比"明天再试"
 // 短得多 —— 锁定的目的是让枚举在时间上不可行，不是惩罚用户。
 const pairingLockDuration = 15 * time.Minute
-
-// newPairingCode 生成一个六位配对码。
-func newPairingCode() string {
-	raw := make([]byte, pairingCodeLength)
-	if _, err := rand.Read(raw); err != nil {
-		return ""
-	}
-	out := make([]byte, pairingCodeLength)
-	for i, b := range raw {
-		// 256 % 32 == 0，因此取模是均匀的，不需要拒绝采样。
-		out[i] = pairingCodeAlphabet[int(b)%len(pairingCodeAlphabet)]
-	}
-	return string(out)
-}
-
-// randomPairingCode 生成配对码并处理随机源失败。
-func randomPairingCode() (string, error) {
-	code := newPairingCode()
-	if code == "" {
-		return "", errors.New(i18n.T("remote.err.random"))
-	}
-	return code, nil
-}
-
-// NormalizePairingCode 把用户输入的配对码规范化。
-//
-// 规则（Crockford base32 的标准纠错）：
-//
-//   - 去掉空白与连字符 —— 用户会照着屏幕上的分组念，敲进来时常带分隔符；
-//   - 转大写 —— 手机键盘默认可能是小写；
-//   - `I`/`L` → `1`，`O` → `0`。字母表里没有这几个字符，因此这条映射
-//     **不可能把一个合法的码改坏**，只可能救回一个读错的码。
-//
-// 含有字母表之外字符的输入返回空串，由调用方当作"格式不对"处理：
-// 与其猜用户想输入什么，不如让他重新看一眼屏幕。
-func NormalizePairingCode(input string) string {
-	var b strings.Builder
-	b.Grow(len(input))
-	for _, r := range input {
-		switch {
-		case r == ' ' || r == '\t' || r == '\n' || r == '-' || r == '_':
-			continue
-		case r == 'I' || r == 'L' || r == 'i' || r == 'l':
-			// 小写 i/l 与数字 1 在多数无衬线字体里几乎一样。
-			b.WriteByte('1')
-		case r == 'O' || r == 'o':
-			b.WriteByte('0')
-		case r >= 'a' && r <= 'z':
-			b.WriteByte(byte(r - 'a' + 'A'))
-		default:
-			b.WriteRune(r)
-		}
-	}
-
-	out := b.String()
-	if len(out) != pairingCodeLength {
-		return ""
-	}
-	for i := 0; i < len(out); i++ {
-		if !strings.ContainsRune(pairingCodeAlphabet, rune(out[i])) {
-			return ""
-		}
-	}
-	return out
-}
 
 // randomID 生成一个 n 字节随机数的 base64url 文本。
 func randomID(n int) (string, error) {

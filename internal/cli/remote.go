@@ -42,6 +42,7 @@ func newRemoteCmd(app *App) *cobra.Command {
 		newRemoteRevokeCmd(app),
 		newRemoteLogCmd(app),
 		newRemoteApnsCmd(app),
+		newRemotePublicCmd(app),
 		newRemoteTestPushCmd(app),
 	)
 	return cmd
@@ -447,6 +448,112 @@ func newRemoteTestPushCmd(app *App) *cobra.Command {
 	}
 }
 
+// newRemotePublicCmd 管理公网访问。
+//
+// 与界面走同一批接口（D19）：无头服务端上没有图形界面，而
+// "换一条子域名"或"看看到底通不通"这类事在那儿同样要做。
+func newRemotePublicCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "public",
+		Short: i18n.T("cli.remote.public_short"),
+		Long:  i18n.T("cli.remote.public_long"),
+	}
+
+	status := &cobra.Command{
+		Use:   "status",
+		Short: i18n.T("cli.remote.public_status_short"),
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := signalContext(cmd.Context())
+			defer cancel()
+
+			client, err := app.connect(ctx)
+			if err != nil {
+				return app.fail(cmd, err)
+			}
+			var status gen.RemoteStatus
+			if err := client.getInto(ctx, "/v1/remote/status", &status); err != nil {
+				return app.fail(cmd, err)
+			}
+			if app.jsonOut {
+				return writeJSONOut(app.out, status.Public)
+			}
+			renderPublicStatus(app, status.Public)
+			return nil
+		},
+	}
+
+	sync := &cobra.Command{
+		Use:   "sync",
+		Short: i18n.T("cli.remote.public_sync_short"),
+		Long:  i18n.T("cli.remote.public_sync_long"),
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := signalContext(cmd.Context())
+			defer cancel()
+
+			client, err := app.connect(ctx)
+			if err != nil {
+				return app.fail(cmd, err)
+			}
+			var result gen.RemoteStatus
+			if err := client.postInto(ctx, "/v1/remote/public/sync", nil, &result); err != nil {
+				return app.fail(cmd, err)
+			}
+			if app.jsonOut {
+				return writeJSONOut(app.out, result.Public)
+			}
+			renderPublicStatus(app, result.Public)
+			return nil
+		},
+	}
+
+	off := &cobra.Command{
+		Use:   "off",
+		Short: i18n.T("cli.remote.public_off_short"),
+		Long:  i18n.T("cli.remote.public_off_long"),
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := signalContext(cmd.Context())
+			defer cancel()
+
+			client, err := app.connect(ctx)
+			if err != nil {
+				return app.fail(cmd, err)
+			}
+			if err := client.delete(ctx, "/v1/remote/public"); err != nil {
+				return app.fail(cmd, err)
+			}
+			_, _ = fmt.Fprintln(app.out, i18n.T("cli.remote.public_removed"))
+			return nil
+		},
+	}
+
+	cmd.AddCommand(status, sync, off)
+	return cmd
+}
+
+func renderPublicStatus(app *App, public *gen.RemotePublicStatus) {
+	if public == nil || public.Host == nil || *public.Host == "" {
+		_, _ = fmt.Fprintln(app.out, i18n.T("cli.remote.public_not_ready"))
+		return
+	}
+	_, _ = fmt.Fprintf(app.out, "%s %s\n", i18n.T("cli.remote.public_host"), *public.Host)
+	for _, rtype := range []string{"AAAA", "A"} {
+		if public.Records == nil {
+			break
+		}
+		if value, ok := (*public.Records)[rtype]; ok && value != "" {
+			_, _ = fmt.Fprintf(app.out, "  %-4s %s\n", rtype, value)
+		}
+	}
+	if public.LastCheck != nil && public.LastCheck.Detail != nil {
+		_, _ = fmt.Fprintf(app.out, "%s %s\n", i18n.T("cli.remote.public_verdict"), *public.LastCheck.Detail)
+	} else {
+		_, _ = fmt.Fprintln(app.out, i18n.T("cli.remote.public_unchecked"))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 渲染
 // ---------------------------------------------------------------------------
@@ -492,9 +599,12 @@ func renderPairing(app *App, session gen.PairingSession) {
 	_, _ = fmt.Fprintln(app.out, i18n.T("cli.remote.pair_title"))
 	_, _ = fmt.Fprintln(app.out)
 
-	// 六位码放在最显眼的位置：手输的人要照着一个字符一个字符敲，
-	// 混在别的信息里会看错行。
-	_, _ = fmt.Fprintf(app.out, "    %s\n\n", session.ManualCode)
+	// 配对链接放在最显眼的位置。
+	//
+	// 命令行没有摄像头，所以链接是这里唯一可用的配对载体 ——
+	// 复制它、粘到新设备上即可。它里面装着地址、公钥指纹与密钥三样，
+	// 用户不需要再提供别的东西。
+	_, _ = fmt.Fprintf(app.out, "    %s\n\n", session.QrLink)
 
 	_, _ = fmt.Fprintf(app.out, i18n.T("cli.remote.pair_role")+"\n", session.Role)
 	_, _ = fmt.Fprintf(app.out, i18n.T("cli.remote.pair_expires")+"\n",

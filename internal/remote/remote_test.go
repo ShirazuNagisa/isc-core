@@ -194,88 +194,23 @@ func TestCertificateIsUsableOverTLS(t *testing.T) {
 	}
 }
 
-// TestNormalizePairingCode 覆盖用户会真的打出来的那些输入。
-func TestNormalizePairingCode(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name, in, want string
-	}{
-		{"已规范", "A2B3C4", "A2B3C4"},
-		{"小写", "a2b3c4", "A2B3C4"},
-		{"带连字符", "A2B3-C4", "A2B3C4"},
-		{"带空格", "A2B3 C4", "A2B3C4"},
-		{"字母 I 当成数字 1", "I2B3C4", "12B3C4"},
-		{"字母 L 当成数字 1", "L2B3C4", "12B3C4"},
-		{"字母 O 当成数字 0", "O2B3C4", "02B3C4"},
-		{"长度不足", "A2B3C", ""},
-		{"长度超出", "A2B3C4D", ""},
-		{"含有字母表外的字符", "A2B3C!", ""},
-		{"空串", "", ""},
-		{"只有分隔符", "------", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			if got := NormalizePairingCode(c.in); got != c.want {
-				t.Errorf("NormalizePairingCode(%q) = %q，期望 %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-// TestPairingAlphabetAvoidsLookalikes 钉住字母表本身。
-//
-// 生成端去掉易混字符，是为了让**读**它的人不出错；一旦有人为了
-// "看起来更随机"把 I/L/O/U 加回来，这类错误会立刻回来。
-func TestPairingAlphabetAvoidsLookalikes(t *testing.T) {
-	t.Parallel()
-
-	if len(pairingCodeAlphabet) != 32 {
-		t.Fatalf("字母表长度 = %d，必须是 32（否则取模不再均匀）",
-			len(pairingCodeAlphabet))
-	}
-	for _, bad := range []rune{'I', 'L', 'O', 'U'} {
-		if strings.ContainsRune(pairingCodeAlphabet, bad) {
-			t.Errorf("字母表里不该有 %q", bad)
-		}
-	}
-
-	// 生成的码必须全部落在字母表内，且长度正确。
-	seen := map[rune]bool{}
-	for i := 0; i < 200; i++ {
-		code := newPairingCode()
-		if NormalizePairingCode(code) != code {
-			t.Fatalf("生成的码 %q 无法通过规范化", code)
-		}
-		for _, r := range code {
-			seen[r] = true
-		}
-	}
-	// 200 次生成的 1200 个字符应当覆盖到字母表的绝大多数 ——
-	// 取模有偏时会出现某些字符**从不出现**。
-	if len(seen) < 28 {
-		t.Errorf("200 次生成只覆盖了 %d 个字符，分布可疑", len(seen))
-	}
-}
-
 func TestPairingSessionLifecycle(t *testing.T) {
 	t.Parallel()
 
 	m := newPairingManager()
 	now := time.Now()
 
-	session, err := m.start(RoleOperator, "iPhone", now)
+	session, err := m.start(RoleOperator, "iPhone", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
-	if session.Code == "" || session.Secret == "" {
-		t.Fatal("会话缺少码或密钥")
+	if session.Secret == "" {
+		t.Fatal("会话缺少密钥 —— 它是唯一的配对凭证")
 	}
 
 	// 同一时刻只能有一个会话：否则界面上显示的那个二维码与实际
 	// 生效的会话可能不是同一个。
-	if _, err := m.start(RoleViewer, "", now); err != ErrPairingConflict {
+	if _, err := m.start(RoleViewer, "", "10.0.0.1", now); err != ErrPairingConflict {
 		t.Fatalf("第二次开启会话的错误 = %v，期望 ErrPairingConflict", err)
 	}
 
@@ -285,7 +220,7 @@ func TestPairingSessionLifecycle(t *testing.T) {
 	}
 
 	// 认领之后会话必须消失（一次性）。
-	claimed, err := m.claim(session.Secret, now)
+	claimed, err := m.claim(session.Secret, "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("用密钥认领失败: %v", err)
 	}
@@ -295,26 +230,8 @@ func TestPairingSessionLifecycle(t *testing.T) {
 	if _, ok := m.current(now); ok {
 		t.Fatal("认领之后会话应当已被销毁")
 	}
-	if _, err := m.claim(session.Secret, now); err != ErrPairingMismatch {
+	if _, err := m.claim(session.Secret, "10.0.0.1", now); err != ErrPairingMismatch {
 		t.Fatalf("重放同一个密钥的错误 = %v，期望 ErrPairingMismatch", err)
-	}
-}
-
-func TestPairingAcceptsNormalizedCode(t *testing.T) {
-	t.Parallel()
-
-	m := newPairingManager()
-	now := time.Now()
-
-	session, err := m.start(RoleViewer, "", now)
-	if err != nil {
-		t.Fatalf("开启会话失败: %v", err)
-	}
-
-	// 用户会把码念出来再敲进去：大小写、分隔符、以及把 0 看成 O。
-	messy := strings.ToLower(session.Code[:3]) + "-" + session.Code[3:]
-	if _, err := m.claim(messy, now); err != nil {
-		t.Fatalf("规范化后的码应当能认领成功，得到 %v", err)
 	}
 }
 
@@ -324,7 +241,7 @@ func TestPairingExpires(t *testing.T) {
 	m := newPairingManager()
 	now := time.Now()
 
-	session, err := m.start(RoleViewer, "", now)
+	session, err := m.start(RoleViewer, "", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
@@ -333,7 +250,7 @@ func TestPairingExpires(t *testing.T) {
 	if _, ok := m.current(later); ok {
 		t.Fatal("过期的会话不该还在")
 	}
-	if _, err := m.claim(session.Secret, later); err != ErrPairingMismatch {
+	if _, err := m.claim(session.Secret, "10.0.0.1", later); err != ErrPairingMismatch {
 		t.Fatalf("用过期会话的密钥认领的错误 = %v，期望 ErrPairingMismatch", err)
 	}
 }
@@ -351,19 +268,19 @@ func TestPairingLocksOutAfterRepeatedFailures(t *testing.T) {
 	// 反复"开会话 → 试一次错"：每个会话只失败一次，因此**单会话**
 	// 的 5 次上限永远不会触发 —— 这正是这条测试要证明的绕法。
 	for i := 0; i < pairingLockThreshold; i++ {
-		session, err := m.start(RoleViewer, "", now)
+		session, err := m.start(RoleViewer, "", "10.0.0.1", now)
 		if err == ErrPairingConflict {
 			// 上一轮的会话还在（失败次数没到单会话上限），先撤掉。
 			if current, ok := m.current(now); ok {
 				m.cancel(current.ID)
 			}
-			session, err = m.start(RoleViewer, "", now)
+			session, err = m.start(RoleViewer, "", "10.0.0.1", now)
 		}
 		if err != nil {
 			t.Fatalf("第 %d 轮开启会话失败: %v", i, err)
 		}
-		if _, err := m.claim("ZZZZZZ", now); err != ErrPairingMismatch {
-			t.Fatalf("第 %d 轮的错误码应当被拒绝，得到 %v", i, err)
+		if _, err := m.claim("bm90LXRoZS1yaWdodC1zZWNyZXQ", "10.0.0.1", now); err != ErrPairingMismatch {
+			t.Fatalf("第 %d 轮的错误凭证应当被拒绝，得到 %v", i, err)
 		}
 		// 会话仍在（只失败了一次），下一轮要显式撤掉。
 		if _, ok := m.current(now); !ok {
@@ -372,13 +289,13 @@ func TestPairingLocksOutAfterRepeatedFailures(t *testing.T) {
 		_ = session
 	}
 
-	if _, err := m.start(RoleViewer, "", now); err != ErrPairingLocked {
+	if _, err := m.start(RoleViewer, "", "10.0.0.1", now); err != ErrPairingLocked {
 		t.Fatalf("连续失败之后应当被锁定，得到 %v", err)
 	}
 
 	// 锁定会自动解除。
 	after := now.Add(pairingLockDuration + time.Second)
-	if _, err := m.start(RoleViewer, "", after); err != nil {
+	if _, err := m.start(RoleViewer, "", "10.0.0.1", after); err != nil {
 		t.Fatalf("锁定到期后应当能重新开启会话，得到 %v", err)
 	}
 }
@@ -389,22 +306,22 @@ func TestPairingSessionDestroyedAfterPerSessionFailures(t *testing.T) {
 	m := newPairingManager()
 	now := time.Now()
 
-	session, err := m.start(RoleViewer, "", now)
+	session, err := m.start(RoleViewer, "", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
 
 	for i := 0; i < pairingMaxFailures; i++ {
-		if _, err := m.claim("ZZZZZZ", now); err != ErrPairingMismatch {
+		if _, err := m.claim("bm90LXRoZS1yaWdodC1zZWNyZXQ", "10.0.0.1", now); err != ErrPairingMismatch {
 			t.Fatalf("第 %d 次失败的错误 = %v", i, err)
 		}
 	}
 
-	// 会话已经销毁 —— 此时**正确的码也不该再能用**。
+	// 会话已经销毁 —— 此时**正确的密钥也不该再能用**。
 	if _, ok := m.current(now); ok {
 		t.Fatal("尝试次数用尽之后会话应当已被销毁")
 	}
-	if _, err := m.claim(session.Code, now); err != ErrPairingMismatch {
+	if _, err := m.claim(session.Secret, "10.0.0.1", now); err != ErrPairingMismatch {
 		t.Fatalf("销毁之后正确码的错误 = %v，期望 ErrPairingMismatch", err)
 	}
 }
@@ -415,13 +332,13 @@ func TestPairingSuccessResetsFailureCount(t *testing.T) {
 	m := newPairingManager()
 	now := time.Now()
 
-	if _, err := m.start(RoleViewer, "", now); err != nil {
+	if _, err := m.start(RoleViewer, "", "10.0.0.1", now); err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
 
 	// 先失败几次（不足以触发会话销毁）。
 	for i := 0; i < pairingMaxFailures-1; i++ {
-		if _, err := m.claim("ZZZZZZ", now); err != ErrPairingMismatch {
+		if _, err := m.claim("bm90LXRoZS1yaWdodC1zZWNyZXQ", "10.0.0.1", now); err != ErrPairingMismatch {
 			t.Fatalf("失败 %d 的错误 = %v", i, err)
 		}
 	}
@@ -430,16 +347,16 @@ func TestPairingSuccessResetsFailureCount(t *testing.T) {
 	if !ok {
 		t.Fatal("还没到上限，会话不该消失")
 	}
-	if _, err := m.claim(session.Code, now); err != nil {
+	if _, err := m.claim(session.Secret, "10.0.0.1", now); err != nil {
 		t.Fatalf("正确码应当仍然可用，得到 %v", err)
 	}
 
 	// 成功之后计数归零：下一次会话的失败额度是完整的。
-	next, err := m.start(RoleViewer, "", now)
+	next, err := m.start(RoleViewer, "", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启新会话失败: %v", err)
 	}
-	if _, err := m.claim(next.Code, now); err != nil {
+	if _, err := m.claim(next.Secret, "10.0.0.1", now); err != nil {
 		t.Fatalf("新会话应当可以一次成功，得到 %v", err)
 	}
 }
@@ -449,7 +366,7 @@ func TestPairingCancel(t *testing.T) {
 
 	m := newPairingManager()
 	now := time.Now()
-	session, err := m.start(RoleViewer, "", now)
+	session, err := m.start(RoleViewer, "", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
@@ -473,13 +390,13 @@ func TestSecretIsNeverMistakenForCode(t *testing.T) {
 
 	m := newPairingManager()
 	now := time.Now()
-	session, err := m.start(RoleViewer, "", now)
+	session, err := m.start(RoleViewer, "", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
 
 	// 取密钥里的一段：它长度不对，因此不该被当成有效输入。
-	if _, err := m.claim(session.Secret[:6], now); err != ErrPairingMismatch {
+	if _, err := m.claim(session.Secret[:6], "10.0.0.1", now); err != ErrPairingMismatch {
 		t.Fatalf("密钥前缀的错误 = %v，期望 ErrPairingMismatch", err)
 	}
 	// 会话应当仍然存活（那一次失败也在计数，但远没到上限）。
@@ -487,7 +404,7 @@ func TestSecretIsNeverMistakenForCode(t *testing.T) {
 		t.Fatal("一次失败的尝试不该销毁会话")
 	}
 	// 完整的密钥仍然可用。
-	if _, err := m.claim(session.Secret, now); err != nil {
+	if _, err := m.claim(session.Secret, "10.0.0.1", now); err != nil {
 		t.Fatalf("完整密钥应当可用，得到 %v", err)
 	}
 
@@ -600,7 +517,7 @@ func TestConcurrentPairingAccessIsRaceFree(t *testing.T) {
 	// 而手机在另一端尝试认领。少了锁就会在这里被 -race 抓到。
 	m := newPairingManager()
 	now := time.Now()
-	if _, err := m.start(RoleViewer, "", now); err != nil {
+	if _, err := m.start(RoleViewer, "", "10.0.0.1", now); err != nil {
 		t.Fatalf("开启会话失败: %v", err)
 	}
 
@@ -610,7 +527,7 @@ func TestConcurrentPairingAccessIsRaceFree(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_, _ = m.current(now)
-			_, _ = m.claim("ZZZZZZ", now)
+			_, _ = m.claim("bm90LXRoZS1yaWdodC1zZWNyZXQ", "10.0.0.1", now)
 		}()
 	}
 	wg.Wait()

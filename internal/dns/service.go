@@ -263,3 +263,32 @@ func validateRecord(rec Record) error {
 	}
 	return nil
 }
+
+// SupportsCreate 报告这把凭据的服务商是否支持**新建**记录。
+//
+// 它是"能不能用它做 DNS-01 / 建子域名"的判据。23 家内置服务商里
+// 只有 6 家实现了 RecordCreator —— 其余的支持改记录但不支持建记录，
+// 而选中它们的症状是"区域里写了但没生效"，或者干脆一句
+// "该服务商不支持此操作"，用户完全不知道该换谁。
+func (s *Service) SupportsCreate(ctx context.Context, credentialID string) bool {
+	if s == nil {
+		return false
+	}
+	_, impl, err := s.resolve(ctx, credentialID)
+	if err != nil {
+		return false
+	}
+	_, ok := impl.(RecordCreator)
+	return ok
+}
+
+// Credential 返回凭据本身（明文字段）。
+//
+// 它存在的唯一理由是让上层能显示"这个区域归哪个服务商管" ——
+// 而那是用户判断"我该不该在这里建记录"的依据。
+func (s *Service) Credential(ctx context.Context, credentialID string) (Credential, error) {
+	if s == nil {
+		return Credential{}, errors.New(i18n.T("dns.find.unavailable"))
+	}
+	return s.creds.Resolve(ctx, credentialID)
+}

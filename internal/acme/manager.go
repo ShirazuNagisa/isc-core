@@ -83,9 +83,16 @@ func (r CertRequest) Validate() error {
 	if len(r.Domains) == 0 {
 		return errors.New(i18n.T("acme.need_domain"))
 	}
-	if r.CredentialID == "" {
-		return errors.New(i18n.T("acme.need_cred"))
-	}
+	// **不检查 CredentialID。**
+	//
+	// 它为空表示"自动"：由 DNS-01 求解器按域名反查该用哪把凭据。
+	// 在这里要求它非空会让自动模式永远走不通 —— 而症状是一句
+	// "未指定用于 DNS-01 校验的凭据"，用户于是去设置里手选一把，
+	// 而那个动作本来是多余的。
+	//
+	// 真正"一把可用的凭据都没有"的情况由求解器在反查时说清楚：
+	// 它会报出**是哪个域名**找不到区域，而那比"请先选择凭据"
+	// 更指向该做什么。
 	for _, d := range r.Domains {
 		if err := validateDomain(d); err != nil {
 			return err
@@ -161,6 +168,9 @@ type Manager struct {
 
 	// email 是 ACME 账户的联系邮箱。
 	email string
+	// accountKeyPath 是 ACME 账户私钥的保存位置。空串会让每次签发
+	// 都注册一个新账户 —— 见 SetAccountKeyPath 的说明。
+	accountKeyPath string
 
 	mu       sync.Mutex
 	inflight map[string]bool
@@ -374,8 +384,9 @@ func (m *Manager) Ensure(ctx context.Context, req CertRequest) (CertStatus, bool
 	m.log.Info("开始签发证书", "name", name, "domains", req.Domains)
 
 	res, err := client.Obtain(ctx, Config{
-		Domains: req.Domains,
-		Email:   m.email,
+		Domains:        req.Domains,
+		Email:          m.email,
+		AccountKeyPath: m.accountKeyPath,
 	})
 	if err != nil {
 		m.recordErr(name, err)
@@ -408,6 +419,28 @@ func (m *Manager) SetEmail(email string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.email = email
+}
+
+// SetAccountKeyPath 设置 ACME 账户私钥的保存位置。
+//
+// # 不设置会出什么事（真的出过）
+//
+// `loadOrCreateAccountKey("")` 会**每次调用都生成一把新私钥**，
+// 而私钥就是 ACME 账户的身份。于是：
+//
+//   - 每申请一张证书就向 Let's Encrypt 注册一个**新账户**，而 CA 对
+//     "新注册账户"的限制是每 IP 每 3 小时 10 个 —— 几张证书就能把
+//     配额烧光，之后所有续期一起失败；
+//   - DNS-01 的挑战摘要 = sha256(token + "." + 账户公钥指纹)。账户一换
+//     摘要就变，于是上一轮写进 DNS 的 TXT 与这一轮的订单对不上，
+//     CA 报"找到了错误的 TXT 记录"。
+//
+// 第二条的症状极具误导性：它看起来像 DNS 传播问题或凭据权限问题，
+// 而真正的原因是"我们每次都在换身份"。
+func (m *Manager) SetAccountKeyPath(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.accountKeyPath = path
 }
 
 // Status 列出全部已保存证书的状态。

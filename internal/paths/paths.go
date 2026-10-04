@@ -103,6 +103,13 @@ func (p Paths) SecretsDir() string { return filepath.Join(p.root, "secrets") }
 // 目录本身由 EnsureDirs 创建为 0700，私钥文件另有 0600。
 func (p Paths) RemoteDir() string { return filepath.Join(p.root, "remote") }
 
+// ACMEDir 存放 ACME 账户私钥。
+//
+// 它不是可以随时重建的缓存：私钥就是账户的身份，而 DNS-01 的挑战摘要
+// 由这个身份决定。丢掉它等于换一个身份 —— 上一轮写进用户 DNS 的 TXT
+// 会与这一轮的订单对不上，同时 CA 的"新注册账户"配额会被烧光。
+func (p Paths) ACMEDir() string { return filepath.Join(p.root, "acme") }
+
 // ConfigFile 返回配置文件路径。
 func (p Paths) ConfigFile() string { return filepath.Join(p.config, "isc.yaml") }
 
@@ -132,7 +139,7 @@ func (p Paths) String() string {
 // 权限收紧失败不会导致启动失败（某些文件系统不支持），但会返回一个
 // 非致命的告警字符串供调用方记录 —— 静默降级是不可接受的。
 func (p Paths) EnsureDirs() (warnings []string, err error) {
-	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir(), p.RemoteDir()} {
+	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir(), p.RemoteDir(), p.ACMEDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return warnings, fmt.Errorf(i18n.T("paths.err.mkdir"), dir, err)
 		}
@@ -140,7 +147,7 @@ func (p Paths) EnsureDirs() (warnings []string, err error) {
 	// run/ 与 secrets/ 含机密（访问令牌、主密钥密文）；cache/ 与 runtimes/
 	// 含外部来源的字节；remote/ 含自签证书的私钥。五者都必须与数据根目录
 	// 一样收紧到显式白名单。
-	for _, dir := range []string{p.RunDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir(), p.RemoteDir()} {
+	for _, dir := range []string{p.RunDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir(), p.RemoteDir(), p.ACMEDir()} {
 		if w := tightenDir(dir); w != "" {
 			warnings = append(warnings, w)
 		}

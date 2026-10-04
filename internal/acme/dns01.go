@@ -48,8 +48,17 @@ type DNS01Provider struct {
 	creds     CredentialResolver
 	providers ImplLookup
 
-	// credentialID 是用于校验的那个凭据。
+	// credentialID 是**手动指定**的凭据。
+	//
+	// 为空表示自动：按域名反查它属于哪个区域、那把凭据在哪。
+	// 用户不需要回答这个问题 —— 答案完全由数据决定，而让他
+	// 在一列"凭据标签 · 服务商"里挑一个，是在要求他心算一件
+	// 内核明明知道的事。挑错的症状还离得很远：设置页上一切正常，
+	// 几天后证书该续期时才失败，而错误说的是"区域里找不到 TXT 记录"。
 	credentialID string
+
+	// finder 在 credentialID 为空时按域名反查凭据。
+	finder CredentialFinder
 
 	// propagationWait 是写记录之后、通知 ACME 服务器之前等待的时间。
 	propagationWait time.Duration
@@ -68,6 +77,13 @@ type DNS01Provider struct {
 	// 信息。把清理所需的信息交给调用方去持久化，才能避免在用户的
 	// DNS 里留下垃圾记录。
 	onCreated func(CreatedRecord)
+}
+
+// CredentialFinder 按**域名**反查该用哪把凭据。
+//
+// 与 CredentialResolver 的区别是它回答的是"该用谁"，而不是"这把是谁"。
+type CredentialFinder interface {
+	FindCredential(ctx context.Context, domain string) (string, error)
 }
 
 // CredentialResolver 按 ID 取出解密后的凭据。
@@ -144,10 +160,13 @@ func (p *DNS01Provider) SetCreatedHook(fn func(CreatedRecord)) {
 //
 // domain 是待签发的域名（可能是通配形式 `*.example.com`），
 // token 与 keyAuth 由 ACME 流程给出。
-func (p *DNS01Provider) Present(ctx context.Context, domain, token, keyAuth string) error {
-	rec := ChallengeRecord(domain, keyAuth)
+func (p *DNS01Provider) Present(ctx context.Context, domain, token, value string) error {
+	rec := ChallengeRecord(domain, value)
 
-	cred, impl, err := p.resolve(ctx)
+	// 用**域名**而不是记录名去反查：`_acme-challenge.example.com`
+	// 与 `example.com` 属于同一个区域，但前者会让最长后缀匹配
+	// 多绕一步，而且在通配符证书（`*.example.com`）上两者并不相同。
+	cred, impl, err := p.resolve(ctx, domain)
 	if err != nil {
 		return err
 	}
@@ -175,6 +194,16 @@ func (p *DNS01Provider) Present(ctx context.Context, domain, token, keyAuth stri
 			p.credentialID, len(zones), rec.Name)
 	}
 
+	// **先删掉这个挑战名上已有的 TXT。**
+	//
+	// 挑战名 `_acme-challenge.<域名>` 只有 ACME 会用，因此那里的记录
+	// 一定是某一轮挑战留下的。不清掉的话，新写的那条会与旧的**并存**
+	// （DNS 允许同名的多条 TXT），而 CA 会读到旧的那条并报
+	// "找到了错误的 TXT 记录 (and 1 more)" ——
+	// 于是**一次失败会让之后每一次尝试都必然失败**，而错误信息
+	// 完全指不出这一点。
+	p.clearChallengeName(ctx, cred, lister, impl, zone, rec.Name)
+
 	created, err := creator.CreateRecord(ctx, cred, zone, dns.Record{
 		Name:    rec.Name,
 		Type:    dns.TypeTXT,
@@ -191,15 +220,28 @@ func (p *DNS01Provider) Present(ctx context.Context, domain, token, keyAuth stri
 		return fmt.Errorf(i18n.T("acme.dns01.write_failed"), rec.Name, err)
 	}
 
+	createdRecord := CreatedRecord{
+		Provider:  cred.Provider,
+		ZoneID:    zone.ID,
+		RecordID:  created.ID,
+		Name:      rec.Name,
+		Domain:    domain,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	// **登记清理目标到内存里。**
+	//
+	// 少了这一行，`CleanUp` 会走 "takeCleanup 找不到 → return nil"
+	// 那条路 —— 它**静默返回成功**，而记录永远留在用户的 DNS 里。
+	// 症状是用户在自己的区域里看到几条自己没建过的 `_acme-challenge`
+	// TXT，而日志里一个错都没有。
+	//
+	// `onCreated` 是给**持久化**用的（内核重启后仍能清理），
+	// 内存 map 是给本次运行用的。两件事，两处都要写。
+	p.SetCleanupTarget(createdRecord)
+
 	if p.onCreated != nil {
-		p.onCreated(CreatedRecord{
-			Provider:  cred.Provider,
-			ZoneID:    zone.ID,
-			RecordID:  created.ID,
-			Name:      rec.Name,
-			Domain:    domain,
-			CreatedAt: time.Now().UTC(),
-		})
+		p.onCreated(createdRecord)
 	}
 
 	// 等记录传播出去再让 ACME 服务器去查。
@@ -237,7 +279,16 @@ func (p *DNS01Provider) CleanUp(ctx context.Context, domain, _, _ string) error 
 // 它是**幂等**的：记录已经不存在时返回成功。清理动作被重试是常态
 // （内核重启后重放待清理列表），把重试当失败会让列表永远清不空。
 func (p *DNS01Provider) DeleteRecord(ctx context.Context, rec CreatedRecord) error {
-	cred, err := p.creds.Resolve(ctx, p.credentialID)
+	// 用记录里记着的域名反查：清理可能发生在内核重启之后，
+	// 而那时内存里已经没有任何上下文了 —— `CreatedRecord` 之所以
+	// 带着 Domain 就是为了这一刻。
+	credentialID := p.credentialID
+	if credentialID == "" && p.finder != nil && rec.Domain != "" {
+		if id, err := p.finder.FindCredential(ctx, rec.Domain); err == nil {
+			credentialID = id
+		}
+	}
+	cred, err := p.creds.Resolve(ctx, credentialID)
 	if err != nil {
 		return fmt.Errorf(i18n.T("acme.cred_failed"), err)
 	}
@@ -291,13 +342,30 @@ func (p *DNS01Provider) takeCleanup(domain string) (CreatedRecord, bool) {
 	return rec, ok
 }
 
-func (p *DNS01Provider) resolve(ctx context.Context) (dns.Credential, dns.Provider, error) {
-	if p.credentialID == "" {
-		return dns.Credential{}, nil, errors.New(
-			i18n.T("acme.need_cred"))
+// SetFinder 注入按域名反查凭据的实现。
+//
+// 注入（而不是构造时必填）是为了让"手动指定"这条路径仍然可用：
+// 用户在一把凭据下管着多个域名、而自动匹配挑错了的时候，
+// 他需要一个能覆盖它的办法。
+func (p *DNS01Provider) SetFinder(f CredentialFinder) { p.finder = f }
+
+// resolve 找出这次校验该用哪把凭据。
+//
+// domain 用于自动反查；手动指定了凭据时它不参与判定。
+func (p *DNS01Provider) resolve(ctx context.Context, domain string) (dns.Credential, dns.Provider, error) {
+	credentialID := p.credentialID
+	if credentialID == "" {
+		if p.finder == nil {
+			return dns.Credential{}, nil, errors.New(i18n.T("acme.need_cred"))
+		}
+		id, err := p.finder.FindCredential(ctx, domain)
+		if err != nil {
+			return dns.Credential{}, nil, fmt.Errorf(i18n.T("acme.find_cred_failed"), domain, err)
+		}
+		credentialID = id
 	}
 
-	cred, err := p.creds.Resolve(ctx, p.credentialID)
+	cred, err := p.creds.Resolve(ctx, credentialID)
 	if err != nil {
 		return dns.Credential{}, nil, fmt.Errorf(i18n.T("acme.cred_failed"), err)
 	}
@@ -336,12 +404,21 @@ type Challenge struct {
 //
 // 值是 `base64url(SHA256(keyAuth))`，这是 RFC 8555 §8.4 规定的。
 // 校验方（ACME 服务器）会重新算一遍并比对。
-func ChallengeRecord(domain, keyAuth string) Challenge {
+func ChallengeRecord(domain, value string) Challenge {
 	clean := strings.TrimPrefix(domain, "*.")
 
 	return Challenge{
-		Name:   "_acme-challenge." + clean,
-		Value:  DNS01Value(keyAuth),
+		Name: "_acme-challenge." + clean,
+		// **不再哈希。**
+		//
+		// 传进来的 `value` 来自 `Client.DNS01ChallengeRecord`，
+		// 而那已经是 `base64url(SHA256(keyAuth))` —— 正是要发布的东西。
+		// 再调一次 `DNS01Value` 就是对它做二次哈希，而那样写出来的
+		// 记录格式完全正确、只是 CA 会说"找到了错误的 TXT 记录"。
+		//
+		// 参数名从 `keyAuth` 改成 `value` 就是为了让这件事在调用点
+		// 看得见：名字叫 keyAuth 会让人以为还需要哈希一次。
+		Value:  value,
 		Domain: domain,
 	}
 }
@@ -383,4 +460,41 @@ func MatchZone(recordName string, zones []dns.Zone) (dns.Zone, bool) {
 		}
 	}
 	return best, found
+}
+
+// clearChallengeName 删掉挑战名上已有的 TXT 记录。
+//
+// # 为什么必须清
+//
+// 一次失败的挑战会在 DNS 里留下一条 TXT。如果不清掉，下一轮写进去的
+// 新值会与它**并存**（DNS 允许同名的多条 TXT），而 CA 的校验会随机
+// 读到其中一条 —— 于是"一次失败"变成"永远失败"，而错误信息说的是
+// "找到了错误的 TXT 记录"，完全指不出真正的原因。
+//
+// 只删 TXT：同名的 A/AAAA 之类不该被我们碰。这个函数**尽力而为** ——
+// 清理失败不阻断写入，因为最坏的情况只是回到"并存"，而阻断会让
+// 明明还能成功的签发直接失败。
+func (p *DNS01Provider) clearChallengeName(ctx context.Context,
+	cred dns.Credential, lister dns.ZoneLister, impl dns.Provider,
+	zone dns.Zone, name string) {
+
+	deleter, supportsDelete := impl.(dns.RecordDeleter)
+	lister2, supportsList := impl.(dns.RecordLister)
+	if !supportsDelete || !supportsList {
+		return
+	}
+	_ = lister
+	records, err := lister2.ListRecords(ctx, cred, zone, dns.RecordFilter{
+		Name: name,
+		Type: dns.TypeTXT,
+	})
+	if err != nil {
+		return
+	}
+	for _, existing := range records {
+		if existing.ID == "" {
+			continue
+		}
+		_ = deleter.DeleteRecord(ctx, cred, zone, existing.ID)
+	}
 }

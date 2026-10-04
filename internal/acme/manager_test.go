@@ -263,7 +263,6 @@ func TestCertRequestValidate(t *testing.T) {
 		req  CertRequest
 	}{
 		{"没有域名", CertRequest{CredentialID: "c1"}},
-		{"没有凭据", CertRequest{Domains: []string{"example.com"}}},
 		{"单标签域名", CertRequest{Domains: []string{"localhost"}, CredentialID: "c1"}},
 		{"域名含空格", CertRequest{Domains: []string{"a b.com"}, CredentialID: "c1"}},
 		{"通配符位置不对", CertRequest{Domains: []string{"a.*.com"}, CredentialID: "c1"}},
@@ -276,6 +275,18 @@ func TestCertRequestValidate(t *testing.T) {
 			}
 		})
 	}
+
+	// **没有凭据是合法的** —— 那是"自动"。
+	//
+	// 由 DNS-01 求解器按域名反查该用哪把凭据。在这里要求它非空会让
+	// 自动模式永远走不通，而症状是一句"未指定用于 DNS-01 校验的凭据"，
+	// 用户于是去设置里手选一把 —— 而那个动作本来就是多余的。
+	t.Run("没有凭据表示自动", func(t *testing.T) {
+		req := CertRequest{Domains: []string{"example.com"}}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("凭据留空应当合法（自动匹配），却报错: %v", err)
+		}
+	})
 }
 
 // TestValidateRejectsSingleLabelDomain 验证"localhost"被早一点挡住。
@@ -332,20 +343,22 @@ func TestNeedsWorkSkipsInvalidRequests(t *testing.T) {
 	m := newTestManager(t, t.TempDir())
 
 	reqs := []CertRequest{
-		{Domains: []string{"localhost"}, CredentialID: "c1"}, // 非法
-		{Domains: []string{"example.com"}, CredentialID: ""}, // 缺凭据
-		{Domains: []string{"good.example.com"}, CredentialID: "c1"},
+		{Domains: []string{"localhost"}, CredentialID: "c1"},        // 非法：单标签域名
+		{Domains: []string{"auto.example.com"}, CredentialID: ""},   // 合法：凭据自动匹配
+		{Domains: []string{"good.example.com"}, CredentialID: "c1"}, // 合法
 	}
 
 	pending, err := m.NeedsWork(reqs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) != 1 {
-		t.Fatalf("应当只保留 1 个合法请求，得到 %d: %v", len(pending), pending)
+	if len(pending) != 2 {
+		t.Fatalf("应当保留 2 个合法请求（含自动匹配那条），得到 %d: %v", len(pending), pending)
 	}
-	if pending[0].Domains[0] != "good.example.com" {
-		t.Errorf("保留的是 %v", pending[0].Domains)
+	for _, req := range pending {
+		if req.Domains[0] == "localhost" {
+			t.Error("单标签域名不该被保留")
+		}
 	}
 }
 

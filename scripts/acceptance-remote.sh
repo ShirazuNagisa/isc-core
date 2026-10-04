@@ -131,13 +131,15 @@ code() { curl -s -k -o /dev/null -w '%{http_code}' "$@"; }
 
 head_ "配对：用六位码换设备令牌"
 PAIR="$("$BIN" remote pair --role operator --label "acceptance" --json)"
-CODE="$(printf '%s' "$PAIR" | json_field manual_code)"
+# 配对密钥从二维码载荷里取 —— 它是唯一的配对凭证（六位码已删除）。
+# 手输那条路走的是同一个密钥，只是换了个载体。
+CODE="$(printf '%s' "$PAIR" | python3 -c 'import json,sys; print(json.loads(json.load(sys.stdin)["qr_payload"])["secret"])')"
 QSPKI="$(printf '%s' "$PAIR" | json_field spki_sha256)"
 [ "$QSPKI" = "$SPKI" ] && ok "二维码里的指纹与状态一致" || bad "二维码里的指纹与状态不一致"
 
 RESP="$(curl -s -k -X POST "https://127.0.0.1:$PORT/v1/remote/pair" \
   -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\",\"device\":{\"name\":\"acceptance\",\"platform\":\"ios\"}}")"
+  -d "{\"secret\":\"$CODE\",\"device\":{\"name\":\"acceptance\",\"platform\":\"ios\"}}")"
 TOKEN="$(printf '%s' "$RESP" | json_field token)"
 DEV="$(printf '%s' "$RESP" | json_field device_id)"
 [ -n "$TOKEN" ] && ok "配对成功，拿到设备令牌" || { bad "配对失败：$RESP"; }
@@ -145,7 +147,7 @@ DEV="$(printf '%s' "$RESP" | json_field device_id)"
 head_ "同一个码不能再用一次（一次性）"
 AGAIN="$(curl -s -k -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:$PORT/v1/remote/pair" \
   -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\",\"device\":{\"name\":\"replay\"}}")"
+  -d "{\"secret\":\"$CODE\",\"device\":{\"name\":\"replay\"}}")"
 [ "$AGAIN" != "200" ] && ok "重放被拒绝（${AGAIN}）" || bad "同一个配对码还能再用 —— 那是一次静默的重放"
 
 head_ "带令牌：允许的读路径"
@@ -169,14 +171,65 @@ ROLE="$(printf '%s' "$SELF" | json_field role)"
 
 head_ "viewer 不能写"
 VPAIR="$("$BIN" remote pair --role viewer --label viewer --json)"
-VCODE="$(printf '%s' "$VPAIR" | json_field manual_code)"
+VCODE="$(printf '%s' "$VPAIR" | python3 -c 'import json,sys; print(json.loads(json.load(sys.stdin)["qr_payload"])["secret"])')"
 VRESP="$(curl -s -k -X POST "https://127.0.0.1:$PORT/v1/remote/pair" \
-  -H 'Content-Type: application/json' -d "{\"code\":\"$VCODE\",\"device\":{\"name\":\"viewer\"}}")"
+  -H 'Content-Type: application/json' -d "{\"secret\":\"$VCODE\",\"device\":{\"name\":\"viewer\"}}")"
 VTOKEN="$(printf '%s' "$VRESP" | json_field token)"
 c="$(code -X POST -H "Authorization: Bearer $VTOKEN" "https://127.0.0.1:$PORT/v1/certs/renew")"
 [ "$c" = "403" ] && ok "viewer 触发证书续期 → 403" || bad "viewer 竟然能写：$c"
 c="$(code -H "Authorization: Bearer $VTOKEN" "https://127.0.0.1:$PORT/v1/metrics")"
 [ "$c" = "200" ] && ok "viewer 仍然能读指标 → 200" || bad "viewer 连读都不行：$c"
+
+head_ "公网访问：手机能做什么、不能做什么"
+# 没开公网访问时同步必须**明确报错**，而不是静默什么都不做。
+# 静默的后果是"点了同步、看起来成功了、但什么都没建"。
+SYNC_CODE=$(curl -s -k -o /tmp/sync-out.json -w '%{http_code}' -X POST \
+  -H "Authorization: Bearer $TOKEN" "https://127.0.0.1:${PORT}/v1/remote/public/sync")
+[ "$SYNC_CODE" = "400" ] \
+  && ok "未开启时同步报 400（${SYNC_CODE}）" \
+  || bad "没选域名时的响应码是 ${SYNC_CODE}，期望 400"
+grep -qE '公网访问没有开启|public access is not enabled' /tmp/sync-out.json \
+  && ok "而且说明白了原因" \
+  || bad "错误不清楚：$(head -c 160 /tmp/sync-out.json)"
+
+# 手机**不能**在机器上开启公网访问。
+#
+# 那个区别是刻意的：公网访问会把内核暴露在互联网上，那个决定属于
+# 坐在机器前面的人。手机能做的是减少暴露，以及让已经决定好的配置生效。
+ENABLE_CODE=$(curl -s -k -o /dev/null -w '%{http_code}' -X PATCH \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"remote_public_enabled":true,"remote_public_domain":"attacker.example"}' \
+  "https://127.0.0.1:${PORT}/v1/settings")
+[ "$ENABLE_CODE" = "403" ] \
+  && ok "手机不能改设置来开启公网访问（403）" \
+  || bad "手机竟然能改设置（${ENABLE_CODE}）—— 那等于让被配对的设备决定暴露面"
+
+# 同理：手机不能装 APNs 凭据。那是一把能给用户**全部**设备发推送的钥匙。
+APNS_CODE=$(curl -s -k -o /dev/null -w '%{http_code}' -X PUT \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id":"X","key_id":"Y","bundle_id":"Z","private_key":"P"}' \
+  "https://127.0.0.1:${PORT}/v1/remote/apns")
+[ "$APNS_CODE" = "403" ] \
+  && ok "手机不能装 APNs 凭据（403）" \
+  || bad "手机能装 APNs 凭据（${APNS_CODE}）"
+
+head_ "探针端点：免鉴权，但只说'到了'"
+# 用户最需要"公网到底通不通"这个答案的时刻，恰好是**还没配对成功**
+# 的时候。因此这个端点必须免鉴权 —— 而它也只能说这一个事实。
+PING_CODE=$(curl -s -k -o /dev/null -w '%{http_code}' "https://127.0.0.1:${PORT}/v1/remote/ping")
+[ "$PING_CODE" = "200" ] && ok "无令牌也能访问 /v1/remote/ping（${PING_CODE}）" \
+  || bad "探针端点要求了鉴权（${PING_CODE}）—— 未配对的手机就永远得不到答案"
+
+PING_BODY=$(curl -s -k "https://127.0.0.1:${PORT}/v1/remote/ping")
+printf '%s' "$PING_BODY" | grep -q '"ok":true' && ok "返回了 ok" || bad "返回体不含 ok：$PING_BODY"
+# 它是一个任何人都能打的端点，多说一个字都是多余的暴露面。
+printf '%s' "$PING_BODY" | grep -qiE 'version|token|device|host|name' \
+  && bad "探针端点泄漏了额外信息：$PING_BODY" || ok "只说了'到了'，没有多余信息"
+
+# 它仍然在远程面的白名单里（不在的话会先被默认拒绝挡掉）。
+CELL=$(curl -s -k -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
+  "https://127.0.0.1:${PORT}/v1/remote/ping")
+[ "$CELL" = "200" ] && ok "带令牌访问也正常" || bad "带令牌访问异常（${CELL}）"
 
 head_ "派生（给 Apple Watch）：角色不得高于父设备"
 D1="$(curl -s -k -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \

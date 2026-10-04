@@ -126,6 +126,9 @@ func toGenSettings(s settings.Settings) gen.Settings {
 		AcmeEmail:           &s.ACMEEmail,
 		AcmeDirectory:       &s.ACMEDirectory,
 		AcmeDnsCredentialId: &s.ACMEDNSCredentialID,
+
+		RemotePublicEnabled: &s.RemotePublicEnabled,
+		RemotePublicDomain:  &s.RemotePublicDomain,
 	}
 }
 

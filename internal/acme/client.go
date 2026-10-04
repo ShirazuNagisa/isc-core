@@ -311,9 +311,14 @@ func (c *Client) Obtain(ctx context.Context, cfg Config) (Result, error) {
 		DirectoryURL: cfg.DirectoryURL,
 	}
 
-	// 注册账户。已注册时 ACME 会返回已有的账户，因此这个调用是幂等的。
+	// 注册账户。
+	//
+	// **"账户已存在"是正常情况，不是错误。** 账户由私钥唯一标识，
+	// 因此第二次签发（以及每一次续期）都会拿到这个回答。把它当致命
+	// 错误会让"第一次签发成功、之后全部失败" —— 而失败要到 90 天后
+	// 续期时才出现。
 	if _, err := client.Register(ctx, &acme.Account{Contact: contactFor(cfg.Email)},
-		acme.AcceptTOS); err != nil {
+		acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
 		return Result{}, fmt.Errorf(i18n.T("acme.client.register_failed"), err)
 	}
 
@@ -396,7 +401,11 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 				authz.Identifier.Value, challengeTypes(authz))
 		}
 
-		keyAuth, err := client.DNS01ChallengeRecord(chal.Token)
+		// 变量名是 `recordValue` 而不是 `keyAuth`：它**已经是**要发布
+		// 到 DNS 里的那个值（`base64url(SHA256(keyAuth))`）。
+		// 叫 keyAuth 会让人以为还需要再哈希一次 —— 那正是这个功能
+		// 第一次真实运行时踩的坑。
+		recordValue, err := client.DNS01ChallengeRecord(chal.Token)
 		if err != nil {
 			return fmt.Errorf(i18n.T("acme.client.challenge_failed"), err)
 		}
@@ -412,7 +421,7 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 			// 用一个独立的上下文：签发失败的原因常常是 ctx 被取消，
 			// 而用一个已取消的 ctx 去清理会让残留记录留在用户的 DNS 里。
 			cleanupCtx := context.WithoutCancel(ctx)
-			if err := c.solver.CleanUp(cleanupCtx, d, chal.Token, keyAuth); err != nil {
+			if err := c.solver.CleanUp(cleanupCtx, d, chal.Token, recordValue); err != nil {
 				// 清理失败不改变签发结果，但必须留下痕迹 ——
 				// 它是用户 DNS 里的一条残留记录。
 				fmt.Fprintf(os.Stderr,
@@ -421,7 +430,7 @@ func (c *Client) solveChallenges(ctx context.Context, client *acme.Client, order
 			}
 		}(domain)
 
-		if err := c.solver.Present(ctx, domain, chal.Token, keyAuth); err != nil {
+		if err := c.solver.Present(ctx, domain, chal.Token, recordValue); err != nil {
 			return err
 		}
 

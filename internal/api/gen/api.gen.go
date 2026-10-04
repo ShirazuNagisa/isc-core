@@ -509,6 +509,45 @@ func (e ReachCheckStatus) Valid() bool {
 	}
 }
 
+// Defines values for RemotePublicCheckVerdict.
+const (
+	RemotePublicCheckVerdictReachable   RemotePublicCheckVerdict = "reachable"
+	RemotePublicCheckVerdictUnknown     RemotePublicCheckVerdict = "unknown"
+	RemotePublicCheckVerdictUnreachable RemotePublicCheckVerdict = "unreachable"
+)
+
+// Valid indicates whether the value is a known member of the RemotePublicCheckVerdict enum.
+func (e RemotePublicCheckVerdict) Valid() bool {
+	switch e {
+	case RemotePublicCheckVerdictReachable:
+		return true
+	case RemotePublicCheckVerdictUnknown:
+		return true
+	case RemotePublicCheckVerdictUnreachable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemotePublicCheckReportFamily.
+const (
+	Ipv4 RemotePublicCheckReportFamily = "ipv4"
+	Ipv6 RemotePublicCheckReportFamily = "ipv6"
+)
+
+// Valid indicates whether the value is a known member of the RemotePublicCheckReportFamily enum.
+func (e RemotePublicCheckReportFamily) Valid() bool {
+	switch e {
+	case Ipv4:
+		return true
+	case Ipv6:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RemotePushTokenRequestEnvironment.
 const (
 	Production RemotePushTokenRequestEnvironment = "production"
@@ -1542,12 +1581,21 @@ type PairingSession struct {
 	FingerprintShort string `json:"fingerprint_short"`
 	Id               string `json:"id"`
 
-	// Label 给将要配对的设备预留的名字；留空表示由设备自称。
+	// Label 给将要配对的设备预留的名字；留空表示由设备自称。 这几个字符靠读音与字形都分不开，是这类码最常见的失败。
 	Label *string `json:"label,omitempty"`
 
-	// ManualCode 六位手输配对码。字母表去掉了 `I/L/O/U` 与 `0/1` ——
-	// 这几个字符靠读音与字形都分不开，是这类码最常见的失败。
-	ManualCode string `json:"manual_code"`
+	// QrLink 同一份载荷的**可复制**形式：`isc-remote://pair?d=<base64url>`。
+	//
+	// 它是给"新设备没法扫码"准备的 —— 用户在 Phecda 上点复制、
+	// 发给自己、在新设备上粘贴一次即可，全程不用碰地址。
+	//
+	// 与 `qr_payload` 一样**由内核生成**：链接的格式是契约，
+	// 让 GUI 自己拼一遍意味着两个实现，而它们会漂移 ——
+	// 症状是"某个版本的 App 粘不进去"。
+	//
+	// ⚠️ 它在有效期内**是一张通行证**：谁拿到谁就能配对。
+	// 因此是一次性的，且 5 分钟过期。
+	QrLink string `json:"qr_link"`
 
 	// QrPayload 二维码里要编码的原文。**由内核生成** —— payload 是契约的一部分，
 	// GUI 只负责把它渲染成像素。两个实现意味着两处会漂移。
@@ -1981,11 +2029,13 @@ type RemoteDevicePatch struct {
 
 // RemotePairRequest defines model for RemotePairRequest.
 type RemotePairRequest struct {
-	// Code 六位手输配对码。与 `secret` 二选一。
-	Code   *string          `json:"code,omitempty"`
 	Device RemoteDeviceInfo `json:"device"`
 
-	// Secret 二维码里的高熵配对密钥。与 `code` 二选一。
+	// Secret 配对密钥。**唯一**的配对凭证，来自二维码载荷或配对链接。
+	//
+	// 以前还有一个六位手输码作为替代，已删除 —— 它只有约 10 亿
+	// 种可能、靠按来源锁定兜底，而且携带不了任何身份信息
+	// （所以那时必须让用户人工比对公钥指纹）。
 	Secret *string `json:"secret,omitempty"`
 }
 
@@ -2008,6 +2058,108 @@ type RemotePairResult struct {
 	// Token 设备令牌。**只在这一个响应里出现**：服务端只存它的 SHA-256。
 	// 丢了这个响应只能重新配对，这是刻意的。
 	Token string `json:"token"`
+}
+
+// RemotePublicCheck 一次可达性自检的结论。
+//
+// 三值而不是布尔：**"没测过"与"测了但不通"是两件事**，
+// 用户该做的事完全不同 —— 前者是"去测一下"，后者是"去查路由器"。
+type RemotePublicCheck struct {
+	At time.Time `json:"at"`
+
+	// Detail 给用户看的一句话。
+	Detail *string `json:"detail,omitempty"`
+
+	// Family 被验证的地址族（ipv6 / ipv4）。
+	Family  *string                  `json:"family,omitempty"`
+	Verdict RemotePublicCheckVerdict `json:"verdict"`
+}
+
+// RemotePublicCheckVerdict defines model for RemotePublicCheck.Verdict.
+type RemotePublicCheckVerdict string
+
+// RemotePublicCheckReport defines model for RemotePublicCheckReport.
+type RemotePublicCheckReport struct {
+	// Detail 失败原因，由手机原样带回来给用户看。
+	Detail    *string                       `json:"detail,omitempty"`
+	Family    RemotePublicCheckReportFamily `json:"family"`
+	Reachable bool                          `json:"reachable"`
+
+	// SameLan 手机自己判断"我和内核在同一个网络里"。为真时这次探测
+	// **不作数**，内核会记成 unknown 而不是 reachable。
+	SameLan *bool `json:"same_lan,omitempty"`
+}
+
+// RemotePublicCheckReportFamily defines model for RemotePublicCheckReport.Family.
+type RemotePublicCheckReportFamily string
+
+// RemotePublicProbe 可达性自检的**探测计划**。
+//
+// 内核测不了自己的入站可达性：本机发起的连接走的是内部路径
+// （同网段二层、跨网段 NAT 环回），与真实客户端的路径不同。
+// 而手机就在真实客户端要走的网络上，因此由内核下发计划、
+// 手机逐个试、再把结果报回来。
+type RemotePublicProbe struct {
+	// Host 子域名；还没建立时为空。
+	Host *string `json:"host,omitempty"`
+
+	// LanAddresses **手机必须先试这些。** 局域网能通就说明它和内核在同一个
+	// 网络里，那次公网探测不作数 —— 那个连接根本没出局域网。
+	// 把它当成"公网可达"会让用户以为已经验证过，而其实没有。
+	LanAddresses *[]string `json:"lan_addresses,omitempty"`
+
+	// Note 没有可探测的地址时说明为什么。
+	Note    *string `json:"note,omitempty"`
+	Port    int     `json:"port"`
+	Targets []struct {
+		Address *string `json:"address,omitempty"`
+
+		// Family 地址族标签（host / ipv6 / ipv4）。只用于显示。
+		Family string `json:"family"`
+
+		// Url 完整可请求的地址。给完整 URL 而不是 host:port：
+		// 手机不该自己拼路径，路径属于契约。
+		Url string `json:"url"`
+	} `json:"targets"`
+}
+
+// RemotePublicStatus 公网访问：在**用户自己的**域名下建一条随机子域名，用 AAAA 指向
+// 本机的公网 IPv6，并给它签一张受信任的证书。
+//
+// 与局域网监听分开描述，因为两者的**代价**不同：局域网监听只在
+// 局域网内可见，而公网访问会把内核暴露在互联网上。
+type RemotePublicStatus struct {
+	// Domain 子域名挂在哪个域名下（用户选的），例如 `example.com`。
+	//
+	// **不是**凭据 ID 与区域 ID：那两件事由这个域名唯一决定 ——
+	// 区域是域名的最长后缀匹配，而区域只可能在一把凭据下。
+	// 让用户填两个内部 ID 是在要求他心算一件内核明明知道的事，
+	// 而他没有任何办法验证自己填对了。
+	Domain *string `json:"domain,omitempty"`
+
+	// Enabled 用户是否开启了公网访问。
+	Enabled bool `json:"enabled"`
+
+	// Host 完整的子域名，例如 `mizar-a7f3k9x2n4bd5e6f.example.com`。
+	// 它一旦生成就**长期不变** —— 变化会让手机上的二维码、
+	// 书签与防火墙规则全部失效。
+	Host *string `json:"host,omitempty"`
+
+	// LastCheck 一次可达性自检的结论。
+	//
+	// 三值而不是布尔：**"没测过"与"测了但不通"是两件事**，
+	// 用户该做的事完全不同 —— 前者是"去测一下"，后者是"去查路由器"。
+	LastCheck *RemotePublicCheck `json:"last_check,omitempty"`
+
+	// Ready 凭据与区域都配好了、可以开始同步。
+	// 与 `enabled` 分开：勾了开关但没选凭据时，用户需要知道
+	// 差的是哪一步，而不是看到一个"已开启"却什么都没发生。
+	Ready bool `json:"ready"`
+
+	// Records "记录类型 → 地址值"。只含内核自己写的那几条。
+	// 按规则**只会**出现 AAAA；A 只在实测过 IPv4 可达之后才写
+	// （家用宽带多为大内网，写一条连不上的 A 比不写更糟）。
+	Records *map[string]string `json:"records,omitempty"`
 }
 
 // RemotePushTokenRequest defines model for RemotePushTokenRequest.
@@ -2037,6 +2189,14 @@ type RemoteRole string
 // RemoteSelf defines model for RemoteSelf.
 type RemoteSelf struct {
 	Device RemoteDevice `json:"device"`
+
+	// Public 可达性自检的**探测计划**。
+	//
+	// 内核测不了自己的入站可达性：本机发起的连接走的是内部路径
+	// （同网段二层、跨网段 NAT 环回），与真实客户端的路径不同。
+	// 而手机就在真实客户端要走的网络上，因此由内核下发计划、
+	// 手机逐个试、再把结果报回来。
+	Public *RemotePublicProbe `json:"public,omitempty"`
 
 	// Role 权限只有两级，刻意不做细粒度 scope：
 	//
@@ -2103,7 +2263,14 @@ type RemoteStatus struct {
 	NotificationsEnabled bool            `json:"notifications_enabled"`
 	Pairing              *PairingSession `json:"pairing,omitempty"`
 	Port                 int             `json:"port"`
-	SpkiSha256           *string         `json:"spki_sha256,omitempty"`
+
+	// Public 公网访问：在**用户自己的**域名下建一条随机子域名，用 AAAA 指向
+	// 本机的公网 IPv6，并给它签一张受信任的证书。
+	//
+	// 与局域网监听分开描述，因为两者的**代价**不同：局域网监听只在
+	// 局域网内可见，而公网访问会把内核暴露在互联网上。
+	Public     *RemotePublicStatus `json:"public,omitempty"`
+	SpkiSha256 *string             `json:"spki_sha256,omitempty"`
 
 	// State disabled  总开关关闭
 	// starting  正在启动监听
@@ -2217,6 +2384,21 @@ type Settings struct {
 	// 开启它需要同时配置 ACME（DNS-01 凭据），否则证书签不出来，
 	// 而症状是"浏览器报证书错误"。
 	ProxyTls *bool `json:"proxy_tls,omitempty"`
+
+	// RemotePublicDomain 子域名挂在哪个域名下（用户选的），例如 `example.com`。
+	//
+	// 用户只回答这一个问题：哪把凭据、哪个区域由这个域名唯一决定，
+	// 内核自己反查得出来。填错会一路走到"找不到区域"或者更糟 ——
+	// 在**别的区域**里建了一条记录。
+	RemotePublicDomain *string `json:"remote_public_domain,omitempty"`
+
+	// RemotePublicEnabled 公网访问：在**用户自己的**域名下建一条随机子域名，用 AAAA
+	// 指向本机的公网 IPv6，并给它签一张受信任的证书。
+	//
+	// 与 `remote_enabled` 分开而不是合并成一个开关，因为两者的
+	// **代价**不同：局域网监听只在局域网内可见，而公网访问会把
+	// 内核暴露在互联网上。
+	RemotePublicEnabled *bool `json:"remote_public_enabled,omitempty"`
 }
 
 // SettingsLang defines model for Settings.Lang.
@@ -2542,6 +2724,9 @@ type CompleteRemotePairingJSONRequestBody = RemotePairRequest
 // StartRemotePairingJSONRequestBody defines body for StartRemotePairing for application/json ContentType.
 type StartRemotePairingJSONRequestBody = PairingRequest
 
+// ReportRemotePublicCheckJSONRequestBody defines body for ReportRemotePublicCheck for application/json ContentType.
+type ReportRemotePublicCheckJSONRequestBody = RemotePublicCheckReport
+
 // DeriveRemoteDeviceJSONRequestBody defines body for DeriveRemoteDevice for application/json ContentType.
 type DeriveRemoteDeviceJSONRequestBody = RemoteDeriveRequest
 
@@ -2790,6 +2975,21 @@ type ServerInterface interface {
 	// CancelRemotePairing 取消配对会话
 	// (DELETE /v1/remote/pairing/{id})
 	CancelRemotePairing(w http.ResponseWriter, r *http.Request, id PairingId)
+	// PingRemoteFace 探针端点（免鉴权）
+	// (GET /v1/remote/ping)
+	PingRemoteFace(w http.ResponseWriter, r *http.Request)
+	// DeleteRemotePublic 删除公网子域名与其 DNS 记录
+	// (DELETE /v1/remote/public)
+	DeleteRemotePublic(w http.ResponseWriter, r *http.Request)
+	// ReportRemotePublicCheck 回报一次可达性自检的结果
+	// (POST /v1/remote/public/check)
+	ReportRemotePublicCheck(w http.ResponseWriter, r *http.Request)
+	// ListRemotePublicDomains 列出可以承载公网子域名的域名
+	// (GET /v1/remote/public/domains)
+	ListRemotePublicDomains(w http.ResponseWriter, r *http.Request)
+	// SyncRemotePublic 立即同步公网子域名的 DNS 记录
+	// (POST /v1/remote/public/sync)
+	SyncRemotePublic(w http.ResponseWriter, r *http.Request)
 	// UnpairRemoteSelf 设备自我解绑
 	// (DELETE /v1/remote/self)
 	UnpairRemoteSelf(w http.ResponseWriter, r *http.Request)
@@ -4729,6 +4929,76 @@ func (siw *ServerInterfaceWrapper) CancelRemotePairing(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// PingRemoteFace operation middleware
+func (siw *ServerInterfaceWrapper) PingRemoteFace(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PingRemoteFace(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRemotePublic operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRemotePublic(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRemotePublic(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReportRemotePublicCheck operation middleware
+func (siw *ServerInterfaceWrapper) ReportRemotePublicCheck(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportRemotePublicCheck(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRemotePublicDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListRemotePublicDomains(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRemotePublicDomains(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncRemotePublic operation middleware
+func (siw *ServerInterfaceWrapper) SyncRemotePublic(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncRemotePublic(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UnpairRemoteSelf operation middleware
 func (siw *ServerInterfaceWrapper) UnpairRemoteSelf(w http.ResponseWriter, r *http.Request) {
 
@@ -5278,6 +5548,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/devices/{id}", wrapper.RevokeRemoteDevice)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/remote/devices/{id}", wrapper.UpdateRemoteDevice)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/devices/{id}/test-push", wrapper.TestRemotePush)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/remote/ping", wrapper.PingRemoteFace)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/public/check", wrapper.ReportRemotePublicCheck)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/remote/public/domains", wrapper.ListRemotePublicDomains)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/public/sync", wrapper.SyncRemotePublic)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/public", wrapper.DeleteRemotePublic)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/apns", wrapper.DeleteRemoteApns)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/remote/apns", wrapper.SetRemoteApns)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/pair", wrapper.CompleteRemotePairing)

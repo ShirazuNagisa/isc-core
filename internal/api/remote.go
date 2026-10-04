@@ -50,11 +50,14 @@ type remoteRoute struct {
 // `POST /v1/credentials` 会写入一个能重写整个 DNS 区域的凭据 ——
 // 在手机上敲那一长串 API Key 本身就是小概率事件，因此它不在表里。
 var remoteRoutes = []remoteRoute{
-	// --- 免鉴权：唯一一条 ---
+	// --- 免鉴权：两条 ---
 	//
-	// 它必须存在（还没配对的客户端没有令牌可用），也必须被限流 ——
+	// 它们必须存在（还没配对的客户端没有令牌可用），也必须被限流 ——
 	// 限流在下面 remoteAuth 里做，因为那里才有来源地址。
 	{"POST /v1/remote/pair", ""},
+	// 探针端点：用户最需要"公网到底通不通"这个答案的时刻，
+	// 恰好是还没配对成功的时候。要求鉴权就把那个顺序堵死了。
+	{"GET /v1/remote/ping", ""},
 
 	// --- 设备自述 ---
 	//
@@ -99,6 +102,20 @@ var remoteRoutes = []remoteRoute{
 	{"POST /v1/ddns-tasks/{id}/run", remote.RoleOperator},
 	{"POST /v1/ddns-tasks/{id}/enable", remote.RoleOperator},
 	{"POST /v1/ddns-tasks/{id}/disable", remote.RoleOperator},
+
+	// --- 公网访问 ---
+	//
+	// 三条都在，而**没有**"开启公网访问"那一条。
+	//
+	// 那个区别是刻意的：公网访问会把内核暴露在互联网上，那个决定
+	// 属于坐在机器前面的人。手机能做的是**减少**暴露（DELETE），
+	// 以及在配置已经决定好之后让它生效（sync）与回报探测结果（check）。
+	//
+	// 同理没有 `PUT /v1/remote/apns`：那是一把能给用户**全部**设备
+	// 发推送的凭据，装它的动作属于机器一侧。
+	{"POST /v1/remote/public/check", remote.RoleOperator},
+	{"POST /v1/remote/public/sync", remote.RoleOperator},
+	{"DELETE /v1/remote/public", remote.RoleOperator},
 
 	// --- 写：站点与证书 ---
 	{"POST /v1/apps/{id}/start", remote.RoleOperator},
@@ -212,9 +229,17 @@ func (s *Server) remoteAuth(next http.Handler) http.Handler {
 		// 标记来源：审计要靠它区分"本机点的"与"局域网上某台机器点的"。
 		r = r.WithContext(context.WithValue(r.Context(), remoteFaceKey{}, true))
 
-		// 配对路径免鉴权，但仍然要限流 —— 它是唯一一条能被人反复尝试的路径。
+		// 免鉴权的两条路径仍然要限流 —— 它们是任何人都能打的。
+		//
+		// 两条用**各自**的额度：共用一个桶时，攻击者狂打探针就能把
+		// 正常用户的配对额度耗光，而那是一条不用配对就能发动的
+		// 拒绝服务。
 		if isPublicRemotePath(r) {
-			if !svc.AllowPair(clientIP(r), time.Now()) {
+			allowed := svc.AllowPair(clientIP(r), time.Now())
+			if r.URL.Path == remote.PublicProbePath {
+				allowed = svc.AllowPing(clientIP(r), time.Now())
+			}
+			if !allowed {
 				writeProblem(w, r, s.Log, http.StatusTooManyRequests,
 					CodeForbidden, "error.forbidden", i18n.FromContext(r.Context()).T("remote.api.rate_limited"))
 				return
@@ -260,8 +285,22 @@ func (s *Server) remoteAuthFailure(w http.ResponseWriter, r *http.Request, err e
 }
 
 // isPublicRemotePath 报告一条路径在远程面上是否免鉴权。
+// isPublicRemotePath 报告这条路径是否**不需要设备令牌**。
+//
+// 两条：
+//
+//   - `POST /v1/remote/pair`：配对本身，它用的是一次性的六位码/密钥。
+//   - `GET /v1/remote/ping`：探针端点。用户最需要"公网到底通不通"
+//     这个答案的时刻，恰好是**还没配对成功**的时候（想确认能不能
+//     连上，然后扫码）。要求鉴权就把这个顺序堵死了。
+//
+// 两条都**只挂限流、不挂鉴权**，而 ping 返回的东西刻意只有
+// "到了"这一个事实 —— 身份由 TLS 证明。
 func isPublicRemotePath(r *http.Request) bool {
-	return r.Method == http.MethodPost && r.URL.Path == "/v1/remote/pair"
+	if r.Method == http.MethodPost && r.URL.Path == "/v1/remote/pair" {
+		return true
+	}
+	return r.Method == http.MethodGet && r.URL.Path == remote.PublicProbePath
 }
 
 // bearerToken 从 Authorization 头取出 Bearer 令牌。
@@ -372,7 +411,7 @@ func (s *Server) StartRemotePairing(w http.ResponseWriter, r *http.Request) {
 		label = strings.TrimSpace(*req.Label)
 	}
 
-	session, err := s.Remote.BeginPairing(role, label, time.Now())
+	session, err := s.Remote.BeginPairing(role, label, clientIP(r), time.Now())
 	switch {
 	case errors.Is(err, remote.ErrPairingConflict):
 		writeProblem(w, r, s.Log, http.StatusConflict, CodeConflict, "error.conflict",
@@ -518,12 +557,14 @@ func (s *Server) CompleteRemotePairing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// **只认密钥。**
+	//
+	// 以前这里还接受一个六位码（`req.Code`），那条路径已删除：
+	// 六位码只有约 10 亿种可能，靠按来源锁定兜底，而且携带不了任何
+	// 身份信息。二维码与配对链接两条路都带高熵密钥，也自带公钥指纹。
 	credential := ""
 	if req.Secret != nil {
 		credential = *req.Secret
-	}
-	if credential == "" && req.Code != nil {
-		credential = *req.Code
 	}
 	if credential == "" {
 		writeProblem(w, r, s.Log, http.StatusBadRequest, CodeInvalidRequest, "error.invalid_request",
@@ -532,7 +573,7 @@ func (s *Server) CompleteRemotePairing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	session, err := s.Remote.ClaimPairing(credential, now)
+	session, err := s.Remote.ClaimPairing(credential, clientIP(r), now)
 	if err != nil {
 		detail := i18n.FromContext(r.Context()).T("remote.api.pairing_mismatch")
 		status := http.StatusUnauthorized
@@ -572,10 +613,21 @@ func (s *Server) GetRemoteSelf(w http.ResponseWriter, r *http.Request) {
 			i18n.FromContext(r.Context()).T("remote.api.token_invalid"))
 		return
 	}
+	// 探测计划随自述一起下发：手机本来就每次连接都取一次
+	// `/v1/remote/self`，把它挂在这里意味着不需要多一次往返，
+	// 也意味着手机随时都拿着最新的公网地址（地址会变）。
+	var probe *gen.RemotePublicProbe
+	if s.Remote != nil {
+		plan := s.Remote.PublicProbe()
+		converted := toGenPublicProbe(plan)
+		probe = &converted
+	}
+
 	writeJSON(w, s.Log, http.StatusOK, "application/json", gen.RemoteSelf{
 		Device: toGenRemoteDevice(device),
 		Role:   gen.RemoteRole(device.Role),
 		Server: s.remoteServerInfo(),
+		Public: probe,
 	})
 }
 
@@ -905,6 +957,137 @@ func (s *Server) apnsStatus() gen.ApnsStatus {
 	return out
 }
 
+// PingRemoteFace 实现 GET /v1/remote/ping。
+//
+// # 它为什么必须免鉴权
+//
+// 用户最需要"公网到底通不通"这个答案的时刻，恰好是**还没配对成功**
+// 的时候 —— 想确认能不能连上，然后扫码。要求鉴权就把这个顺序堵死了。
+//
+// # 它为什么只回一个 ok
+//
+// 身份由 TLS 证明：公网路径是受信任证书（域名对得上），局域网路径是
+// 固定公钥。这里多说一个字都是多余的暴露面 —— 这是一个任何人都能
+// 打的端点。
+func (s *Server) PingRemoteFace(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.Log, http.StatusOK, "application/json", map[string]bool{"ok": true})
+}
+
+// ReportRemotePublicCheck 实现 POST /v1/remote/public/check。
+func (s *Server) ReportRemotePublicCheck(w http.ResponseWriter, r *http.Request) {
+	if s.Remote == nil {
+		s.remoteUnavailable(w, r)
+		return
+	}
+
+	var body gen.RemotePublicCheckReport
+	if !decodeBody(w, r, s, &body) {
+		return
+	}
+	family := remote.NormalizeReportedFamily(string(body.Family))
+	if family == "" {
+		writeProblem(w, r, s.Log, http.StatusBadRequest, CodeInvalidRequest,
+			"error.invalid_request", i18n.FromContext(r.Context()).T("api.remote_public_bad_family"))
+		return
+	}
+
+	// 手机在自家 Wi-Fi 上时，连公网地址**也会成功** —— 那个连接根本
+	// 没出局域网。把它当成"公网可达"是最坏的一种结论：用户会以为
+	// 已经验证过，而其实什么都没验证。
+	sameLAN := body.SameLan != nil && *body.SameLan
+
+	verdict := remote.PublicVerdictUnreachable
+	detail := ""
+	if body.Detail != nil {
+		detail = *body.Detail
+	}
+	switch {
+	case sameLAN:
+		verdict = remote.PublicVerdictUnknown
+		if detail == "" {
+			detail = i18n.FromContext(r.Context()).T("api.remote_public_same_lan")
+		}
+	case body.Reachable:
+		verdict = remote.PublicVerdictReachable
+		if detail == "" {
+			detail = i18n.FromContext(r.Context()).T("api.remote_public_reachable")
+		}
+	case detail == "":
+		detail = i18n.FromContext(r.Context()).T("api.remote_public_unreachable")
+	}
+
+	if err := s.Remote.RecordPublicCheck(remote.PublicCheck{
+		Verdict: verdict, Family: family, Detail: detail,
+	}); err != nil {
+		s.internalError(w, r, i18n.T("api.remote_public_check_failed"), err)
+		return
+	}
+	writeJSON(w, s.Log, http.StatusOK, "application/json", s.Remote.Status(r.Context()).Public)
+}
+
+// ListRemotePublicDomains 实现 GET /v1/remote/public/domains。
+//
+// 供界面把"挂在哪个域名下"做成一个**列表**而不是一个输入框：
+// 用户不需要记住自己的区域名，更不该把它打错 —— 打错的后果是
+// 找不到区域，或者更糟：在一个同名但不同账号的区域下建记录。
+func (s *Server) ListRemotePublicDomains(w http.ResponseWriter, r *http.Request) {
+	type item struct {
+		Domain   string `json:"domain"`
+		Provider string `json:"provider"`
+	}
+	out := make([]item, 0)
+	if s.PublicDomains != nil {
+		domains, err := s.PublicDomains(r.Context())
+		if err != nil {
+			// 列不出来不是"没有域名"——把原因带出去，否则界面会显示
+			// 一个空列表，而用户以为是自己没配 DNS。
+			writeProblem(w, r, s.Log, http.StatusBadRequest, CodeInvalidRequest,
+				"error.invalid_request", err.Error())
+			return
+		}
+		for _, d := range domains {
+			out = append(out, item{Domain: d.Domain, Provider: d.Provider})
+		}
+	}
+	writeJSON(w, s.Log, http.StatusOK, "application/json", out)
+}
+
+// SyncRemotePublic 实现 POST /v1/remote/public/sync。
+func (s *Server) SyncRemotePublic(w http.ResponseWriter, r *http.Request) {
+	if s.Remote == nil {
+		s.remoteUnavailable(w, r)
+		return
+	}
+	if _, err := s.Remote.SyncPublic(r.Context()); err != nil {
+		// 同步失败的原因几乎都是**用户能自己修好的**：凭据不对、
+		// 区域选错、本机没有公网 IPv6。因此回 400 并把原话带出去，
+		// 而不是压成一句"内部错误"。
+		writeProblem(w, r, s.Log, http.StatusBadRequest, CodeInvalidRequest,
+			"error.invalid_request", err.Error())
+		return
+	}
+	s.auditSuccess(r, audit.ActionRemotePublic, "", i18n.T("api.remote_public_synced"))
+	writeJSON(w, s.Log, http.StatusOK, "application/json", s.Remote.Status(r.Context()))
+}
+
+// DeleteRemotePublic 实现 DELETE /v1/remote/public。
+//
+// 只删内核自己建的那几条记录（按记录 ID）。
+func (s *Server) DeleteRemotePublic(w http.ResponseWriter, r *http.Request) {
+	if s.Remote == nil {
+		s.remoteUnavailable(w, r)
+		return
+	}
+	if err := s.Remote.TeardownPublic(r.Context()); err != nil {
+		// 删除失败**不是**"什么都没做"：台账已经清空，但区域里可能
+		// 留下一条记录。让界面能据此提示用户去 DNS 后台确认。
+		s.internalError(w, r, i18n.T("api.remote_public_teardown_failed"), err)
+		return
+	}
+	s.auditSuccess(r, audit.ActionRemotePublic, "", i18n.T("api.remote_public_removed"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // remoteUnavailable 表示远程面的某一部分尚未接入。
 func (s *Server) remoteUnavailable(w http.ResponseWriter, r *http.Request) {
 	writeProblem(w, r, s.Log, http.StatusNotImplemented,
@@ -943,15 +1126,20 @@ func (s *Server) pairingSessionToGen(session remote.PairingSession) (gen.Pairing
 	if err != nil {
 		return gen.PairingSession{}, err
 	}
+	// 链接与二维码用的是**同一份**载荷，只是换了个载体。
+	link, err := s.Remote.QRLink(session)
+	if err != nil {
+		return gen.PairingSession{}, err
+	}
 	out := gen.PairingSession{
 		Id:               session.ID,
 		Role:             gen.RemoteRole(session.Role),
-		ManualCode:       session.Code,
 		FingerprintShort: s.Remote.Certificate().FingerprintShort(),
 		SpkiSha256:       s.Remote.Certificate().SPKIBase64(),
 		Addresses:        remote.Candidates(s.Remote.Port()),
 		ExpiresAt:        session.ExpiresAt,
 		QrPayload:        payload,
+		QrLink:           link,
 	}
 	if session.Label != "" {
 		label := session.Label
@@ -985,7 +1173,6 @@ func toGenRemoteStatus(st remote.Status) gen.RemoteStatus {
 		session := gen.PairingSession{
 			Id:               st.Pairing.ID,
 			Role:             gen.RemoteRole(st.Pairing.Role),
-			ManualCode:       st.Pairing.Code,
 			FingerprintShort: st.FingerprintShort,
 			SpkiSha256:       st.SPKI,
 			Addresses:        st.Addresses,
@@ -997,6 +1184,9 @@ func toGenRemoteStatus(st remote.Status) gen.RemoteStatus {
 		}
 		out.Pairing = &session
 	}
+	public := toGenPublicStatus(st.Public)
+	out.Public = &public
+
 	configured := st.APNSConfigured
 	out.ApnsConfigured = &configured
 	out.ApnsStatus = &gen.ApnsStatus{
@@ -1086,4 +1276,69 @@ func enabledWord(on bool) string {
 		return i18n.T("remote.word.enabled")
 	}
 	return i18n.T("remote.word.disabled")
+}
+
+// toGenPublicStatus 把公网访问的状态转成契约类型。
+func toGenPublicStatus(in remote.PublicStatus) gen.RemotePublicStatus {
+	out := gen.RemotePublicStatus{Enabled: in.Enabled, Ready: in.Ready}
+	if in.Host != "" {
+		out.Host = strPtr(in.Host)
+	}
+	if in.Domain != "" {
+		out.Domain = strPtr(in.Domain)
+	}
+	if len(in.Records) > 0 {
+		records := make(map[string]string, len(in.Records))
+		for k, v := range in.Records {
+			records[k] = v
+		}
+		out.Records = &records
+	}
+	if in.LastCheck != nil {
+		check := gen.RemotePublicCheck{
+			At:      in.LastCheck.At,
+			Verdict: gen.RemotePublicCheckVerdict(in.LastCheck.Verdict),
+		}
+		if in.LastCheck.Detail != "" {
+			check.Detail = strPtr(in.LastCheck.Detail)
+		}
+		if in.LastCheck.Family != "" {
+			check.Family = strPtr(in.LastCheck.Family)
+		}
+		out.LastCheck = &check
+	}
+	return out
+}
+
+// toGenPublicProbe 把探测计划转成契约类型。
+func toGenPublicProbe(in remote.PublicProbe) gen.RemotePublicProbe {
+	out := gen.RemotePublicProbe{Port: in.Port}
+	if in.Host != "" {
+		out.Host = strPtr(in.Host)
+	}
+	if in.Note != "" {
+		out.Note = strPtr(in.Note)
+	}
+	if len(in.LANAddresses) > 0 {
+		lan := append([]string(nil), in.LANAddresses...)
+		out.LanAddresses = &lan
+	}
+	targets := make([]struct {
+		Address *string `json:"address,omitempty"`
+		Family  string  `json:"family"`
+		Url     string  `json:"url"`
+	}, 0, len(in.Targets))
+	for _, t := range in.Targets {
+		item := struct {
+			Address *string `json:"address,omitempty"`
+			Family  string  `json:"family"`
+			Url     string  `json:"url"`
+		}{Family: t.Family, Url: t.URL}
+		if t.Address != "" {
+			item.Address = strPtr(t.Address)
+		}
+		targets = append(targets, item)
+	}
+	out.Targets = targets
+	return out
 }

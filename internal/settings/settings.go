@@ -9,9 +9,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strconv"
+	"strings"
 	"sync"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // 设置的键名。它们是持久化格式的一部分，**改名等同于数据迁移**。
@@ -31,6 +33,10 @@ const (
 	KeyRemoteEnabled       = "remote_enabled"
 	KeyRemotePort          = "remote_port"
 	KeyRemoteNotifications = "remote_notifications_enabled"
+
+	// 公网访问（M9）。只在 RemoteEnabled 为真时有意义。
+	KeyRemotePublicEnabled = "remote_public_enabled"
+	KeyRemotePublicDomain  = "remote_public_domain"
 )
 
 // 允许的取值。
@@ -135,6 +141,29 @@ type Settings struct {
 	// 与 RemoteEnabled 分开：远程访问本身是"能看"，推送是"会主动找你"。
 	// 后者需要凭据、需要设备登记令牌，失败面也大得多，因此默认关闭。
 	RemoteNotifications bool `json:"remote_notifications_enabled"`
+
+	// RemotePublicEnabled 控制公网访问：在用户自己的域名下建一条子域名，
+	// 用 AAAA 指向本机的公网 IPv6，并给它签一张受信任的证书。
+	//
+	// 与 RemoteEnabled 分开而不是合并成一个开关，因为两者的**代价**不同：
+	// 局域网监听只在局域网内可见，而公网访问会把内核暴露在互联网上。
+	// 一个开关管两件事的话，用户想"只是局域网用"就没有退路了。
+	RemotePublicEnabled bool `json:"remote_public_enabled"`
+
+	// RemotePublicDomain 是子域名挂在哪个域名下，例如 example.com。
+	//
+	// # 为什么是域名而不是两个 ID
+	//
+	// 建子域名需要"哪把凭据"与"哪个区域"这两件事，但它们是**由域名
+	// 唯一决定的**：区域是域名的最长后缀匹配，而区域只可能在一把凭据
+	// 下。让用户填两个内部 ID，是在要求他心算一件内核明明知道的事 ——
+	// 而且他没有任何办法验证自己填对了。
+	//
+	// 填错的症状还离得很远：设置页上一切正常，直到第一次同步时才失败，
+	// 而错误说的是"找不到记录"或者干脆在**别的区域**里建了一条记录。
+	//
+	// 用户只需要回答一个他能回答的问题：**挂在哪个域名下**。
+	RemotePublicDomain string `json:"remote_public_domain"`
 }
 
 // Default 返回默认设置。
@@ -151,6 +180,8 @@ func Default() Settings {
 		RemoteEnabled:       false,
 		RemotePort:          DefaultRemotePort,
 		RemoteNotifications: false,
+
+		RemotePublicEnabled: false,
 	}
 }
 
@@ -179,6 +210,9 @@ type Patch struct {
 	RemoteEnabled       *bool `json:"remote_enabled,omitempty"`
 	RemotePort          *int  `json:"remote_port,omitempty"`
 	RemoteNotifications *bool `json:"remote_notifications_enabled,omitempty"`
+
+	RemotePublicEnabled *bool   `json:"remote_public_enabled,omitempty"`
+	RemotePublicDomain  *string `json:"remote_public_domain,omitempty"`
 }
 
 // Service 提供设置的读写。
@@ -280,6 +314,15 @@ func (s *Service) Update(ctx context.Context, p Patch) (Settings, error) {
 	if p.RemoteNotifications != nil {
 		next.RemoteNotifications = *p.RemoteNotifications
 	}
+	if p.RemotePublicEnabled != nil {
+		next.RemotePublicEnabled = *p.RemotePublicEnabled
+	}
+	if p.RemotePublicDomain != nil {
+		// 统一小写并去掉尾点：用户从别处复制来的域名常常带着它们，
+		// 而 `example.com.` 与 `example.com` 在最长后缀匹配里是不同的串。
+		next.RemotePublicDomain = strings.ToLower(
+			strings.TrimSuffix(strings.TrimSpace(*p.RemotePublicDomain), "."))
+	}
 	if err := next.Validate(); err != nil {
 		s.mu.Unlock()
 		return s.current, err
@@ -348,18 +391,39 @@ func (s Settings) Validate() error {
 	if s.RemoteEnabled && s.RemotePort == 0 {
 		return errors.New(i18n.T("settings.need_remote_port"))
 	}
+	// 公网访问依赖远程监听本身：没有监听就没有东西可以被访问。
+	//
+	// 报错而不是静默忽略：用户勾了"公网访问"却什么都没发生，
+	// 而他不知道该先开另一个开关 —— 那句话必须由界面说出来。
+	if s.RemotePublicEnabled && !s.RemoteEnabled {
+		return errors.New(i18n.T("settings.public_needs_remote"))
+	}
+	// 子域名建在**用户的**区域里，因此必须知道挂在哪个域名下。
+	//
+	// 而"哪把凭据、哪个区域"不在这里问：它们由这个域名唯一决定，
+	// 内核自己反查得出来。
+	if s.RemotePublicEnabled && strings.TrimSpace(s.RemotePublicDomain) == "" {
+		return errors.New(i18n.T("settings.public_needs_domain"))
+	}
+
 	if s.RemoteEnabled && s.ProxyEnabled && s.RemotePort == s.ProxyPort {
 		// 两个监听抢同一个端口：后起的那个会失败，而失败现场是
 		// "远程访问莫名其妙连不上"。在这里挡住才能给出真正的理由。
 		return fmt.Errorf(i18n.T("settings.remote_port_conflict"), s.RemotePort)
 	}
 	if s.ProxyTLS {
-		// HTTPS 必须有证书来源，而签证书需要这两样。
+		// HTTPS 必须有证书来源，而签证书需要 ACME 账号（邮箱）。
 		//
-		// 在这里挡住而不是等签发失败：后者的症状是"浏览器报证书错误"，
-		// 而用户完全不知道是设置少填了一项。
-		if s.ACMEDNSCredentialID == "" {
-			return errors.New(i18n.T("settings.need_dns01"))
+		// 而**凭据不必填**：为空表示自动 —— 内核按域名反查它属于哪个
+		// 区域、那把凭据在哪。那个问题的答案完全由数据决定，让用户在
+		// 一列"凭据标签 · 服务商"里挑一个，是在要求他心算一件内核
+		// 明明知道的事，而他没有任何办法验证自己挑对了。
+		//
+		// 一把凭据都没有时不再在这里挡：那种情况的症状是签发失败，
+		// 而失败信息现在会说"找不到 X 所属的 DNS 区域" ——
+		// 那比一句"请先选择 DNS 凭据"更指向该做什么（去 DNS 页加一个）。
+		if s.ACMEEmail == "" {
+			return errors.New(i18n.T("settings.need_acme_email"))
 		}
 	}
 
@@ -440,6 +504,12 @@ func merge(base Settings, kv map[string]string) Settings {
 			base.RemoteNotifications = b
 		}
 	}
+	if v, ok := kv[KeyRemotePublicEnabled]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.RemotePublicEnabled = b
+		}
+	}
+	base.RemotePublicDomain = kv[KeyRemotePublicDomain]
 	return base
 }
 
@@ -460,5 +530,8 @@ func encode(s Settings) map[string]string {
 		KeyRemoteEnabled:       strconv.FormatBool(s.RemoteEnabled),
 		KeyRemotePort:          strconv.Itoa(s.RemotePort),
 		KeyRemoteNotifications: strconv.FormatBool(s.RemoteNotifications),
+
+		KeyRemotePublicEnabled: strconv.FormatBool(s.RemotePublicEnabled),
+		KeyRemotePublicDomain:  s.RemotePublicDomain,
 	}
 }

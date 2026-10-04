@@ -7,6 +7,8 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -139,6 +141,10 @@ type Daemon struct {
 	// remote 是远程管理面（ISC Mizar）。它为 nil 表示这一块没起来 ——
 	// 那时本地接口的 /v1/remote/* 会返回"未装配"，而不是伪装成功。
 	remote *remote.Service
+	// zoneFinder 按域名反查"该用哪把 DNS 凭据"，供证书签发与
+	// 公网子域名使用。它为 nil 表示自动反查不可用。
+	zoneFinder *dns.ZoneFinder
+
 	// pushNotifier 把内核事件翻译成手机推送通知。
 	//
 	// 与 `notifier`（notify.Manager，内核往外发消息的通道）是两件事：
@@ -317,6 +323,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// ddns.CredentialResolver 与 dns.CredentialResolver，
 	// 因此不必写两遍 —— 这是把两个领域的接口定义成相同形状的好处。
 	d.dnsService = dns.NewService(credentialResolver{svc: d.credentials}, d.registry.Lookup)
+	// 区域反查器与 dnsService 共用同一个凭据解析器：它列区域用的是
+	// 同一条路，因此"能列出区域"与"能建记录"用的是同一份判定。
+	d.zoneFinder = dns.NewZoneFinder(d.dnsService, func(ctx context.Context) ([]string, error) {
+		return d.credentialIDs(ctx)
+	})
 
 	// 系统变更编排与可达性。
 	//
@@ -379,6 +390,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.certProvider = acme.NewStoreProvider(d.certStore, d.acmeResolver.Lookup, d.log)
 	d.certMgr = acme.NewManager(d.certStore, d.newACMEClient, nil, d.log) // bus 稍后设置
 	d.certMgr.SetEmail(settingsSvc.Get().ACMEEmail)
+	// 账户私钥必须**持久化**：不持久化等于每次签发都换一个身份，
+	// 而 DNS-01 的挑战摘要由这个身份决定 —— 换身份会让上一轮写进
+	// DNS 的 TXT 与这一轮的订单对不上（症状是"找到了错误的 TXT 记录"），
+	// 同时还会把 CA 的"新注册账户"配额烧光。
+	d.certMgr.SetAccountKeyPath(d.opts.Paths.ACMEDir() + "/account.key")
 
 	// 引导式外部验证。
 	//
@@ -509,6 +525,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 		APIVersion: version.APIVersion,
 		APNSStore:  remote.NewCredentialStore(d.opts.Paths.RemoteDir(), secrets),
 		APNSHost:   os.Getenv("ISC_APNS_HOST"),
+
+		// 公网访问：在**用户自己的**域名下建一条指向本机的子域名。
+		// DNS 写操作走既有的 dns.Service（它已经带凭据解析与
+		// 「该服务商支不支持建记录」的判断）。
+		PublicFace:     remote.NewPublicFace(d.opts.Paths.RemoteDir(), d.dnsService, remote.NewHTTPProber()),
+		PublicSettings: remotePublicSettings{settings: d.settings},
+		PublicZones:    remoteZoneResolver{finder: d.zoneFinder},
+		PublicCert:     d.publicCertificate,
 	}); err != nil {
 		d.log.Error(i18n.T("daemon.remote_init_failed"), "err", err)
 	} else {
@@ -550,6 +574,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Certs:          d.certMgr,
 		CertRequests:   d.certRequests,
 		Remote:         d.remote,
+		PublicDomains:  d.publicDomains,
 	})
 
 	// 10.5 缓存接口处理器：库会在进程内直接用它，不必每次重建路由表。
@@ -709,6 +734,15 @@ func (d *Daemon) newACMEClient(req acme.CertRequest) (*acme.Client, error) {
 	solver := acme.NewDNS01Provider(
 		credentialResolver{svc: d.credentials}, dynLookup, req.CredentialID)
 
+	// 没有手动指定凭据时按**域名**自动反查。
+	//
+	// 这个问题的答案完全由数据决定（域名在哪个区域、那个区域在哪把
+	// 凭据下），让用户在一列"凭据标签 · 服务商"里挑一个，是在要求他
+	// 心算一件内核明明知道的事 —— 而他没有任何办法验证自己挑对了。
+	if d.zoneFinder != nil {
+		solver.SetFinder(d.zoneFinder)
+	}
+
 	return acme.NewClient(solver, d.certStore), nil
 }
 
@@ -717,16 +751,31 @@ func (d *Daemon) newACMEClient(req acme.CertRequest) (*acme.Client, error) {
 // 它来自**启用了 HTTPS 的代理路由** —— 那是用户表达"这些域名要走
 // HTTPS"的唯一地方，因此证书需要覆盖什么由它决定。
 func (d *Daemon) certRequests() []acme.CertRequest {
-	if d.proxyMgr == nil || d.settings == nil {
-		return nil
+	var out []acme.CertRequest
+
+	// 公网子域名的证书。
+	//
+	// 它**不依赖代理**：远程监听自己有 TLS，而手机走公网时需要一张
+	// 受信任的证书。DNS-01 只需要 `_acme-challenge` 那条 TXT，
+	// 不需要子域名本身已经能解析 —— 因此证书可以跟着子域名一起建
+	// 起来，不必等 AAAA 生效。
+	if host := d.publicHostname(); host != "" {
+		out = append(out, acme.CertRequest{Domains: []string{host}})
 	}
+
+	if d.proxyMgr == nil || d.settings == nil {
+		return out
+	}
+	// 凭据可以为空：那是**自动**模式，由 ZoneFinder 按域名反查。
+	// 这里只在"既没手动指定、也没有自动反查能力"时才放弃 ——
+	// 否则会去申请必然失败的证书，而失败信息说的是
+	// "在区域里找不到 TXT 记录"，用户完全想不到是少配了一样东西。
 	credID := d.settings.Get().ACMEDNSCredentialID
-	if credID == "" {
+	if credID == "" && d.zoneFinder == nil {
 		return nil
 	}
 
 	routes := d.proxyMgr.Routes()
-	var out []acme.CertRequest
 	for _, r := range routes {
 		if !r.TLS || len(r.Hosts) == 0 {
 			continue
@@ -915,6 +964,20 @@ func (d *Daemon) startBackground(parent context.Context) {
 		d.log.Warn("加载通知通道配置失败，将只使用日志通道", "err", err)
 	}
 	d.startNotifier(ctx)
+
+	// 公网子域名的定期同步。
+	//
+	// # 为什么必须有这一条
+	//
+	// 没有它时，`SyncPublic` 只有手动接口会调 —— 用户在 Phecda 上
+	// 打开公网访问之后，内核**什么都不做**，而界面上看不出任何异常。
+	// 他必须自己发现要点一下「立即同步」。
+	//
+	// 而除了"刚打开"之外，还有一类情况只有定时才能覆盖：**运营商
+	// 重新分配前缀**（IPv6 的 /64 会变，IPv4 的公网地址也会变）。
+	// 那时域名会指向一个已经不属于我们的地址，而症状是"昨天还能连、
+	// 今天连不上了"。
+	go d.runPublicSync(ctx)
 
 	// 证书的定期检查与续期。
 	//
@@ -1222,4 +1285,168 @@ func newToken() (string, error) {
 		return "", fmt.Errorf(i18n.T("daemon.err.token"), err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// remoteZoneResolver 把区域反查器适配成 remote 包要的最小接口。
+//
+// 证书签发与公网子域名用的是**同一个**反查器：两处需要的是同一个
+// 答案（"这个域名该用哪把凭据"），而各写一份会让它们迟早给出不同的
+// 结果 —— 那种不一致的症状是"证书能签下来，但子域名建在别处"。
+type remoteZoneResolver struct{ finder *dns.ZoneFinder }
+
+func (r remoteZoneResolver) Find(ctx context.Context, domain string) (string, string, string, error) {
+	if r.finder == nil {
+		return "", "", "", errors.New(i18n.T("remote.public.err.no_resolver"))
+	}
+	credentialID, zone, err := r.finder.Find(ctx, domain)
+	if err != nil {
+		return "", "", "", err
+	}
+	return credentialID, zone.ID, zone.Name, nil
+}
+
+// remotePublicSettings 把设置服务适配成 remote 包要的最小接口。
+//
+// 用一个窄接口而不是把 *settings.Service 直接传进去：remote 包因此
+// 不需要知道设置是怎么存的，测试里也能给一个不依赖数据库的实现。
+type remotePublicSettings struct{ settings *settings.Service }
+
+func (r remotePublicSettings) PublicConfig() (bool, string) {
+	if r.settings == nil {
+		return false, ""
+	}
+	s := r.settings.Get()
+	return s.RemotePublicEnabled, s.RemotePublicDomain
+}
+
+// credentialIDs 列出账号下全部凭据的 ID。
+//
+// 分页拉全：凭据数量不会多，而漏掉后几页的后果是"某把凭据明明在
+// 列表里，却怎么都选不中"。
+func (d *Daemon) credentialIDs(ctx context.Context) ([]string, error) {
+	if d.credentials == nil {
+		return nil, nil
+	}
+	var (
+		out    []string
+		cursor string
+	)
+	for {
+		page, next, err := d.credentials.List(ctx, cursor, 200)
+		if err != nil {
+			return out, err
+		}
+		for _, credential := range page {
+			out = append(out, credential.ID)
+		}
+		if next == "" || len(page) == 0 {
+			return out, nil
+		}
+		cursor = next
+	}
+}
+
+// publicDomains 列出可以承载公网子域名的域名。
+func (d *Daemon) publicDomains(ctx context.Context) ([]dns.Candidate, error) {
+	if d.zoneFinder == nil {
+		return nil, nil
+	}
+	return d.zoneFinder.List(ctx)
+}
+
+// publicCertificate 按 SNI 名字取出受信任的证书。
+//
+// 名字来自公网子域名（用户在 Phecda 上选的那个域名 + 内核生成的随机
+// 标签）。它不一定已经签下来 —— 那时返回 (nil, nil)，远程监听会回落
+// 到自签那张，局域网路径因此完全不受影响。
+//
+// 这里**只认 ACME 证书库里存在的名字**：直接按 SNI 去读文件是不行的，
+// 那等于让任意一个客户端用一个精心构造的 ServerName 就能让我们去读
+// 任意路径。
+func (d *Daemon) publicCertificate(host string) (*tls.Certificate, error) {
+	if d.certStore == nil {
+		return nil, nil
+	}
+	cert, err := d.certStore.Load(host)
+	if err != nil {
+		return nil, nil
+	}
+	parsed, err := tls.X509KeyPair(cert.CertPEM, cert.KeyPEM)
+	if err != nil {
+		return nil, nil
+	}
+	if parsed.Leaf == nil {
+		if leaf, err := x509.ParseCertificate(parsed.Certificate[0]); err == nil {
+			parsed.Leaf = leaf
+		}
+	}
+	return &parsed, nil
+}
+
+// publicHostname 返回公网子域名（未启用或还没建立时为空）。
+func (d *Daemon) publicHostname() string {
+	if d.remote == nil {
+		return ""
+	}
+	return d.remote.PublicHostname()
+}
+
+// publicSyncInterval 是公网子域名的同步间隔。
+//
+// 15 分钟：地址变化在运营商那边是几小时到几天一次的级别，而每次同步
+// 在地址没变时**不发任何写请求**（Apply 是幂等的），因此这个频率
+// 几乎不花代价 —— 真正要防的是"变了而没人发现"。
+const publicSyncInterval = 15 * time.Minute
+
+// runPublicSync 定期让 DNS 记录与本机当前的公网地址一致。
+func (d *Daemon) runPublicSync(ctx context.Context) {
+	if d.remote == nil {
+		return
+	}
+
+	// 开机先立刻来一次：内核可能停了几天，期间地址早就变了。
+	d.syncPublicOnce(ctx)
+
+	ticker := time.NewTicker(publicSyncInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.syncPublicOnce(ctx)
+		}
+	}
+}
+
+func (d *Daemon) syncPublicOnce(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	// 未开启时直接返回：默认就是关的，每次开机刷一条"同步失败"
+	// 只会是噪音，而噪音会让真正的那条被忽略。
+	if !d.remote.PublicEnabled() {
+		return
+	}
+	if _, err := d.remote.SyncPublic(ctx); err != nil {
+		d.log.Warn("公网子域名同步失败", "err", err)
+		return
+	}
+
+	// 子域名建好之后**立刻**去要证书。
+	//
+	// # 为什么不能只等那个定期循环
+	//
+	// 证书的定期检查是 12 小时一次。也就是说：用户在 Phecda 上打开公网
+	// 访问、看到子域名出现，而**证书要等到下一次检查才被申请** ——
+	// 最长十二小时里，那个域名指向的是一台只有自签证书的机器，
+	// 手机上会弹证书警告。
+	//
+	// 而这件事本该是"打开就好"。Ensure 自己是幂等的（它会看续期窗口，
+	// 而且对同一组域名防重入），因此这里可以放心地每次都调。
+	if host := d.remote.PublicHostname(); host != "" {
+		if _, _, err := d.certMgr.Ensure(ctx, acme.CertRequest{Domains: []string{host}}); err != nil {
+			d.log.Warn("公网子域名的证书签发失败", "host", host, "err", err)
+		}
+	}
 }

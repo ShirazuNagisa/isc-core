@@ -193,7 +193,15 @@ func Evaluate(in Input) []Advisory {
 				},
 			})
 		}
-		if in.ACMECredentialID == "" {
+		// **凭据留空是合法的** —— 那是"按域名自动匹配"。
+		//
+		// 这个建议以前只看"有没有填"，于是它会在用户**已经用上自动匹配**
+		// 的时候继续催他去选一个不需要选的东西。而用户照做之后并没有
+		// 任何变化（因为本来就工作），这比不提示更糟 —— 它会让人怀疑
+		// 自己是不是漏了什么。
+		//
+		// 真正做不了的情况只有一种：**一把凭据都没有**。
+		if in.ACMECredentialID == "" && !in.HasDNSCredential {
 			out = append(out, Advisory{
 				ID:        "acme_credential_missing",
 				Severity:  SeverityBlocking,

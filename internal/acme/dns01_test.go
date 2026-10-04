@@ -1,8 +1,15 @@
 package acme
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+
 	"context"
 	"errors"
+	"golang.org/x/crypto/acme"
 	"strings"
 	"sync"
 	"testing"
@@ -304,8 +311,15 @@ func TestPresentCreatesChallengeRecord(t *testing.T) {
 		t.Errorf("记录名 = %q —— 通配前缀没有去掉会导致 ACME 永远查不到",
 			rec.Name)
 	}
-	if rec.Content != DNS01Value("key-auth") {
-		t.Errorf("记录值 = %q", rec.Content)
+	// 记录值必须**原样**是传进来的那个值。
+	//
+	// 传进来的已经是 `base64url(SHA256(keyAuth))`（由 x/crypto/acme 的
+	// `DNS01ChallengeRecord` 算好）。这里再哈希一次的话，写出去的是
+	// "摘要的摘要" —— 格式完全正确，而 CA 只会说"找到了错误的 TXT 记录"。
+	// 这个断言以前写的是 `DNS01Value("key-auth")`，也就是把那个 bug
+	// 当成正确行为钉住了。
+	if rec.Content != "key-auth" {
+		t.Errorf("记录值 = %q，期望原样发布传入的值", rec.Content)
 	}
 	// TTL 必须交给服务商决定（0）：各家最小 TTL 不同，
 	// 硬编码 60 会被阿里云免费版这类服务商拒绝。
@@ -517,4 +531,111 @@ type onlyMeta struct{}
 
 func (onlyMeta) Meta() dns.Meta {
 	return dns.Meta{Name: "onlymeta", DisplayName: "只有元信息", Tier: 1}
+}
+
+// TestChallengeValueMatchesUpstream 是一条**跨库**的棘轮。
+//
+// # 它挡的是什么
+//
+// 这个功能第一次真实运行时失败在 Let's Encrypt 的一句
+// "Incorrect TXT record ... found at _acme-challenge.xxx" ——
+// 记录格式完全正确、长度完全正确，只是值是**摘要的摘要**：
+//
+//	x/crypto/acme 的 DNS01ChallengeRecord 已经返回 base64url(SHA256(keyAuth))，
+//	而本地又用 DNS01Value 哈希了一遍。
+//
+// 两个函数各自都是对的，错的是它们之间的**接缝** —— 而接缝正是单元
+// 测试最容易漏掉的地方。因此这里直接拿上游的返回值当输入，
+// 断言 ChallengeRecord 不再加工它。
+func TestChallengeValueMatchesUpstream(t *testing.T) {
+	t.Parallel()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("生成密钥失败: %v", err)
+	}
+	// DNS01ChallengeRecord 只用到 c.Key.Public() 与 token，不发网络请求。
+	client := &acme.Client{Key: key}
+
+	const token = "some-challenge-token"
+	const domain = "www.example.com"
+
+	value, err := client.DNS01ChallengeRecord(token)
+	if err != nil {
+		t.Fatalf("上游计算失败: %v", err)
+	}
+
+	rec := ChallengeRecord(domain, value)
+
+	if rec.Value != value {
+		t.Fatalf("挑战记录值被二次加工了：\n  上游给出 %q\n  我们发布 %q\n"+
+			"CA 会报\"找到了错误的 TXT 记录\"，而格式看起来完全正常。\n"+
+			"（二次哈希的结果是 %q）", value, rec.Value, DNS01Value(value))
+	}
+	if rec.Name != "_acme-challenge."+domain {
+		t.Fatalf("记录名 = %q", rec.Name)
+	}
+
+	// 通配符要去掉 `*.`：`_acme-challenge.*.example.com` 不是合法记录名。
+	wildcard := ChallengeRecord("*.example.com", value)
+	if wildcard.Name != "_acme-challenge.example.com" {
+		t.Fatalf("通配符记录名 = %q", wildcard.Name)
+	}
+}
+
+// DNS01Value 本身仍然是 RFC 8555 §8.4 的那个算法 —— 它只是**不该**
+// 被用在已经算好的值上。
+func TestDNS01ValueStillImplementsRFC8554(t *testing.T) {
+	t.Parallel()
+
+	keyAuth := "token.thumbprint"
+	want := base64.RawURLEncoding.EncodeToString(func() []byte {
+		sum := sha256.Sum256([]byte(keyAuth))
+		return sum[:]
+	}())
+	if got := DNS01Value(keyAuth); got != want {
+		t.Fatalf("DNS01Value(%q) = %q，期望 %q", keyAuth, got, want)
+	}
+}
+
+// **CleanUp 必须真的删掉记录。**
+//
+// # 这条测试挡的是一类"静默成功"的 bug
+//
+// `CleanUp` 在找不到清理目标时**返回 nil**（记录可能本来就没写成功，
+// 那不是错误）。但 `Present` 忘了把目标登记到内存里 —— 于是它每次都
+// 走那条路，沉默地什么也不做，而用户的 DNS 里留下几条自己没建过的
+// `_acme-challenge` TXT，日志里一个错都没有。
+//
+// 这类 bug 的特征是：**返回值是对的，只是什么都没发生**。
+// 因此这里不检查错误，而是检查"记录有没有被删掉"。
+func TestCleanUpActuallyDeletesTheRecord(t *testing.T) {
+	t.Parallel()
+
+	impl := &fakeDNS{zones: []dns.Zone{{ID: "z1", Name: "example.com"}}}
+	p := newTestProvider(t, impl)
+
+	const domain = "example.com"
+	if err := p.Present(context.Background(), domain, "token", "value"); err != nil {
+		t.Fatalf("Present 失败: %v", err)
+	}
+	created, _, deleted := impl.snapshot()
+	if len(created) != 1 {
+		t.Fatalf("应当写入 1 条记录，得到 %d", len(created))
+	}
+
+	// 传空的 token 与值：它们的契约就是"用不上" —— 定位信息来自
+	// Present 时登记的目标，而不是这两个参数。这也正是这个 bug 的
+	// 成因：登记那一步漏了，参数再对也没用。
+	if err := p.CleanUp(context.Background(), domain, "", ""); err != nil {
+		t.Fatalf("CleanUp 失败: %v", err)
+	}
+	_, _, deleted = impl.snapshot()
+	if len(deleted) != 1 {
+		t.Fatalf("CleanUp 没有删掉记录 —— 它静默返回了成功，而用户的 DNS 里会留下残留（已删除 %d 条）",
+			len(deleted))
+	}
+	if deleted[0] != created[0].ID {
+		t.Fatalf("删的是 %q，期望 %q", deleted[0], created[0].ID)
+	}
 }

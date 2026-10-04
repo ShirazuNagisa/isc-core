@@ -366,3 +366,46 @@ func (r *recorder) Write(b []byte) (int, error) {
 func (r *recorder) WriteHeader(status int) { r.Code = status }
 
 func (r *recorder) Body() string { return string(r.body) }
+
+// 远程监听按 SNI 选证书，而**回落必须安静**。
+//
+// # 这条门禁测的是真握手
+//
+// 单元测试只覆盖了选择逻辑；这里走一次真正的 TLS 握手，因为最容易
+// 出问题的地方恰好是"TLS 栈怎么看待我们返回的那张证书" ——
+// 一个非 nil 但空的 `tls.Certificate` 会被接受、然后在握手时报
+// "no certificates"，而那是一个只在运行时才出现的失败。
+//
+// # 两条路必须并存
+//
+//   - 局域网（IP / `.local`，没有 SNI 名字）→ 自签那张，它的公钥指纹
+//     是手机配对时固定的。换了会让所有已配对的手机要求重新配对。
+//   - 公网（域名）→ Let's Encrypt 那张。它不能沿用固定指纹，因为
+//     续期会换密钥。
+//
+// 而"公网那张还没有"（首次配置时必然如此）必须**回落**，不能报错：
+// 报错会把"公网还没配好"变成"手机完全连不上"。
+func TestRemoteListenerFallsBackToSelfSignedWithoutSNI(t *testing.T) {
+	t.Parallel()
+
+	srv, svc := testRemoteServer(t)
+	port := startTestRemote(t, srv, svc)
+
+	// 不带 ServerName 的握手 —— 手机用 IP 连时就是这样。
+	conn, err := tls.Dial("tcp", "127.0.0.1:"+strconv.Itoa(port), &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec // 这里就是要手工比对指纹
+	})
+	if err != nil {
+		t.Fatalf("没有 SNI 名字时握手不该失败: %v", err)
+	}
+	defer conn.Close() //nolint:errcheck // 测试收尾
+
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		t.Fatal("握手没有拿到对端证书")
+	}
+	sum := sha256.Sum256(certs[0].RawSubjectPublicKeyInfo)
+	if got := base64.RawURLEncoding.EncodeToString(sum[:]); got != svc.Certificate().SPKIBase64() {
+		t.Fatal("没有 SNI 名字时给出的应当是自签那张（局域网路径靠它的指纹）")
+	}
+}

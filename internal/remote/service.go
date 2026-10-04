@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,6 +66,24 @@ type Options struct {
 	// APNSStore 是 APNs 凭据的存放处。为 nil 表示不支持推送
 	// （那时三个推送相关的接口会明确报错，而不是假装成功）。
 	APNSStore *CredentialStore
+	// PublicCert 按 SNI 名字取出**受信任**的证书。
+	//
+	// 为 nil 表示只有自签那一条路。有它时，远程监听会按客户端请求的
+	// 名字选证书：公网域名给 Let's Encrypt 签的那张，其余（IP、.local）
+	// 仍然给自签的那张。
+	PublicCert PublicCertificateFunc
+
+	// PublicFace 是公网访问的编排（子域名 + DNS 记录 + 自检）。
+	//
+	// 为 nil 表示不支持：那时 `/v1/remote/public/*` 会明确报错，
+	// 而不是假装成功。
+	PublicFace *PublicFace
+	// PublicSettings 读取公网访问相关的设置。
+	// 定义成接口是为了让 remote 包不依赖 settings 包的具体类型。
+	PublicSettings PublicSettings
+	// PublicZones 按域名反查凭据与区域。为 nil 表示不支持公网访问
+	// （那时 SyncPublic 会明确报错，而不是静默什么都不做）。
+	PublicZones PublicZoneResolver
 	// APNSHost 是 APNs 的接入点；空串表示生产环境。
 	//
 	// 由调用方给而不是写死：测试要指向一个假服务器，而用户可能
@@ -91,6 +110,47 @@ type Status struct {
 	APNSTeamID           string
 	NotificationsEnabled bool
 	LastError            string
+
+	// Public 是公网访问的状态。Enabled 为假时其余字段为空。
+	Public PublicStatus
+}
+
+// PublicStatus 是公网访问的对外状态。
+type PublicStatus struct {
+	Enabled bool
+	// Domain 是子域名挂在哪个域名下（用户选的），例如 example.com。
+	Domain string
+	// Host 是完整的子域名；还没生成时为空。
+	Host string
+	// Records 是"记录类型 → 地址值"，便于界面直接显示。
+	Records map[string]string
+	// LastCheck 是最近一次可达性自检的结论。
+	LastCheck *PublicCheck
+	// Ready 表示凭据与区域都配好了，可以开始同步。
+	Ready bool
+}
+
+// PublicCertificateFunc 按 SNI 名字取出一张受信任的证书。
+//
+// 返回 (nil, nil) 表示"这个名字我没有证书"，调用方会回落到自签那张 ——
+// 而那不是错误：手机在局域网里用 IP 连的时候本来就没有 SNI 名字。
+type PublicCertificateFunc func(host string) (*tls.Certificate, error)
+
+// PublicSettings 是公网访问用到的设置读取。
+type PublicSettings interface {
+	// PublicConfig 返回"是否开启"与"挂在哪个域名下"。
+	//
+	// 它**不返回**凭据 ID 与区域 ID：那两件事由域名唯一决定，
+	// 内核自己反查得出来（见 PublicZoneResolver）。
+	PublicConfig() (enabled bool, domain string)
+}
+
+// PublicZoneResolver 按域名反查该用哪把凭据、哪个区域。
+//
+// 与证书签发用的是同一个反查器（dns.ZoneFinder）—— 两处需要的
+// 是同一个答案，而各写一份会让它们迟早给出不同的结果。
+type PublicZoneResolver interface {
+	Find(ctx context.Context, domain string) (credentialID string, zoneID, zoneName string, err error)
 }
 
 // Service 是远程管理面。
@@ -99,6 +159,7 @@ type Service struct {
 	cert  *Certificate
 	pair  *pairingManager
 	pairL *limiter
+	pingL *limiter
 	devL  *limiter
 
 	mu            sync.Mutex
@@ -112,6 +173,10 @@ type Service struct {
 	lastError     string
 
 	apns *pusherCache
+
+	public *PublicFace
+	pset   PublicSettings
+	pzones PublicZoneResolver
 }
 
 // New 构造远程管理面。
@@ -140,6 +205,7 @@ func New(opts Options) (*Service, error) {
 		cert:      cert,
 		pair:      newPairingManager(),
 		pairL:     newLimiter(pairPerMinute, pairBurst),
+		pingL:     newLimiter(pingPerMinute, pingBurst),
 		devL:      newLimiter(devicePerMinute, deviceBurst),
 		state:     StateDisabled,
 		port:      opts.Port,
@@ -151,6 +217,9 @@ func New(opts Options) (*Service, error) {
 	if opts.APNSStore != nil {
 		svc.apns = newPusherCache(opts.APNSStore, opts.APNSHost)
 	}
+	svc.public = opts.PublicFace
+	svc.pset = opts.PublicSettings
+	svc.pzones = opts.PublicZones
 	return svc, nil
 }
 
@@ -338,7 +407,22 @@ func (s *Service) Start(ctx context.Context) error {
 	srv := &http.Server{
 		Handler: s.handler,
 		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{s.cert.TLS},
+			// 按 SNI 选证书，而不是只放一张。
+			//
+			// # 为什么必须两条路并存
+			//
+			// 局域网路径用的是自签证书，它的**公钥指纹**是手机在配对时
+			// 固定下来的（D38）。换成受信任证书会让所有已配对的手机
+			// 立刻连不上，而用户完全不知道该重新配对 —— 那条路必须
+			// 一个字都不变。
+			//
+			// 公网路径用的是 Let's Encrypt 签的证书。它**不能**沿用
+			// 固定指纹：证书续期会换密钥，固定之后每次续期都会连不上，
+			// 而症状是"过一阵子连不上，重启一下又好了"。
+			//
+			// 两者靠 SNI 区分：手机连域名时给受信任那张，连 IP 或
+			// `.local` 时给自签那张。
+			GetCertificate: s.getCertificate,
 			// TLS 1.2 是下限：1.0/1.1 已经不被任何现代系统接受，
 			// 而允许它们只会让误配置更难发现。
 			MinVersion: tls.VersionTLS12,
@@ -435,6 +519,25 @@ func (s *Service) Status(ctx context.Context) Status {
 		APNSTeamID:           apnsTeamID,
 	}
 
+	// 公网访问的状态从台账读，不缓存：子域名一旦变化就是一次故障，
+	// 而缓存只会让"改了没生效"多一种可能。
+	//
+	// 它做两次加锁（读台账、读设置）而不是把锁合并：这两份状态
+	// 属于不同的所有者，合并锁会让"写设置时阻塞读状态"这类
+	// 无关的耦合出现。
+	if s.public != nil {
+		state := s.public.State()
+		st.Public.Host = state.Host()
+		st.Public.Records = state.Addresses
+		st.Public.LastCheck = state.LastCheck
+	}
+	if s.pset != nil {
+		publicEnabled, domain := s.pset.PublicConfig()
+		st.Public.Enabled = publicEnabled
+		st.Public.Domain = domain
+		st.Public.Ready = publicEnabled && domain != "" && s.public != nil && s.pzones != nil
+	}
+
 	if session, ok := s.pair.current(time.Now()); ok {
 		st.Pairing = &session
 	}
@@ -486,7 +589,38 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Device, error
 
 // AllowPair 报告某个来源现在是否可以尝试配对。
 func (s *Service) AllowPair(source string, now time.Time) bool {
-	return s.pairL.allow(source, now)
+	return s.pairL.allow(SourceKey(source), now)
+}
+
+// AllowPing 报告某个来源现在是否可以打探针端点。
+//
+// 与 AllowPair 分开计数：共用一个桶时，攻击者狂打 ping 就能把
+// 正常用户的配对额度耗光 —— 而那是一条不用配对就能发动的拒绝服务。
+func (s *Service) AllowPing(source string, now time.Time) bool {
+	return s.pingL.allow(SourceKey(source), now)
+}
+
+// getCertificate 按 SNI 选证书。
+//
+// 回落规则是**先公网、后自签**，而回落本身不是错误：手机在局域网里
+// 用 IP 或 `.local` 连的时候根本没有 SNI 名字，那时自签那张才是对的。
+func (s *Service) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if s.opts.PublicCert != nil && hello != nil && hello.ServerName != "" {
+		cert, err := s.opts.PublicCert(hello.ServerName)
+		// `len(cert.Certificate) > 0` 这条不能省：一个**非 nil 但空**的
+		// `tls.Certificate`（没有证书链）会被 TLS 栈接受，然后在握手时
+		// 报 "no certificates" —— 而那是一个只在运行时才出现的失败，
+		// 症状是"公网域名连不上，局域网正常"，看起来像 DNS 问题。
+		if err == nil && cert != nil && len(cert.Certificate) > 0 {
+			return cert, nil
+		}
+		// 取不到就回落，**不报错**：一张证书没签下来不该让局域网
+		// 那条路也跟着断 —— 那会让"公网还没配好"变成"手机完全连不上"。
+	}
+	if s.cert == nil {
+		return nil, errors.New(i18n.T("remote.err.no_cert"))
+	}
+	return &s.cert.TLS, nil
 }
 
 // AllowRequest 报告某台设备现在是否可以发请求。
@@ -495,11 +629,14 @@ func (s *Service) AllowRequest(deviceID string, now time.Time) bool {
 }
 
 // BeginPairing 开一个配对会话。
-func (s *Service) BeginPairing(role Role, label string, now time.Time) (PairingSession, error) {
+//
+// source 是请求来源（由调用方从连接里取，**不看任何请求头** ——
+// X-Forwarded-For 之类是可以随便伪造的，而它在这里决定限流与锁定）。
+func (s *Service) BeginPairing(role Role, label, source string, now time.Time) (PairingSession, error) {
 	if !role.Valid() {
 		role = RoleViewer
 	}
-	return s.pair.start(role, label, now)
+	return s.pair.start(role, label, SourceKey(source), now)
 }
 
 // CancelPairing 取消一个配对会话。
@@ -509,8 +646,8 @@ func (s *Service) CancelPairing(id string) bool { return s.pair.cancel(id) }
 func (s *Service) CurrentPairing(now time.Time) (PairingSession, bool) { return s.pair.current(now) }
 
 // ClaimPairing 用一个密钥或六位码认领会话。
-func (s *Service) ClaimPairing(credential string, now time.Time) (PairingSession, error) {
-	return s.pair.claim(credential, now)
+func (s *Service) ClaimPairing(credential, source string, now time.Time) (PairingSession, error) {
+	return s.pair.claim(credential, SourceKey(source), now)
 }
 
 // DeviceInfo 是客户端自报的设备信息。
@@ -682,11 +819,42 @@ func (s *Service) QRPayload(session PairingSession) (string, error) {
 		Secret:    session.Secret,
 		ExpiresAt: session.ExpiresAt.Unix(),
 	}
+
+	// 公网子域名也要带上。
+	//
+	// # 少了它会怎样
+	//
+	// `Addresses` 只有局域网候选（那是**扫码时**手机所在的网络）。
+	// 手机配好之后在家里能用，出门之后手上只有那几条 `192.168.x.x`
+	// 和 `.local`，全部超时 —— 而内核其实在公网上好好地问候着。
+	//
+	// 它会在第一次连上之后自愈（`/v1/remote/self` 会带回公网域名），
+	// 但"扫一次，从此在哪都能用"这件事必须由载荷本身保证，
+	// 而不是指望用户先回一次家。
+	if host := s.PublicHostname(); host != "" {
+		payload.PublicHost = host
+		payload.PublicPort = s.Port()
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf(i18n.T("remote.err.qr_payload"), err)
 	}
 	return string(raw), nil
+}
+
+// QRLink 返回载荷的可复制形式。
+//
+// `isc-remote://pair?d=<base64url>` —— 与二维码里的**是同一份载荷**，
+// 只是换了个载体：二维码给人扫，链接给人粘。
+//
+// 由内核生成而不是让 GUI 自己拼：链接格式是契约的一部分，两个实现
+// 意味着两处会漂移，而漂移的症状是"某个版本的 App 粘不进去"。
+func (s *Service) QRLink(session PairingSession) (string, error) {
+	raw, err := s.QRPayload(session)
+	if err != nil {
+		return "", err
+	}
+	return "isc-remote://pair?d=" + base64.RawURLEncoding.EncodeToString([]byte(raw)), nil
 }
 
 // qrKind 是二维码 payload 的类型标识。
@@ -708,4 +876,145 @@ type qrPayload struct {
 	SPKI      string   `json:"spki"`
 	Secret    string   `json:"secret"`
 	ExpiresAt int64    `json:"exp"`
+
+	// PublicHost / PublicPort 是公网子域名（未开启公网访问时为空）。
+	//
+	// 它是一条**独立的**候选，而不是塞进 `Addresses`：它用的信任模型
+	// 与局域网那条不同（受信任证书 vs 固定的公钥指纹），客户端必须
+	// 分得清哪条该用哪个。
+	PublicHost string `json:"public_host,omitempty"`
+	PublicPort int    `json:"public_port,omitempty"`
+}
+
+// SyncPublic 让分域名与 DNS 记录与本机当前的公网地址一致。
+//
+// 它是幂等的：地址没变就不发写请求，因此可以被反复调用
+// （开机时、地址变化时、用户点"立即同步"时）。
+func (s *Service) SyncPublic(ctx context.Context) (PublicStatus, error) {
+	if s.public == nil || s.pset == nil {
+		return PublicStatus{}, errors.New(i18n.T("remote.public.err.no_writer"))
+	}
+	enabled, domain := s.pset.PublicConfig()
+	if !enabled {
+		return PublicStatus{}, errors.New(i18n.T("remote.public.err.disabled"))
+	}
+	if domain == "" {
+		return PublicStatus{}, errors.New(i18n.T("remote.public.err.no_domain"))
+	}
+	if s.pzones == nil {
+		return PublicStatus{}, errors.New(i18n.T("remote.public.err.no_resolver"))
+	}
+
+	// 用户只说了"挂在哪个域名下"。哪把凭据、哪个区域由这个域名
+	// 唯一决定 —— 而那是内核该自己回答的问题。
+	credentialID, zoneID, zoneName, err := s.pzones.Find(ctx, domain)
+	if err != nil {
+		return PublicStatus{}, err
+	}
+
+	plan := PublicPlan{
+		CredentialID: credentialID,
+		ZoneID:       zoneID,
+		Zone:         zoneName,
+	}
+
+	// IPv6：从**本机地址**里挑稳定的那一条，而不是问回显服务。
+	//
+	// 回显服务看到的是出站用的地址，而系统默认用会轮换的临时地址出站 ——
+	// 把它写进 DNS 就是一条几小时后就失效的记录。
+	if addrs, err := localScopedAddresses(); err == nil {
+		if ip, _, ok := SelectPublicIPv6(addrs); ok {
+			plan.IPv6 = ip
+		}
+	}
+
+	// IPv4：只有**实测过**可达才写。
+	//
+	// 探测到公网 IPv4 只能说明"我们有 IPv4 出口"，说明不了
+	// "外面能连进来" —— 家用宽带上后者通常不成立（大内网）。
+	// 写一条连不上的 A 记录比不写更糟：客户端默认先试 IPv4。
+	last := s.public.State().LastCheck
+	if last != nil && last.Verdict == PublicVerdictReachable && last.Family == "ipv4" && s.public.prober != nil {
+		if ip, err := s.public.prober.PublicIPv4(ctx); err == nil {
+			plan.IPv4 = ip
+		}
+	}
+
+	if _, err := s.public.Apply(ctx, plan); err != nil {
+		return PublicStatus{}, err
+	}
+	return s.Status(ctx).Public, nil
+}
+
+// PublicProbe 返回当前的可达性探测计划。
+func (s *Service) PublicProbe() PublicProbe {
+	if s.public == nil {
+		return BuildPublicProbe("", s.opts.Port, "https", nil, nil, nil)
+	}
+	state := s.public.State()
+
+	// 局域网候选由 Candidates 给出（它已经包含 IPv4、IPv6 与 .local）。
+	// 手机先试这些：通了就说明它和内核在同一个网络里。
+	lan := Candidates(s.opts.Port)
+
+	var ipv6, ipv4 net.IP
+	for rtype, value := range state.Addresses {
+		ip := net.ParseIP(value)
+		switch rtype {
+		case "AAAA":
+			ipv6 = ip
+		case "A":
+			ipv4 = ip
+		}
+	}
+	return BuildPublicProbe(state.Host(), s.opts.Port, "https", ipv6, ipv4, lan)
+}
+
+// PublicEnabled 报告用户是否开启了公网访问。
+func (s *Service) PublicEnabled() bool {
+	if s.pset == nil {
+		return false
+	}
+	enabled, _ := s.pset.PublicConfig()
+	return enabled
+}
+
+// PublicHostname 返回公网子域名（未启用或还没建立时为空）。
+//
+// 供证书签发用它去申请一张**受信任**的证书 —— 公网路径不能沿用
+// 局域网那套自签 + 固定指纹，因为续期会换密钥。
+func (s *Service) PublicHostname() string {
+	if s.public == nil || s.pset == nil {
+		return ""
+	}
+	enabled, _ := s.pset.PublicConfig()
+	if !enabled {
+		return ""
+	}
+	return s.public.State().Host()
+}
+
+// RecordPublicCheck 记下一次可达性自检的结论。
+func (s *Service) RecordPublicCheck(check PublicCheck) error {
+	if s.public == nil {
+		return errors.New(i18n.T("remote.public.err.no_writer"))
+	}
+	return s.public.SetCheck(check)
+}
+
+// TeardownPublic 删掉公网面建的全部记录。
+func (s *Service) TeardownPublic(ctx context.Context) error {
+	if s.public == nil || s.pset == nil || s.pzones == nil {
+		return nil
+	}
+	enabled, domain := s.pset.PublicConfig()
+	if !enabled || domain == "" {
+		return nil
+	}
+	// 拆除也要反查：台账里只有域名与记录 ID，而删除记录需要区域 ID。
+	credentialID, zoneID, _, err := s.pzones.Find(ctx, domain)
+	if err != nil {
+		return err
+	}
+	return s.public.Teardown(ctx, credentialID, zoneID)
 }

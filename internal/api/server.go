@@ -150,6 +150,13 @@ type Deps struct {
 	// 它可以为 nil：那时 /v1/remote/* 的配置面返回"未装配"，
 	// 远程监听根本不会起来。库的使用者只要 DNS/反代能力时就是这样。
 	Remote *remote.Service
+
+	// PublicDomains 列出可以承载公网子域名的域名。
+	//
+	// 它是 `dns.ZoneFinder.List` 的适配。定义成一个函数而不是
+	// 让 api 包直接依赖 ZoneFinder：api 只需要"给我一个列表"，
+	// 而"列表怎么来的"（缓存、凭据枚举、服务商过滤）是 dns 包的事。
+	PublicDomains func(ctx context.Context) ([]dns.Candidate, error)
 }
 
 type Server struct {

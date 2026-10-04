@@ -175,11 +175,11 @@ func issueDevice(t *testing.T, svc *remote.Service, role remote.Role) (remote.De
 	t.Helper()
 
 	now := time.Now()
-	session, err := svc.BeginPairing(role, "test-device", now)
+	session, err := svc.BeginPairing(role, "test-device", "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("开启配对会话失败: %v", err)
 	}
-	claimed, err := svc.ClaimPairing(session.Secret, now)
+	claimed, err := svc.ClaimPairing(session.Secret, "10.0.0.1", now)
 	if err != nil {
 		t.Fatalf("认领会话失败: %v", err)
 	}
@@ -471,15 +471,15 @@ func TestPairingIsTheOnlyPublicPath(t *testing.T) {
 
 	// 没有任何令牌，但用一个**真的**配对码 —— 它必须走通。
 	//
-	// 刻意不断言"不是 401"：配对处理器自己对错误的码就返回 401
+	// 刻意不断言"不是 401"：配对处理器自己对错误的凭证就返回 401
 	//（契约如此），因此那种断言分不清"被鉴权挡下"与"码不对"。
 	// 走通一次 200 才能证明这条路径真的是免鉴权的。
-	session, err := svc.BeginPairing(remote.RoleViewer, "watch", time.Now())
+	session, err := svc.BeginPairing(remote.RoleViewer, "watch", "10.0.0.1", time.Now())
 	if err != nil {
 		t.Fatalf("开启配对会话失败: %v", err)
 	}
 	body, _ := json.Marshal(map[string]any{
-		"code":   session.Code,
+		"secret": session.Secret,
 		"device": map[string]string{"name": "x"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/remote/pair", strings.NewReader(string(body)))
@@ -507,6 +507,117 @@ func TestPairingIsTheOnlyPublicPath(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s 没有令牌却得到 %d —— 它不该是公开路径", path, rec.Code)
+		}
+	}
+}
+
+// 免鉴权的探针端点必须在公开路径名单里。
+//
+// 它**只能**出现在远程面上，且返回的东西刻意只有"到了"这一个事实 ——
+// 身份由 TLS 证明（公网路径是受信任证书，局域网路径是固定公钥）。
+//
+// 这条测试挡住的是一种很自然的"顺手加固"：把 ping 也要求令牌。
+// 那样一来，用户在想确认"公网通不通"的时候（还没配对）就永远
+// 得不到答案 —— 而那正是这个端点存在的唯一理由。
+func TestPingPathNeedsNoToken(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, remote.PublicProbePath, nil)
+	if !isPublicRemotePath(req) {
+		t.Fatalf("%s 必须免鉴权", remote.PublicProbePath)
+	}
+
+	// 但它仍然要在远程面的白名单里 —— 不在的话会先被默认拒绝挡掉。
+	found := false
+	for _, rt := range remoteRoutes {
+		if rt.pattern == "GET "+remote.PublicProbePath {
+			found = true
+			if rt.role != "" {
+				t.Fatalf("ping 应当免鉴权（role 为空），实际是 %q", rt.role)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("%s 必须在远程面的路由白名单里", remote.PublicProbePath)
+	}
+
+	// 带令牌的回报端点**不**免鉴权：它会改内核状态。
+	report := httptest.NewRequest(http.MethodPost, "/v1/remote/public/check", nil)
+	if isPublicRemotePath(report) {
+		t.Fatal("回报端点会改内核状态，不该免鉴权")
+	}
+}
+
+// 远程面的路由表：**只放手机确实需要的东西**。
+//
+// # 这条测试为什么必须存在
+//
+// 我在实现公网访问时往路由表里插过两次，两次都因为锚点字符串不存在
+// 而**静默失败** —— 代码编译通过、单元测试全绿，只有跑真实验收时
+// 才发现 403。而 403 的默认拒绝信息（"远程访问不允许访问该路径"）
+// 看起来像权限问题，不像"这条路由根本没注册"。
+//
+// 所以这里把"哪些路由应该在、哪些不该在"写死成断言。
+func TestRemoteRouteSurface(t *testing.T) {
+	t.Parallel()
+
+	present := map[string]remote.Role{}
+	for _, rt := range remoteRoutes {
+		present[rt.pattern] = rt.role
+	}
+
+	// --- 必须在 ---
+	//
+	// 免鉴权的两条：未配对的手机也要能配对与确认公网通不通。
+	required := []struct {
+		pattern string
+		role    remote.Role
+	}{
+		{"POST /v1/remote/pair", ""},
+		{"GET /v1/remote/ping", ""},
+
+		// 自述与自己的设备管理。
+		{"GET /v1/remote/self", remote.RoleViewer},
+		{"DELETE /v1/remote/self", remote.RoleViewer},
+		{"POST /v1/remote/self/derive", remote.RoleViewer},
+
+		// 只读面。
+		{"GET /v1/metrics", remote.RoleViewer},
+		{"GET /v1/apps", remote.RoleViewer},
+		{"GET /v1/events/poll", remote.RoleViewer},
+
+		// 公网访问：回报探测结果、让配置生效、减少暴露。
+		{"POST /v1/remote/public/check", remote.RoleOperator},
+		{"POST /v1/remote/public/sync", remote.RoleOperator},
+		{"DELETE /v1/remote/public", remote.RoleOperator},
+	}
+	for _, want := range required {
+		got, ok := present[want.pattern]
+		if !ok {
+			t.Errorf("%s 不在远程面的路由表里 —— 手机将收到一个看起来像权限问题的 403", want.pattern)
+			continue
+		}
+		if got != want.role {
+			t.Errorf("%s 的角色是 %q，期望 %q", want.pattern, got, want.role)
+		}
+	}
+
+	// --- 必须不在 ---
+	//
+	// 这些是"能被手机改，但不该被手机改"的东西。每一条都有具体的理由，
+	// 而不是笼统的"敏感"。
+	forbidden := map[string]string{
+		"PUT /v1/remote/apns":           "那是一把能给用户全部设备发推送的凭据，装它属于机器一侧",
+		"DELETE /v1/remote/apns":        "同上",
+		"PATCH /v1/settings":            "设置里有代理端口、ACME 凭据之类与远程看状态无关的东西",
+		"GET /v1/remote/public/domains": "域名列表属于机器一侧；手机不需要它，而多一份暴露面就多一份风险",
+		"PUT /v1/credentials":           "写入一把能重写整个 DNS 区域的凭据",
+		"POST /v1/credentials":          "同上",
+		"GET /v1/config/export":         "导出配置会把全部凭据一起带走",
+	}
+	for pattern, why := range forbidden {
+		if _, ok := present[pattern]; ok {
+			t.Errorf("%s 不该出现在远程面上：%s", pattern, why)
 		}
 	}
 }

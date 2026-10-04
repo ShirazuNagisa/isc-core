@@ -101,7 +101,10 @@ const (
 	ActionRemoteUnpair       = "remote.unpair"
 	ActionRemoteRevoke       = "remote.revoke"
 	ActionRemoteDeviceUpdate = "remote.device_update"
-	ActionRemoteApns         = "remote.apns"
+	// ActionRemotePublic 是公网子域名的建立、同步与删除。
+	ActionRemotePublic = "remote.public"
+	// ActionRemoteApns 是 APNs 凭据的保存与删除。
+	ActionRemoteApns = "remote.apns"
 )
 
 // Record 是一条审计记录。
