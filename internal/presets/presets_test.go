@@ -222,11 +222,18 @@ func TestBuildPlanSubstitutesTheAllocatedPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Port != 41234 {
-		t.Fatalf("plan port = %d", plan.Port)
+	// 计划里**保留**占位符：端口在规划与启动之间可能被抢走而重新分配，
+	// 写死旧端口会让重分配只能去改写字符串（会误伤任何含该数字的参数）。
+	if !strings.Contains(strings.Join(plan.Run.Env, " "), PortPlaceholder) {
+		t.Fatalf("the stored plan should keep the placeholder, got %v", plan.Run.Env)
 	}
-	if !containsEnv(plan.Run.Env, "PORT=41234") {
-		t.Fatalf("the port must reach the application environment, got %v", plan.Run.Env)
+
+	rendered := Render(plan, 41234)
+	if rendered.Port != 41234 {
+		t.Fatalf("rendered port = %d", rendered.Port)
+	}
+	if !containsEnv(rendered.Run.Env, "PORT=41234") {
+		t.Fatalf("the port must reach the application environment, got %v", rendered.Run.Env)
 	}
 
 	php := inspect(t, map[string]string{"index.php": "<?php"})
@@ -235,11 +242,17 @@ func TestBuildPlanSubstitutesTheAllocatedPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(phpPlan.Run.Args, " "), "127.0.0.1:41235") {
-		t.Fatalf("php -S must bind the allocated port, got %v", phpPlan.Run.Args)
+	phpRendered := Render(phpPlan, 41235)
+	if !strings.Contains(strings.Join(phpRendered.Run.Args, " "), "127.0.0.1:41235") {
+		t.Fatalf("php -S must bind the allocated port, got %v", phpRendered.Run.Args)
 	}
-	if strings.Contains(strings.Join(phpPlan.Run.Args, " "), PortPlaceholder) {
-		t.Fatalf("the placeholder must be substituted: %v", phpPlan.Run.Args)
+	if strings.Contains(strings.Join(phpRendered.Run.Args, " "), PortPlaceholder) {
+		t.Fatalf("rendering must remove the placeholder: %v", phpRendered.Run.Args)
+	}
+	// 换一个端口重新渲染：这正是端口被抢走时发生的事。
+	again := Render(phpPlan, 41236)
+	if !strings.Contains(strings.Join(again.Run.Args, " "), "127.0.0.1:41236") {
+		t.Fatalf("re-rendering must follow the new port, got %v", again.Run.Args)
 	}
 }
 
@@ -271,7 +284,7 @@ func TestBuildPlanPythonVariants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(plan.Run.Args, " "), "manage.py runserver") {
+	if !strings.Contains(strings.Join(Render(plan, 8001).Run.Args, " "), "manage.py runserver") {
 		t.Fatalf("django should run through manage.py, got %v", plan.Run.Args)
 	}
 
@@ -298,7 +311,7 @@ func TestBuildPlanJavaRequiresSpringBoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(plan.Run.Args, " "), "--server.port=9000") {
+	if !strings.Contains(strings.Join(Render(plan, 9000).Run.Args, " "), "--server.port=9000") {
 		t.Fatalf("spring boot must get the allocated port, got %v", plan.Run.Args)
 	}
 
@@ -327,8 +340,8 @@ func TestBuildPlanDotNetSetsTheListeningURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsEnv(plan.Run.Env, "ASPNETCORE_URLS=http://127.0.0.1:5100") {
-		t.Fatalf(".NET reads its URL from the environment, got %v", plan.Run.Env)
+	if !containsEnv(Render(plan, 5100).Run.Env, "ASPNETCORE_URLS=http://127.0.0.1:5100") {
+		t.Fatalf(".NET reads its URL from the environment, got %v", Render(plan, 5100).Run.Env)
 	}
 	if !strings.Contains(strings.Join(plan.Run.Args, " "), "Web.dll") {
 		t.Fatalf("expected the built assembly name, got %v", plan.Run.Args)
