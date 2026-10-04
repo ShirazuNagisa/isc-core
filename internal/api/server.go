@@ -12,6 +12,7 @@ import (
 	apispec "github.com/ShirazuNagisa/isc-core/api"
 	"github.com/ShirazuNagisa/isc-core/internal/acme"
 	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
+	"github.com/ShirazuNagisa/isc-core/internal/apps"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/change"
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
@@ -123,6 +124,12 @@ type Deps struct {
 
 	// NotifyConfig 是配置驱动的通道管理。
 	NotifyConfig *notify.ConfigManager
+
+	// Apps 托管用户站点（D25）。
+	//
+	// 为空时 /v1/apps 返回空清单、写操作明确报错 —— 库的使用者可以只要
+	// DNS/反代那部分能力。
+	Apps *apps.Manager
 
 	// Runtimes 解析与供给业务运行时（D28）。
 	//

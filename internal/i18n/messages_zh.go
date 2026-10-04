@@ -38,6 +38,8 @@ var messagesZh = map[string]string{
 	"daemon.runtime_write_failed": "写入运行时文件失败：%s",
 	"daemon.transport_failed":     "本地管理通道建立失败：%s",
 	"daemon.recovered_jobs":       "已把上次运行遗留的 %d 个任务标记为中断",
+	"daemon.recovered_apps":       "已自动拉起 %d 个站点",
+	"daemon.recover_apps_failed":  "归位托管站点失败：%s",
 	"daemon.recover_jobs_failed":  "归位上次遗留的任务失败：%s",
 
 	// --- 传输 ---

@@ -126,6 +126,23 @@ type CreateSpec struct {
 	CustomRun *presets.Step
 }
 
+// Binder 把应用接到公网侧（反向代理规则、证书、DNS 记录）。
+//
+// 它是接口而不是直接调用：应用领域层不该知道反向代理、ACME 与 DNS 的
+// 存在。实现放在 daemon 装配处（那里同时握着这几个管理器）。
+//
+// 实现必须**幂等**：部署可能被重跑，而重复的代理规则会让同一个域名
+// 出现两条互相冲突的转发。
+type Binder interface {
+	// EnsureRoute 保证某个域名指向本应用的本地端口，返回规则 id。
+	EnsureRoute(ctx context.Context, app App, domain string) (string, error)
+	// RemoveRoute 撤销某个域名的公网绑定。
+	//
+	// 带上 app 是为了**只**撤销属于它的规则：同一个域名可能被用户手工
+	// 配过一条指向别处的规则，删应用时把它一并删掉是越权。
+	RemoveRoute(ctx context.Context, app App, domain string) error
+}
+
 // Store 是应用的持久化后端。
 //
 // 接口定义在这里、实现放在 internal/store：依赖方向是单向的

@@ -69,6 +69,12 @@ const (
 	ActionRuntimeProvision = "hosting.runtime_provision"
 	ActionRuntimeRemove    = "hosting.runtime_remove"
 
+	// 托管站点（v0.2.0，见 D25）。
+	ActionAppCreate = "app.create"
+	ActionAppDeploy = "app.deploy"
+	ActionAppStop   = "app.stop"
+	ActionAppDelete = "app.delete"
+
 	ActionCertRenew      = "cert.renew"
 	ActionNotifyChannels = "notify.channels"
 

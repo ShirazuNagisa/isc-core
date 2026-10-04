@@ -37,6 +37,8 @@ var messagesEn = map[string]string{
 	"daemon.runtime_write_failed": "Failed to write runtime file: %s",
 	"daemon.transport_failed":     "Failed to establish the local management channel: %s",
 	"daemon.recovered_jobs":       "Marked %d job(s) from the previous run as interrupted",
+	"daemon.recovered_apps":       "Restarted %d hosted site(s)",
+	"daemon.recover_apps_failed":  "Failed to reconcile hosted sites: %s",
 	"daemon.recover_jobs_failed":  "Failed to reconcile jobs from the previous run: %s",
 
 	// --- transport ---

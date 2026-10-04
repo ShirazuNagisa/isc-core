@@ -554,6 +554,211 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /v1/apps:
+    get:
+      tags: [Apps]
+      operationId: listApps
+      summary: 列出托管的站点
+      responses:
+        "200":
+          description: 应用列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      tags: [Apps]
+      operationId: createApp
+      summary: 登记一个站点
+      description: |
+        只做登记：只读识别源码、生成构建与启动方案、分配本地端口。
+        **不执行**任何构建命令；部署是 POST /v1/apps/{id}/deploy。
+
+        分开是为了让登记保持即时（界面能立刻显示出来），而把耗时动作
+        放进可取消的任务。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppCreateRequest"
+      responses:
+        "201":
+          description: 已登记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/App"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/apps/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    get:
+      tags: [Apps]
+      operationId: getApp
+      summary: 读取站点详情
+      description: |
+        `domains` 里每一条都会带上公网侧的真实状态（反代规则是否存在、
+        证书是否有效），这些是**读的时候**从内核其余部分查出来的，
+        而不是应用自己的字段。
+      responses:
+        "200":
+          description: 站点详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/App"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      tags: [Apps]
+      operationId: deleteApp
+      summary: 停止并删除站点
+      description: |
+        先停进程、撤掉公网绑定，再删记录。磁盘上的日志会保留 ——
+        用户往往正是在删掉它之前想看一眼它为什么起不来。
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/apps/{id}/deploy:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [Apps]
+      operationId: deployApp
+      summary: 部署（准备运行时、装依赖、构建、启动、绑公网）
+      description: |
+        长操作，返回 202 与任务 id，进度经 `job.progress` 事件推送。
+
+        公网绑定是**尽力而为**的：站点本地跑起来之后才尝试绑域名，
+        绑定失败不会把部署判成失败 —— 否则用户会在面对一个真正可用的
+        服务时以为一切都白做了。
+      responses:
+        "202":
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/apps/{id}/start:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [Apps]
+      operationId: startApp
+      summary: 启动（不重新装依赖或构建）
+      responses:
+        "202":
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/apps/{id}/stop:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [Apps]
+      operationId: stopApp
+      summary: 停止
+      description: 先请求优雅退出，超时后强杀整个进程组。幂等。
+      responses:
+        "204":
+          description: 已停止
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/apps/{id}/restart:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [Apps]
+      operationId: restartApp
+      summary: 重启
+      responses:
+        "202":
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/apps/{id}/logs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    get:
+      tags: [Apps]
+      operationId: getAppLogs
+      summary: 读取站点日志
+      description: |
+        日志是**拉取**的，不走事件流：事件总线的容量有限且慢订阅者会被
+        断开，应用日志会把真正的状态变化挤出去。
+      parameters:
+        - name: tail
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 2000, default: 200}
+      responses:
+        "200":
+          description: 日志行（按时间顺序）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppLogs"
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /v1/debug/noop:
     post:
       tags: [Debug]
@@ -2199,6 +2404,99 @@ components:
       properties:
         job_id:
           type: string
+
+    App:
+      type: object
+      required: [id, name, preset_id, kind, source_path, local_port, state, health]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        preset_id: {type: string}
+        kind:
+          type: string
+          description: 运行时类型；空串表示静态站点（由内核直接托管）。
+        source_path: {type: string}
+        local_port: {type: integer}
+        state:
+          type: string
+          enum: [draft, provisioning, installing, building, starting, running, stopping, stopped, failed]
+        health:
+          type: string
+          enum: [unknown, starting, healthy, unhealthy]
+        health_detail: {type: string}
+        auto_start: {type: boolean}
+        max_restarts: {type: integer}
+        restart_count: {type: integer}
+        last_error: {type: string}
+        domains:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppDomain"
+        runtime:
+          $ref: "#/components/schemas/RuntimeInfo"
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    AppDomain:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        # 公网侧状态是读的时候查出来的，不是应用自己的字段。
+        route_ready:
+          type: boolean
+          description: 反向代理里是否已经有一条指向本应用的规则。
+        cert_expires_at: {type: string, format: date-time}
+        cert_needs_renew: {type: boolean}
+        cert_staging: {type: boolean}
+        cert_reason: {type: string}
+        cert_error: {type: string}
+
+    AppList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/App"
+
+    AppCreateRequest:
+      type: object
+      required: [name, preset_id, source_path]
+      properties:
+        name: {type: string, minLength: 1}
+        preset_id: {type: string}
+        source_path: {type: string, minLength: 1}
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: 留空表示自动分配一个空闲端口。
+        domains:
+          type: array
+          items: {type: string}
+        auto_start: {type: boolean}
+        max_restarts:
+          type: integer
+          minimum: 0
+          maximum: 10
+        custom_executable:
+          type: string
+          description: |
+            仅自定义服务器使用：覆盖预设给出的启动命令。
+            **不经 shell**，可执行文件与参数逐项传递。
+        custom_args:
+          type: array
+          items: {type: string}
+
+    AppLogs:
+      type: object
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          items: {type: string}
 
     Preset:
       type: object

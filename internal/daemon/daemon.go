@@ -21,6 +21,7 @@ import (
 
 	"github.com/ShirazuNagisa/isc-core/internal/acme"
 	"github.com/ShirazuNagisa/isc-core/internal/api"
+	appsvc "github.com/ShirazuNagisa/isc-core/internal/apps"
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 	"github.com/ShirazuNagisa/isc-core/internal/change"
 	"github.com/ShirazuNagisa/isc-core/internal/configio"
@@ -129,6 +130,7 @@ type Daemon struct {
 	notifyConfig *notify.ConfigManager
 	certStore    *acme.Store
 	runtimes     *hosting.Manager
+	apps         *appsvc.Manager
 	certMgr      *acme.Manager
 	certProvider *acme.StoreProvider
 	acmeResolver *acme.Resolver
@@ -426,11 +428,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 运行时供给：在数据目录下落 cache/ 与 runtimes/（D28）。
 	d.runtimes = hosting.NewManager(d.opts.Paths.Root(), goruntime.GOOS, goruntime.GOARCH)
 
+	// 托管站点（D25）：静态站点由内核自己托管，其余走平台进程控制。
+	d.apps = appsvc.NewManager(appsvc.Deps{
+		Store:     st.Apps(),
+		Binder:    newAppBinder(d.proxyMgr, d.log),
+		Runtimes:  d.runtimes,
+		Processes: d.bundle.Processes,
+		Logs:      appsvc.NewLogStore(filepath.Join(d.opts.Paths.LogDir(), "apps")),
+		Bus:       d.bus,
+		Log:       d.log,
+		DataRoot:  d.opts.Paths.Root(),
+	})
+
 	// 登记内核支持的任务类型。
 	//
 	// 登记之后，拼错的 kind 会在提交时被拒绝，而不是留下一个永远失败、
 	// 又查不出原因的任务。新增任务类型的子系统必须在这里补一行。
-	d.jobs.RegisterKinds("debug.noop", api.JobKindRuntimeProvision)
+	d.jobs.RegisterKinds("debug.noop", api.JobKindRuntimeProvision,
+		api.JobKindAppDeploy, api.JobKindAppStart)
 
 	// 把上次运行遗留的 pending / running 任务归位。
 	//
@@ -474,6 +489,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		NotifyConfig:   d.notifyConfig,
 		Phecda:         st.Phecda(),
 		Runtimes:       d.runtimes,
+		Apps:           d.apps,
 		CertProvider:   d.certProvider,
 		CertInvalidate: d.certProvider.Invalidate,
 		Certs:          d.certMgr,
@@ -506,6 +522,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 而用户可能正依赖那部分（例如他已经通过新开的端口连上了服务）。
 	// 内核擅自撤掉会把用户正在用的东西拿走，而他完全不知道发生了什么。
 	d.reportInterruptedChanges(runCtx)
+
+	// 16. 归位托管站点。
+	//
+	// 放在后台：拉起一个站点要等健康检查（最长 60 秒），而"内核是否可用"
+	// 不该被某个用户站点拖住 —— 用户要能立刻打开界面看它卡在哪。
+	go d.recoverApps(runCtx)
 
 	d.readyOnce.Do(func() { close(d.ready) })
 	d.log.Info(i18n.T("daemon.started"))
@@ -972,6 +994,22 @@ func (d *Daemon) writeRuntimeInfo() error {
 //  3. 取消并等待在途任务 —— 任务可能正在写 DNS 记录，中途打断会留下
 //     半完成的状态；
 //  4. 关闭 HTTP 服务并等待在途请求。
+//
+// recoverApps 归位托管站点。
+func (d *Daemon) recoverApps(ctx context.Context) {
+	if d.apps == nil {
+		return
+	}
+	started, err := d.apps.Recover(ctx)
+	if err != nil {
+		d.log.Error(i18n.T("daemon.recover_apps_failed"), "err", err)
+		return
+	}
+	if started > 0 {
+		d.log.Info(i18n.T("daemon.recovered_apps"), "count", started)
+	}
+}
+
 func (d *Daemon) shutdown() error {
 	var firstErr error
 
@@ -994,6 +1032,15 @@ func (d *Daemon) shutdown() error {
 	// 用一个独立于调用方 ctx 的上下文：关闭流程本身可能就是被
 	// "取消 ctx"触发的，而用一个已取消的 ctx 去关停会让代理
 	// 来不及把在途请求收尾。
+	// 先停业务进程再停反代：反过来的话，反代在停止过程中仍会把请求
+	// 转给正在退出的应用。
+	if d.apps != nil {
+		// 自带内部超时，不依赖本次 drain 的预算：逐个优雅停止可能要等
+		// 好几秒，而 daemon 的总预算是 10 秒。
+		appCtx, cancelApps := context.WithTimeout(context.Background(), 20*time.Second)
+		d.apps.Shutdown(appCtx)
+		cancelApps()
+	}
 	if d.proxyMgr != nil {
 		_ = d.proxyMgr.Stop(context.Background())
 	}

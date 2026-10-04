@@ -16,6 +16,69 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AppHealth.
+const (
+	AppHealthHealthy   AppHealth = "healthy"
+	AppHealthStarting  AppHealth = "starting"
+	AppHealthUnhealthy AppHealth = "unhealthy"
+	AppHealthUnknown   AppHealth = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the AppHealth enum.
+func (e AppHealth) Valid() bool {
+	switch e {
+	case AppHealthHealthy:
+		return true
+	case AppHealthStarting:
+		return true
+	case AppHealthUnhealthy:
+		return true
+	case AppHealthUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppState.
+const (
+	AppStateBuilding     AppState = "building"
+	AppStateDraft        AppState = "draft"
+	AppStateFailed       AppState = "failed"
+	AppStateInstalling   AppState = "installing"
+	AppStateProvisioning AppState = "provisioning"
+	AppStateRunning      AppState = "running"
+	AppStateStarting     AppState = "starting"
+	AppStateStopped      AppState = "stopped"
+	AppStateStopping     AppState = "stopping"
+)
+
+// Valid indicates whether the value is a known member of the AppState enum.
+func (e AppState) Valid() bool {
+	switch e {
+	case AppStateBuilding:
+		return true
+	case AppStateDraft:
+		return true
+	case AppStateFailed:
+		return true
+	case AppStateInstalling:
+		return true
+	case AppStateProvisioning:
+		return true
+	case AppStateRunning:
+		return true
+	case AppStateStarting:
+		return true
+	case AppStateStopped:
+		return true
+	case AppStateStopping:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditResult.
 const (
 	AuditResultDenied  AuditResult = "denied"
@@ -803,6 +866,76 @@ func (e VerifySessionStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// App defines model for App.
+type App struct {
+	AutoStart    *bool        `json:"auto_start,omitempty"`
+	CreatedAt    *time.Time   `json:"created_at,omitempty"`
+	Domains      *[]AppDomain `json:"domains,omitempty"`
+	Health       AppHealth    `json:"health"`
+	HealthDetail *string      `json:"health_detail,omitempty"`
+	Id           string       `json:"id"`
+
+	// Kind 运行时类型；空串表示静态站点（由内核直接托管）。
+	Kind         string       `json:"kind"`
+	LastError    *string      `json:"last_error,omitempty"`
+	LocalPort    int          `json:"local_port"`
+	MaxRestarts  *int         `json:"max_restarts,omitempty"`
+	Name         string       `json:"name"`
+	PresetId     string       `json:"preset_id"`
+	RestartCount *int         `json:"restart_count,omitempty"`
+	Runtime      *RuntimeInfo `json:"runtime,omitempty"`
+	SourcePath   string       `json:"source_path"`
+	State        AppState     `json:"state"`
+	UpdatedAt    *time.Time   `json:"updated_at,omitempty"`
+}
+
+// AppHealth defines model for App.Health.
+type AppHealth string
+
+// AppState defines model for App.State.
+type AppState string
+
+// AppCreateRequest defines model for AppCreateRequest.
+type AppCreateRequest struct {
+	AutoStart  *bool     `json:"auto_start,omitempty"`
+	CustomArgs *[]string `json:"custom_args,omitempty"`
+
+	// CustomExecutable 仅自定义服务器使用：覆盖预设给出的启动命令。
+	// **不经 shell**，可执行文件与参数逐项传递。
+	CustomExecutable *string   `json:"custom_executable,omitempty"`
+	Domains          *[]string `json:"domains,omitempty"`
+	MaxRestarts      *int      `json:"max_restarts,omitempty"`
+	Name             string    `json:"name"`
+
+	// Port 留空表示自动分配一个空闲端口。
+	Port       *int   `json:"port,omitempty"`
+	PresetId   string `json:"preset_id"`
+	SourcePath string `json:"source_path"`
+}
+
+// AppDomain defines model for AppDomain.
+type AppDomain struct {
+	CertError      *string    `json:"cert_error,omitempty"`
+	CertExpiresAt  *time.Time `json:"cert_expires_at,omitempty"`
+	CertNeedsRenew *bool      `json:"cert_needs_renew,omitempty"`
+	CertReason     *string    `json:"cert_reason,omitempty"`
+	CertStaging    *bool      `json:"cert_staging,omitempty"`
+	Name           string     `json:"name"`
+
+	// RouteReady 反向代理里是否已经有一条指向本应用的规则。
+	RouteReady *bool `json:"route_ready,omitempty"`
+}
+
+// AppList defines model for AppList.
+type AppList struct {
+	Items []App `json:"items"`
+}
+
+// AppLogs defines model for AppLogs.
+type AppLogs struct {
+	Lines []string `json:"lines"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -2094,6 +2227,11 @@ type ZoneId = string
 // ServiceOK defines model for ServiceOK.
 type ServiceOK = ServiceActionResult
 
+// GetAppLogsParams defines parameters for GetAppLogs.
+type GetAppLogsParams struct {
+	Tail *int `form:"tail,omitempty" json:"tail,omitempty"`
+}
+
 // ListAuditParams defines parameters for ListAudit.
 type ListAuditParams struct {
 	// Cursor 分页游标，取自上一次响应的 next_cursor。
@@ -2169,6 +2307,9 @@ type ListJobsParams struct {
 	// Kind 按任务类型过滤。
 	Kind *string `form:"kind,omitempty" json:"kind,omitempty"`
 }
+
+// CreateAppJSONRequestBody defines body for CreateApp for application/json ContentType.
+type CreateAppJSONRequestBody = AppCreateRequest
 
 // ImportConfigJSONRequestBody defines body for ImportConfig for application/json ContentType.
 type ImportConfigJSONRequestBody ImportConfigJSONBody
@@ -2291,6 +2432,33 @@ func (t *PhecdaProjectSource) UnmarshalJSON(b []byte) error {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListApps 列出托管的站点
+	// (GET /v1/apps)
+	ListApps(w http.ResponseWriter, r *http.Request)
+	// CreateApp 登记一个站点
+	// (POST /v1/apps)
+	CreateApp(w http.ResponseWriter, r *http.Request)
+	// DeleteApp 停止并删除站点
+	// (DELETE /v1/apps/{id})
+	DeleteApp(w http.ResponseWriter, r *http.Request, id string)
+	// GetApp 读取站点详情
+	// (GET /v1/apps/{id})
+	GetApp(w http.ResponseWriter, r *http.Request, id string)
+	// DeployApp 部署（准备运行时、装依赖、构建、启动、绑公网）
+	// (POST /v1/apps/{id}/deploy)
+	DeployApp(w http.ResponseWriter, r *http.Request, id string)
+	// GetAppLogs 读取站点日志
+	// (GET /v1/apps/{id}/logs)
+	GetAppLogs(w http.ResponseWriter, r *http.Request, id string, params GetAppLogsParams)
+	// RestartApp 重启
+	// (POST /v1/apps/{id}/restart)
+	RestartApp(w http.ResponseWriter, r *http.Request, id string)
+	// StartApp 启动（不重新装依赖或构建）
+	// (POST /v1/apps/{id}/start)
+	StartApp(w http.ResponseWriter, r *http.Request, id string)
+	// StopApp 停止
+	// (POST /v1/apps/{id}/stop)
+	StopApp(w http.ResponseWriter, r *http.Request, id string)
 	// ListAudit 查询审计日志
 	// (GET /v1/audit)
 	ListAudit(w http.ResponseWriter, r *http.Request, params ListAuditParams)
@@ -2532,6 +2700,232 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListApps operation middleware
+func (siw *ServerInterfaceWrapper) ListApps(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApps(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApp operation middleware
+func (siw *ServerInterfaceWrapper) CreateApp(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApp(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteApp operation middleware
+func (siw *ServerInterfaceWrapper) DeleteApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteApp(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetApp operation middleware
+func (siw *ServerInterfaceWrapper) GetApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApp(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeployApp operation middleware
+func (siw *ServerInterfaceWrapper) DeployApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeployApp(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAppLogs operation middleware
+func (siw *ServerInterfaceWrapper) GetAppLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAppLogsParams
+
+	// ------------- Optional query parameter "tail" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tail", r.URL.Query(), &params.Tail, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tail"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tail", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAppLogs(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestartApp operation middleware
+func (siw *ServerInterfaceWrapper) RestartApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestartApp(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartApp operation middleware
+func (siw *ServerInterfaceWrapper) StartApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartApp(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopApp operation middleware
+func (siw *ServerInterfaceWrapper) StopApp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopApp(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListAudit operation middleware
 func (siw *ServerInterfaceWrapper) ListAudit(w http.ResponseWriter, r *http.Request) {
@@ -4433,6 +4827,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/runtimes", wrapper.ListRuntimes)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/runtimes/provision", wrapper.ProvisionRuntimes)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/runtimes/{kind}", wrapper.RemoveRuntime)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/apps", wrapper.ListApps)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps", wrapper.CreateApp)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/apps/{id}", wrapper.DeleteApp)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/apps/{id}", wrapper.GetApp)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/deploy", wrapper.DeployApp)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/start", wrapper.StartApp)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/stop", wrapper.StopApp)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/restart", wrapper.RestartApp)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/apps/{id}/logs", wrapper.GetAppLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials", wrapper.ListCredentials)

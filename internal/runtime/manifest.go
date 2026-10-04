@@ -138,6 +138,21 @@ func Catalog() []Artifact {
 			Verified: "builds.dotnet.microsoft.com release-metadata 8.0 (2026-10-04)",
 		},
 		{
+			Kind: KindPHP, Version: "8.5.8", Platform: darwinArm64,
+			URL:     "https://dl.static-php.dev/static-php-cli/common/php-8.5.8-cli-macos-aarch64.tar.gz",
+			Digest:  "sha256:cba9bd8b38b51ef2c7cebf02af689e4481bbd07f65edc0b63d3a43b04e0c9db7",
+			Archive: "php-8.5.8-cli-macos-aarch64.tar.gz",
+			// 归档里只有一个 php 可执行文件，没有顶层目录。
+			StripRoot: false, Executable: "php",
+			SizeBytes: 15106458,
+			License:   "PHP-3.01", Source: "static-php.dev (static-php-cli project)",
+			// ⚠️ 该渠道**不发布校验和**，因此这是首次下载后自行计算的固定值
+			// （TOFU）。它仍然有意义：此后任何一次供给拿到的都必须是同一份
+			// 字节，上游换了内容会立刻失败而不是静默装上别的东西。
+			// 下载时另外核对过：gzip 完整（未截断）、内容是 Mach-O arm64。
+			Verified: "TOFU: sha256 computed locally from the official channel, 2026-10-04; gzip integrity and Mach-O arm64 checked",
+		},
+		{
 			Kind: KindPython, Version: "3.13.16", Platform: darwinArm64,
 			URL:     "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-aarch64-apple-darwin-install_only.tar.gz",
 			Digest:  "sha256:d8975d7df4f08f7b1c7aafcdfacbddcec3d366415f2c1a72b2466b6850815933",

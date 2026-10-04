@@ -54,6 +54,7 @@ var (
 // Manager 管理应用的生命周期。
 type Manager struct {
 	store    Store
+	binder   Binder
 	runtimes *runtime.Manager
 	procs    platform.ProcessController
 	logs     *LogStore
@@ -72,7 +73,9 @@ type Manager struct {
 
 // Deps 是构造 Manager 所需的依赖。
 type Deps struct {
-	Store     Store
+	Store Store
+	// Binder 可为空：不接公网的应用（纯内网服务）不需要它。
+	Binder    Binder
 	Runtimes  *runtime.Manager
 	Processes platform.ProcessController
 	Logs      *LogStore
@@ -89,6 +92,7 @@ func NewManager(d Deps) *Manager {
 	}
 	return &Manager{
 		store:    d.Store,
+		binder:   d.Binder,
 		runtimes: d.Runtimes,
 		procs:    d.Processes,
 		logs:     d.Logs,
@@ -298,7 +302,38 @@ func (m *Manager) Deploy(ctx context.Context, id string, report func(float64, st
 	if err := m.start(ctx, &app, stage(0.9, 1)); err != nil {
 		return m.fail(ctx, app, err)
 	}
+	// 公网绑定放在本地可用**之后**并且是尽力而为：站点已经跑起来了，
+	// 不该因为证书或 DNS 一时没就绪就把整个部署判成失败。
+	m.bind(ctx, &app)
 	return nil
+}
+
+// bind 把应用的域名接到反向代理上，并触发证书申请。
+//
+// # 为什么失败不算部署失败
+//
+// 绑定依赖外部条件（域名是否已解析到本机、DNS 凭据是否可用、CA 是否
+// 可达）。把"本地已经能访问"的站点判成"部署失败"，会让用户在面对一个
+// 真正可用的服务时以为一切都白做了。因此这里只记录，不升级为失败 ——
+// 公网侧的状态由 /v1/apps/{id} 如实报出，原因由建议引擎解释。
+func (m *Manager) bind(ctx context.Context, app *App) {
+	if m.binder == nil || len(app.Domains) == 0 {
+		return
+	}
+	routeID := app.RouteID
+	for _, domain := range app.Domains {
+		id, err := m.binder.EnsureRoute(ctx, *app, domain)
+		if err != nil {
+			m.log.Warn("could not bind a domain to the reverse proxy",
+				"app_id", app.ID, "domain", domain, "err", err)
+			continue
+		}
+		if id != "" {
+			routeID = id
+		}
+	}
+	app.RouteID = routeID
+	_ = m.persist(ctx, *app)
 }
 
 // runInstall 准备运行时并执行安装步骤。
@@ -694,13 +729,21 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if err := m.Stop(ctx, id); err != nil && !errors.Is(err, ErrNotFound) {
 		return err
 	}
+	// 先撤公网绑定再删记录：反过来的话，域名会继续指向一个已经不存在
+	// 的本地端口，而用户看到的是 502。
+	if m.binder != nil {
+		for _, domain := range app.Domains {
+			if err := m.binder.RemoveRoute(ctx, app, domain); err != nil {
+				m.log.Warn("could not remove a public binding", "app_id", id, "domain", domain, "err", err)
+			}
+		}
+	}
 	if _, err := m.store.DeleteApp(ctx, id); err != nil {
 		return err
 	}
 	if m.logs != nil {
 		m.logs.Forget(id)
 	}
-	_ = app
 	return nil
 }
 
