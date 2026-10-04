@@ -65,9 +65,21 @@ Resolution order, first match wins ([D28](./DECISIONS.md#d28-运行时供给策�
    SHA-256.
 
 PHP and Python are obtained from established third-party prebuilt distributions because
-neither language publishes official macOS binaries. The first start prefetches only the
-small default set; Go, Java and .NET are fetched on demand with their size shown before the
-download begins.
+neither language publishes official macOS binaries. Go, Java and .NET are fetched on demand
+with their size shown before the download begins.
+
+**One digest is not an upstream-published checksum.** Node, Go, Python, Temurin and the .NET
+SDK each ship a checksum file or release metadata the pinned value was taken from
+(the provenance is recorded per entry in the manifest's `Verified` field). PHP has no such
+thing on macOS: the only viable source publishes no checksums at all. Its digest was
+computed locally from the official channel on first download — trust-on-first-use. That is
+recorded honestly rather than dressed up as an upstream checksum, and it still buys
+something real: every later provision must produce byte-identical content or it fails
+loudly instead of silently installing something else.
+
+A runtime is only treated as "installed by the kernel" when the directory carries a marker
+file naming its kind, version and digest. A directory the user placed there by hand is
+neither used nor deleted.
 
 Every redistributed runtime is registered in `THIRD_PARTY_NOTICES.md`
 ([D29](./DECISIONS.md#d29-再分发运行时的许可登记)). Downloaded runtimes are untrusted
@@ -108,7 +120,7 @@ The v2 contract is defined in `api/openapi.yaml`, which remains the single sourc
 - `/v1/presets` — preset catalog, runtime requirements and size estimates
 - `/v1/sources/inspect` — read-only detection over a directory
 - `/v1/runtimes`, `/v1/runtimes/provision`, `/v1/runtimes/{kind}` — runtime inventory and provisioning
-- `/v1/apps`, `/v1/apps/{id}`, `/v1/apps/{id}/start|stop|restart`, `/v1/apps/{id}/logs` — application lifecycle
+- `/v1/apps`, `/v1/apps/{id}`, `/v1/apps/{id}/deploy|start|stop|restart`, `/v1/apps/{id}/logs` — application lifecycle
 - `/v1/metrics` — host and per-application resource samples
 - `/v1/advisories` — actionable suggestions derived from current state
 
@@ -130,6 +142,19 @@ disconnected — log volume would evict real state changes.
 
 Secrets remain references to the platform secret store and never appear in exports, scan
 results or logs.
+
+## Containerized sites
+
+A `docker-compose` project is recognisable and runnable: the kernel runs `docker compose up`
+in the foreground so container logs land in the application log, and health-checks the port
+the user's compose file is expected to publish. Docker itself is **never** provisioned —
+Docker Desktop has to be installed by the user, and a deploy attempt without it fails
+immediately with that reason rather than with a `command not found` from deep inside the
+build.
+
+There is deliberately no "run an arbitrary image" preset. It needs an input the kernel
+cannot guess (the image name and the container port), so it would only be a wizard entry
+that fails afterwards; the custom-server path covers it with an explicit command.
 
 ## Product boundaries
 
