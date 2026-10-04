@@ -759,6 +759,53 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /v1/metrics:
+    get:
+      tags: [Insights]
+      operationId: getMetrics
+      summary: 主机与站点的资源占用
+      description: |
+        采样后的**最近一份**快照，附带主机指标的近期历史。
+
+        两点刻意不做：
+
+        - **不按站点归因网络流量**。同一台机器上的多个站点共享网络栈，
+          摊到某个站点上的数字只能是编的。因此网络只有主机级。
+        - **静态站点没有独立的资源数字**。它们由内核进程自己托管，
+          没有独立进程可测；此时只报运行时长，`pid` 为 0。
+
+        平台不支持采样时，本接口仍返回 200，但 `backend` 为 `unsupported`
+        且数字为零 —— 界面据此显示"不支持"，而不是显示"什么都没占用"。
+      responses:
+        "200":
+          description: 指标快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsSnapshot"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/advisories:
+    get:
+      tags: [Insights]
+      operationId: listAdvisories
+      summary: 当前值得用户处理的事情
+      description: |
+        把"应用跑不起来但界面一切正常"这类沉默的失败翻译成一句可行动的
+        话：缺什么、为什么、点一下能不能修好。
+
+        `action` 是**方法 + 路径 + 载荷**，界面据此渲染一个按钮。
+      responses:
+        "200":
+          description: 建议列表，重的在前
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvisoryList"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /v1/debug/noop:
     post:
       tags: [Debug]
@@ -2404,6 +2451,83 @@ components:
       properties:
         job_id:
           type: string
+
+    HostMetrics:
+      type: object
+      required: [cpu_percent, memory_used_bytes, memory_total_bytes, net_rx_bytes_per_sec, net_tx_bytes_per_sec]
+      properties:
+        at: {type: string, format: date-time}
+        # double 而不是 number：number 默认映射成 float32，而字节速率
+        # 很容易超过 float32 能精确表示的范围。
+        cpu_percent: {type: number, format: double, minimum: 0, maximum: 100}
+        memory_used_bytes: {type: integer}
+        memory_total_bytes: {type: integer}
+        net_rx_bytes_per_sec: {type: number, format: double}
+        net_tx_bytes_per_sec: {type: number, format: double}
+        backend:
+          type: string
+          description: 采样后端名；`unsupported` 表示此平台没有实现采样。
+
+    AppMetrics:
+      type: object
+      required: [app_id, pid, cpu_percent, memory_bytes, uptime_seconds]
+      properties:
+        app_id: {type: string}
+        pid:
+          type: integer
+          description: 为 0 表示该站点没有独立进程（静态站点由内核托管）。
+        cpu_percent: {type: number, format: double}
+        memory_bytes: {type: integer}
+        uptime_seconds: {type: integer}
+
+    MetricsSnapshot:
+      type: object
+      required: [host, apps]
+      properties:
+        host:
+          $ref: "#/components/schemas/HostMetrics"
+        apps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppMetrics"
+        history:
+          type: array
+          description: 主机指标的近期历史（最旧在前）。
+          items:
+            $ref: "#/components/schemas/HostMetrics"
+
+    AdvisoryAction:
+      type: object
+      required: [label, method, path]
+      properties:
+        label: {type: string}
+        method: {type: string}
+        path: {type: string}
+        body:
+          type: object
+          additionalProperties: true
+
+    Advisory:
+      type: object
+      required: [id, severity, title]
+      properties:
+        id: {type: string}
+        severity:
+          type: string
+          enum: [info, warning, blocking]
+        title: {type: string}
+        detail: {type: string}
+        action:
+          $ref: "#/components/schemas/AdvisoryAction"
+
+    AdvisoryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Advisory"
 
     App:
       type: object

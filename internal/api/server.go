@@ -22,6 +22,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
+	"github.com/ShirazuNagisa/isc-core/internal/metrics"
 	"github.com/ShirazuNagisa/isc-core/internal/notify"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
@@ -124,6 +125,9 @@ type Deps struct {
 
 	// NotifyConfig 是配置驱动的通道管理。
 	NotifyConfig *notify.ConfigManager
+
+	// Metrics 采样主机与站点的资源占用；为空时 /v1/metrics 报"不支持"。
+	Metrics *metrics.Sampler
 
 	// Apps 托管用户站点（D25）。
 	//

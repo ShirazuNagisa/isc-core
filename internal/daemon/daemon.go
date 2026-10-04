@@ -32,6 +32,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	"github.com/ShirazuNagisa/isc-core/internal/logx"
+	"github.com/ShirazuNagisa/isc-core/internal/metrics"
 	"github.com/ShirazuNagisa/isc-core/internal/notify"
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
@@ -131,6 +132,7 @@ type Daemon struct {
 	certStore    *acme.Store
 	runtimes     *hosting.Manager
 	apps         *appsvc.Manager
+	metrics      *metrics.Sampler
 	certMgr      *acme.Manager
 	certProvider *acme.StoreProvider
 	acmeResolver *acme.Resolver
@@ -440,6 +442,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		DataRoot:  d.opts.Paths.Root(),
 	})
 
+	// 指标采样（v0.2.0）：主机与托管站点的资源占用。
+	//
+	// 只采样、不落库：这些数字的意义在"现在"，重启之后留着它们没有用。
+	d.metrics = metrics.NewSampler(metrics.NewSource(), metrics.DefaultInterval, metrics.DefaultHistory)
+
 	// 登记内核支持的任务类型。
 	//
 	// 登记之后，拼错的 kind 会在提交时被拒绝，而不是留下一个永远失败、
@@ -490,6 +497,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Phecda:         st.Phecda(),
 		Runtimes:       d.runtimes,
 		Apps:           d.apps,
+		Metrics:        d.metrics,
 		CertProvider:   d.certProvider,
 		CertInvalidate: d.certProvider.Invalidate,
 		Certs:          d.certMgr,
@@ -523,7 +531,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 内核擅自撤掉会把用户正在用的东西拿走，而他完全不知道发生了什么。
 	d.reportInterruptedChanges(runCtx)
 
-	// 16. 归位托管站点。
+	// 16. 指标采样。
+	//
+	// 与站点归位一样放在后台：采样要起短命进程，不该拖慢内核就绪。
+	go d.metrics.Run(runCtx, func() []metrics.AppRef {
+		if d.apps == nil {
+			return nil
+		}
+		running := d.apps.Running()
+		refs := make([]metrics.AppRef, 0, len(running))
+		for _, item := range running {
+			refs = append(refs, metrics.AppRef{AppID: item.ID, PID: item.PID, StartedAt: item.StartedAt})
+		}
+		return refs
+	})
+
+	// 17. 归位托管站点。
 	//
 	// 放在后台：拉起一个站点要等健康检查（最长 60 秒），而"内核是否可用"
 	// 不该被某个用户站点拖住 —— 用户要能立刻打开界面看它卡在哪。

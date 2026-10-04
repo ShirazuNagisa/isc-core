@@ -16,6 +16,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AdvisorySeverity.
+const (
+	AdvisorySeverityBlocking AdvisorySeverity = "blocking"
+	AdvisorySeverityInfo     AdvisorySeverity = "info"
+	AdvisorySeverityWarning  AdvisorySeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the AdvisorySeverity enum.
+func (e AdvisorySeverity) Valid() bool {
+	switch e {
+	case AdvisorySeverityBlocking:
+		return true
+	case AdvisorySeverityInfo:
+		return true
+	case AdvisorySeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppHealth.
 const (
 	AppHealthHealthy   AppHealth = "healthy"
@@ -868,6 +889,31 @@ func (e VerifySessionStatus) Valid() bool {
 	}
 }
 
+// Advisory defines model for Advisory.
+type Advisory struct {
+	Action   *AdvisoryAction  `json:"action,omitempty"`
+	Detail   *string          `json:"detail,omitempty"`
+	Id       string           `json:"id"`
+	Severity AdvisorySeverity `json:"severity"`
+	Title    string           `json:"title"`
+}
+
+// AdvisorySeverity defines model for Advisory.Severity.
+type AdvisorySeverity string
+
+// AdvisoryAction defines model for AdvisoryAction.
+type AdvisoryAction struct {
+	Body   *map[string]interface{} `json:"body,omitempty"`
+	Label  string                  `json:"label"`
+	Method string                  `json:"method"`
+	Path   string                  `json:"path"`
+}
+
+// AdvisoryList defines model for AdvisoryList.
+type AdvisoryList struct {
+	Items []Advisory `json:"items"`
+}
+
 // App defines model for App.
 type App struct {
 	AutoStart    *bool        `json:"auto_start,omitempty"`
@@ -936,6 +982,17 @@ type AppList struct {
 // AppLogs defines model for AppLogs.
 type AppLogs struct {
 	Lines []string `json:"lines"`
+}
+
+// AppMetrics defines model for AppMetrics.
+type AppMetrics struct {
+	AppId       string  `json:"app_id"`
+	CpuPercent  float64 `json:"cpu_percent"`
+	MemoryBytes int     `json:"memory_bytes"`
+
+	// Pid 为 0 表示该站点没有独立进程（静态站点由内核托管）。
+	Pid           int `json:"pid"`
+	UptimeSeconds int `json:"uptime_seconds"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -1272,6 +1329,19 @@ type Health struct {
 // HealthStatus degraded 表示存活但至少有子系统不可用。
 type HealthStatus string
 
+// HostMetrics defines model for HostMetrics.
+type HostMetrics struct {
+	At *time.Time `json:"at,omitempty"`
+
+	// Backend 采样后端名；`unsupported` 表示此平台没有实现采样。
+	Backend          *string `json:"backend,omitempty"`
+	CpuPercent       float64 `json:"cpu_percent"`
+	MemoryTotalBytes int     `json:"memory_total_bytes"`
+	MemoryUsedBytes  int     `json:"memory_used_bytes"`
+	NetRxBytesPerSec float64 `json:"net_rx_bytes_per_sec"`
+	NetTxBytesPerSec float64 `json:"net_tx_bytes_per_sec"`
+}
+
 // IPStatus defines model for IPStatus.
 type IPStatus struct {
 	// Interfaces 参与解析的网卡（已排除回环与虚拟网卡）。
@@ -1415,6 +1485,15 @@ type Meta struct {
 
 	// Version 内核版本，开发构建为 dev。
 	Version string `json:"version"`
+}
+
+// MetricsSnapshot defines model for MetricsSnapshot.
+type MetricsSnapshot struct {
+	Apps []AppMetrics `json:"apps"`
+
+	// History 主机指标的近期历史（最旧在前）。
+	History *[]HostMetrics `json:"history,omitempty"`
+	Host    HostMetrics    `json:"host"`
 }
 
 // NoopRequest defines model for NoopRequest.
@@ -2432,6 +2511,9 @@ func (t *PhecdaProjectSource) UnmarshalJSON(b []byte) error {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListAdvisories 当前值得用户处理的事情
+	// (GET /v1/advisories)
+	ListAdvisories(w http.ResponseWriter, r *http.Request)
 	// ListApps 列出托管的站点
 	// (GET /v1/apps)
 	ListApps(w http.ResponseWriter, r *http.Request)
@@ -2576,6 +2658,9 @@ type ServerInterface interface {
 	// GetMeta 元信息与平台能力
 	// (GET /v1/meta)
 	GetMeta(w http.ResponseWriter, r *http.Request)
+	// GetMetrics 主机与站点的资源占用
+	// (GET /v1/metrics)
+	GetMetrics(w http.ResponseWriter, r *http.Request)
 	// ListNotifyChannels 列出通知通道
 	// (GET /v1/notify/channels)
 	ListNotifyChannels(w http.ResponseWriter, r *http.Request)
@@ -2700,6 +2785,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAdvisories operation middleware
+func (siw *ServerInterfaceWrapper) ListAdvisories(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAdvisories(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListApps operation middleware
 func (siw *ServerInterfaceWrapper) ListApps(w http.ResponseWriter, r *http.Request) {
@@ -4045,6 +4144,20 @@ func (siw *ServerInterfaceWrapper) GetMeta(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// GetMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetMetrics(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMetrics(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListNotifyChannels operation middleware
 func (siw *ServerInterfaceWrapper) ListNotifyChannels(w http.ResponseWriter, r *http.Request) {
 
@@ -4836,6 +4949,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/stop", wrapper.StopApp)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/restart", wrapper.RestartApp)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/apps/{id}/logs", wrapper.GetAppLogs)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/metrics", wrapper.GetMetrics)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/advisories", wrapper.ListAdvisories)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials", wrapper.ListCredentials)

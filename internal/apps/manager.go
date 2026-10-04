@@ -126,6 +126,34 @@ type instance struct {
 
 	// restarts 只由该实例自己的 supervise goroutine 读写。
 	restarts int
+
+	// startedAt 是本次运行开始的时间，用于汇报运行时长。
+	startedAt time.Time
+}
+
+// RunningApp 描述一个正在运行的站点。
+//
+// 指标采样需要知道"有哪些站点在跑、各自的进程号是多少"。静态站点没有
+// 独立进程，PID 为 0 —— 采样器据此跳过它，而不是去测一个不存在的进程。
+type RunningApp struct {
+	ID        string
+	PID       int
+	StartedAt time.Time
+}
+
+// Running 返回当前正在运行的站点。
+func (m *Manager) Running() []RunningApp {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]RunningApp, 0, len(m.running))
+	for id, inst := range m.running {
+		entry := RunningApp{ID: id, StartedAt: inst.startedAt}
+		if inst.process != nil {
+			entry.PID = inst.process.PID()
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +545,7 @@ func (m *Manager) startWithRestarts(ctx context.Context, app *App, progress func
 		inst.process = process
 	}
 
+	inst.startedAt = m.now()
 	m.mu.Lock()
 	m.running[app.ID] = inst
 	m.mu.Unlock()
