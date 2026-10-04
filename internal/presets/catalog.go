@@ -212,13 +212,18 @@ func WebsitePresets() []Preset {
 		{
 			ID: "docker-compose", Version: "1", Title: "Docker Compose", Kind: KindDocker, DockerOnly: true,
 			DefaultPort: 8080, DetectorFiles: []string{"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"},
+			// 前台运行：容器日志因此会流进应用日志，用户不必再去开一个终端。
+			// 端口由 compose 文件里的映射决定 —— Phecda 分配的那个端口必须
+			// 被发布出来，否则健康检查会失败（提示写在说明文案里）。
+			Run:     Step{Executable: "docker", Args: []string{"compose", "up"}},
 			NoteKey: "preset.note.docker_requires_desktop",
 		},
-		{
-			ID: "docker-image", Version: "1", Title: "Docker image", Kind: KindDocker, DockerOnly: true,
-			DefaultPort: 8080,
-			NoteKey:     "preset.note.docker_requires_desktop",
-		},
+		// 这里**没有**"运行任意镜像"的预设。
+		//
+		// 它需要一个 Phecda 猜不出来的输入（镜像名与容器内端口），因此做成
+		// 预设只会让用户在向导里选中它、然后在部署时失败。这条路径由"自定义
+		// 服务器"覆盖：可执行文件填 docker，参数填
+		// `run --rm -p 127.0.0.1:{port}:80 <镜像>`。
 	}
 }
 

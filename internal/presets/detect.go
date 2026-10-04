@@ -245,15 +245,15 @@ func matchPresets(files []string, facts Facts) ([]Evidence, map[string]float64) 
 		}
 	}
 
-	// 容器描述是强信号：它明确表达了"请用容器跑"。
+	// 容器描述是**最强**信号：它明确表达了"请用容器跑"，而不是"这个项目
+	// 用什么写的"。用 maxFloat 而不是直接赋值 —— 直接赋值会把这个信号
+	// 压到比语言级探测器还低，于是"有 compose 文件、也有 package.json"
+	// 的项目会被推荐成 node 直跑，而用户写的 compose 文件被完全忽略。
 	if facts.HasCompose {
-		scores["docker-compose"] = 0.95
+		scores["docker-compose"] = maxFloat(scores["docker-compose"], 0.99)
 	}
-	if facts.HasDockerfile {
-		if _, ok := scores["docker-image"]; !ok {
-			scores["docker-image"] = 0.7
-		}
-	}
+	// 只有 Dockerfile 时没有可用的启动命令（镜像名与容器内端口猜不出来），
+	// 因此不产生候选，只在上面的 container_found 提醒里出现。
 
 	// package.json 有 start 脚本时提高 Node 的置信度：它明确可启动。
 	if facts.NodeStartScript {
@@ -340,8 +340,12 @@ func rankCandidates(scores map[string]float64) []Preset {
 
 func detectorConfidence(name string) float64 {
 	switch name {
-	case "package.json", "go.mod", "pom.xml", "composer.json", "requirements.txt",
-		"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml":
+	case "compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml":
+		// compose 文件排在语言级探测器之上：它不是"这个项目用什么写的"，
+		// 而是用户**明确写下的**"这个东西该怎么跑"。一个目录里同时有
+		// package.json 与 compose.yaml 时，按 compose 起来才是用户的本意。
+		return 0.99
+	case "package.json", "go.mod", "pom.xml", "composer.json", "requirements.txt":
 		return 0.95
 	case "pyproject.toml", "build.gradle", "build.gradle.kts":
 		return 0.9

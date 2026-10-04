@@ -62,7 +62,7 @@ var messagesEn = map[string]string{
 	"platform.processes_unsupported": "This platform cannot host application processes yet; keep the service running yourself",
 
 	// --- website presets (v0.2.0) ---
-	"preset.note.docker_requires_desktop": "Requires Docker Desktop, which this app does not install for you.",
+	"preset.note.docker_requires_desktop": "Requires Docker Desktop, which this app does not install for you. The compose file must publish the port Phecda allocated (e.g. \"8080:80\"), otherwise the health check cannot pass.",
 	"preset.note.custom_commands":         "You provide the install, build and start commands. They run as an executable with arguments, never through a shell.",
 	"preset.warn.no_stack":                "No known website stack was recognised in this directory; use the custom server option and provide your own commands.",
 	"preset.warn.container_found":         "Container configuration was found. Hosting it requires Docker Desktop, which this app does not install for you.",

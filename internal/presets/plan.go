@@ -137,9 +137,6 @@ func BuildPlan(root string, preset Preset, facts Facts, port int) (Plan, error) 
 			Env:        []string{"ASPNETCORE_URLS=http://127.0.0.1:" + PortPlaceholder},
 		}
 
-	case "docker-compose":
-		// 容器方案由 docker 层单独处理，这里不生成进程步骤。
-		plan.Run = Step{}
 	}
 
 	return plan, nil

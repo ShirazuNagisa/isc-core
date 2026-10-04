@@ -63,7 +63,7 @@ var messagesZh = map[string]string{
 	"platform.processes_unsupported": "当前平台尚不支持由内核托管业务进程，请自行让服务常驻",
 
 	// --- 建站预设（v0.2.0） ---
-	"preset.note.docker_requires_desktop": "需要本机已安装 Docker Desktop；内核不会代为安装。",
+	"preset.note.docker_requires_desktop": "需要本机已安装 Docker Desktop；内核不会代为安装。compose 文件需要把 Phecda 分配的端口发布到宿主机（如 \"8080:80\"），否则健康检查无法通过。",
 	"preset.note.custom_commands":         "安装、构建与启动命令由你提供，直接以可执行文件加参数执行，不经 shell。",
 	"preset.warn.no_stack":                "没能在这个目录里认出已知的建站技术栈；请改用自定义服务器并自行提供命令。",
 	"preset.warn.container_found":         "发现了容器配置。托管它需要 Docker Desktop，本应用不会代为安装。",

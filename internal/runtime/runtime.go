@@ -67,6 +67,13 @@ type Manager struct {
 
 	downloader *artifacts.Downloader
 
+	// artifacts 覆盖内置清单，**仅供测试注入**。
+	//
+	// 生产路径永远是内置清单（它是代码常量，理由见 manifest.go）。留这个口子
+	// 是为了能在不联网的前提下把"下载 → 校验 → 解压 → 标记 → 落位"整条链路
+	// 跑通 —— 否则这条链路只能靠真的去下载几百 MB 来验证，于是实际没人验证。
+	artifacts []Artifact
+
 	// 以下三个可在测试中替换，避免依赖机器上装了什么、也不碰网络。
 	lookPath   func(string) (string, error)
 	runVersion func(ctx context.Context, exe string, args []string) (string, error)
@@ -92,6 +99,19 @@ func NewManager(dataRoot, goos, goarch string) *Manager {
 
 // Root 返回托管运行时目录。
 func (m *Manager) Root() string { return m.root }
+
+// artifactFor 查找该平台上某个运行时的发行版。
+func (m *Manager) artifactFor(kind Kind) (Artifact, bool) {
+	if m.artifacts != nil {
+		for _, artifact := range m.artifacts {
+			if artifact.Kind == kind && artifact.Platform == m.platform {
+				return artifact, true
+			}
+		}
+		return Artifact{}, false
+	}
+	return ArtifactFor(kind, m.platform)
+}
 
 // Resolve 按 D28 的三级顺序找出一个可用的运行时，不下载任何东西。
 //
@@ -149,6 +169,7 @@ func (m *Manager) resolveManaged(kind Kind, minVersion string) (Installed, bool)
 	if err != nil {
 		return Installed{}, false
 	}
+	artifact, hasArtifact := m.artifactFor(kind)
 	best := Installed{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -163,11 +184,10 @@ func (m *Manager) resolveManaged(kind Kind, minVersion string) (Installed, bool)
 		if minVersion != "" && compareVersions(marker.Version, minVersion) < 0 {
 			continue
 		}
-		artifact, _ := ArtifactFor(kind, m.platform)
-		exe := filepath.Join(dir, artifact.Executable)
-		if artifact.Executable == "" {
+		if !hasArtifact || artifact.Executable == "" {
 			continue
 		}
+		exe := filepath.Join(dir, artifact.Executable)
 		if info, err := os.Stat(exe); err != nil || info.IsDir() {
 			continue
 		}
@@ -197,7 +217,7 @@ func (m *Manager) Provision(ctx context.Context, kind Kind, minVersion string, p
 		return found, nil
 	}
 
-	artifact, ok := ArtifactFor(kind, m.platform)
+	artifact, ok := m.artifactFor(kind)
 	if !ok {
 		return Installed{}, fmt.Errorf("%w: %s on %s", ErrNoArtifact, kind, m.platform)
 	}

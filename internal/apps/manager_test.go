@@ -754,3 +754,39 @@ func TestRuntimeKindIsPreservedThroughPersistence(t *testing.T) {
 		t.Fatalf("kind must survive persistence, got %q", stored.Kind)
 	}
 }
+
+// 需要 Docker 的站点在缺 Docker 时要**立刻**给出可读的原因。
+//
+// 不挡的话，用户会在部署的最后一步看到
+// `start docker: exec: "docker": executable file not found in $PATH` ——
+// 那是一句实现细节，而真正该说的是"这个方式需要 Docker，本机没有"。
+func TestDockerAppFailsFastWithoutDocker(t *testing.T) {
+	manager, _, _ := newTestManager(t, &fakeController{})
+	// 一个没有 runtime 管理器的 Manager：Docker 探测因此必然失败。
+	ctx := context.Background()
+
+	site := t.TempDir()
+	if err := os.WriteFile(filepath.Join(site, "compose.yaml"), []byte("services:\n  web:\n    image: nginx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := manager.Create(ctx, CreateSpec{Name: "容器", PresetID: "docker-compose", SourcePath: site})
+	if err != nil {
+		t.Fatalf("creating a docker app should work (the check happens at deploy): %v", err)
+	}
+	if app.Kind != runtime.KindDocker {
+		t.Fatalf("kind = %q", app.Kind)
+	}
+
+	err = manager.Deploy(ctx, app.ID, nil)
+	if !errors.Is(err, ErrDockerRequired) {
+		t.Fatalf("want ErrDockerRequired, got %v", err)
+	}
+	// 失败要被记录下来并说明原因，而不是让应用停在"部署中"。
+	stored, _, _ := manager.Get(ctx, app.ID)
+	if stored.State != StateFailed {
+		t.Fatalf("state = %s", stored.State)
+	}
+	if !strings.Contains(stored.LastError, "Docker") {
+		t.Fatalf("the recorded reason should mention Docker: %q", stored.LastError)
+	}
+}

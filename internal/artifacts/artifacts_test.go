@@ -405,3 +405,93 @@ func TestExtractStripsSetuidBits(t *testing.T) {
 		t.Fatalf("setuid bit survived extraction: %v", info.Mode())
 	}
 }
+
+// 剥不剥顶层目录，决定了解压后可执行文件在哪 —— 而每种运行时的归档布局
+// 都不一样（Node/Go 有包装目录，PHP 只有一个裸文件）。这里的每条规则都
+// 对应一个真实存在的归档形状。
+func TestStripPrefixDecidesByShape(t *testing.T) {
+	cases := []struct {
+		name  string
+		names []string
+		dirs  map[string]bool
+		want  string
+	}{
+		{
+			name:  "单个裸文件不剥（PHP 的归档就是一个 php）",
+			names: []string{"php"},
+			want:  "",
+		},
+		{
+			name:  "单个被包了一层的文件要剥",
+			names: []string{"php-8.5/bin/php"},
+			want:  "php-8.5",
+		},
+		{
+			name:  "单个显式目录项要剥",
+			names: []string{"pkg/"},
+			dirs:  map[string]bool{"pkg/": true},
+			want:  "pkg",
+		},
+		{
+			name:  "同一顶层下的多项要剥",
+			names: []string{"go/bin/go", "go/pkg/tool", "go/README"},
+			want:  "go",
+		},
+		{
+			name:  "顶层不唯一时不剥",
+			names: []string{"a/x", "b/y"},
+			want:  "",
+		},
+		{
+			name:  "带 ./ 前缀也能认出来",
+			names: []string{"./pkg/a", "./pkg/b"},
+			want:  "pkg",
+		},
+		{
+			name:  "空归档不剥",
+			names: nil,
+			want:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripPrefix(tc.names, tc.dirs); got != tc.want {
+				t.Fatalf("stripPrefix = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// 单文件归档里被包了一层时，解压后必须能找到那个文件。
+func TestExtractStripsASingleWrappedFile(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "wrapped.tar.gz")
+	writeTarGz(t, archive, []tarEntry{
+		{name: "php-8.5/bin/php", body: "binary", mode: 0o755},
+	})
+	dest := filepath.Join(dir, "out")
+
+	if err := ExtractWith(archive, dest, ExtractOptions{StripSingleRoot: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "bin", "php")); err != nil {
+		t.Fatalf("the wrapped file should have been stripped: %v", err)
+	}
+}
+
+// 而一个裸文件归档**不能**被剥掉，否则解压出来是空的。
+func TestExtractKeepsABareSingleFile(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "bare.tar.gz")
+	writeTarGz(t, archive, []tarEntry{
+		{name: "php", body: "binary", mode: 0o755},
+	})
+	dest := filepath.Join(dir, "out")
+
+	if err := ExtractWith(archive, dest, ExtractOptions{StripSingleRoot: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "php")); err != nil {
+		t.Fatalf("a bare single-file archive must not be stripped away: %v", err)
+	}
+}

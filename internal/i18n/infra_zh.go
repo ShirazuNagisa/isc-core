@@ -34,6 +34,9 @@ var infraMessagesZh = map[string]string{
 	"job.err.interrupted":        "内核在任务执行期间退出",
 	"job.err.interrupted_detail": "任务没有跑完：内核在这次任务执行期间停止运行。请重新执行。",
 
+	// --- 应用托管 ---
+	"apps.error.docker_required": "这个部署方式需要 Docker Desktop，但本机没有检测到。请先安装并启动 Docker Desktop，或改用其他方式。",
+
 	// --- 运行时供给（D28） ---
 	"runtime.msg.downloading":  "正在下载 %s %s%s",
 	"runtime.msg.extracting":   "正在解压 %s %s",

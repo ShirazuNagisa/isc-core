@@ -385,3 +385,88 @@ func containsEnv(env []string, want string) bool {
 	}
 	return false
 }
+
+// Docker Compose 预设必须真的产出一个能执行的计划。
+//
+// 它此前只是一个"能识别但跑不起来"的占位条目：有探测器、没有命令，
+// 于是用户在向导里选中它、点部署，然后在最后一步失败。
+func TestDockerComposePresetBuildsARunnablePlan(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "compose.yaml"), []byte("services:\n  web:\n    image: nginx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preset, err := Lookup("docker-compose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preset.DockerOnly || preset.Kind != KindDocker {
+		t.Fatalf("unexpected preset: %#v", preset)
+	}
+
+	inspected, err := Inspect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Recommended != "docker-compose" {
+		t.Fatalf("a compose file should be recognised, got %q", inspected.Recommended)
+	}
+
+	plan, err := BuildPlan(root, preset, inspected.Facts, 8080)
+	if err != nil {
+		t.Fatalf("the docker preset must be runnable: %v", err)
+	}
+	if plan.Run.Executable != "docker" {
+		t.Fatalf("run executable = %q", plan.Run.Executable)
+	}
+	if strings.Join(plan.Run.Args, " ") != "compose up" {
+		t.Fatalf("run args = %v", plan.Run.Args)
+	}
+	// 前台运行：容器日志因此会流进应用日志。
+	// 命令里不能出现 -d —— 那会让 compose 立刻退出，内核就此认为服务停了。
+	for _, arg := range plan.Run.Args {
+		if arg == "-d" || arg == "--detach" {
+			t.Fatalf("compose must run in the foreground so its logs reach the app log: %v", plan.Run.Args)
+		}
+	}
+}
+
+// 目录里没有 compose 文件时，Docker 预设不该被认出来。
+func TestDockerPresetIsNotRecommendedWithoutAComposeFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<h1>hi</h1>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := Inspect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Recommended == "docker-compose" {
+		t.Fatalf("no compose file was present")
+	}
+}
+
+// 目录里**有** compose 文件时不能悄悄改推荐别的：那会让用户在一个
+// 本该用容器的项目上跑别的东西。
+func TestComposeFileWinsOverOtherSignals(t *testing.T) {
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"compose.yaml": "services:\n  web:\n    image: nginx\n",
+		"package.json": `{"scripts":{"start":"node ."}}`,
+		"index.html":   "<h1>hi</h1>",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inspected, err := Inspect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Recommended != "docker-compose" {
+		t.Fatalf("a compose file is the most specific signal, got %q", inspected.Recommended)
+	}
+	// 但也应当提醒用户"还认出了别的技术栈"。
+	if len(inspected.Warnings) == 0 {
+		t.Fatalf("multiple stacks were present, the user should be told")
+	}
+}

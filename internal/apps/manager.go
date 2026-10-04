@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/event"
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/presets"
 	"github.com/ShirazuNagisa/isc-core/internal/runtime"
@@ -31,6 +32,8 @@ var (
 	ErrNoRuntime = errors.New("the required runtime is not available")
 	// ErrUnhealthy 表示应用起来了但没通过健康检查。
 	ErrUnhealthy = errors.New("app did not become healthy")
+	// ErrDockerRequired 表示该应用需要 Docker，而本机没有。
+	ErrDockerRequired = errors.New("this app needs Docker, which was not found on this machine")
 )
 
 // 时间参数。
@@ -366,6 +369,21 @@ func (m *Manager) bind(ctx context.Context, app *App) {
 
 // runInstall 准备运行时并执行安装步骤。
 func (m *Manager) runInstall(ctx context.Context, app *App, progress func(float64, string), report func(float64, string)) error {
+	// Docker 不由内核供给，因此单独挡一道。
+	//
+	// 不挡的话，用户会在"部署"的最后一步看到
+	// `start docker: exec: "docker": executable file not found in $PATH` ——
+	// 那是一句实现细节，而真正该说的是"这个方式需要 Docker，本机没有"。
+	if app.Kind == runtime.KindDocker {
+		available := false
+		if m.runtimes != nil {
+			_, available, _ = m.runtimes.Resolve(ctx, runtime.KindDocker, "")
+		}
+		if !available {
+			return fmt.Errorf("%w: %s", ErrDockerRequired, i18n.T("apps.error.docker_required"))
+		}
+	}
+
 	if app.Kind != runtime.KindNone && app.Kind != runtime.KindDocker {
 		if m.runtimes == nil {
 			return fmt.Errorf("%w: %s", ErrNoRuntime, app.Kind)

@@ -90,13 +90,17 @@ func isTarGz(path string) bool {
 }
 
 // stripPrefix 计算要去掉的顶层目录名；没有则返回空串。
-func stripPrefix(names []string) string {
+func stripPrefix(names []string, dirs map[string]bool) string {
 	prefix := ""
+	meaningful := 0
+	single := ""
 	for _, name := range names {
 		trimmed := strings.TrimPrefix(filepath.Clean("/"+name), "/")
 		if trimmed == "" || trimmed == "." {
 			continue
 		}
+		meaningful++
+		single = trimmed
 		head, _, _ := strings.Cut(trimmed, "/")
 		if prefix == "" {
 			prefix = head
@@ -106,8 +110,24 @@ func stripPrefix(names []string) string {
 			return ""
 		}
 	}
-	// 只有一项且就是目录本身时不去掉：那会导致整个归档被"剥没"。
-	if prefix == "" || len(names) == 1 {
+	if prefix == "" {
+		return ""
+	}
+	// 归档里只有一项时是否剥掉它，看它**是不是被包了一层**。
+	//
+	// 早先这里一律不剥（怕把整个归档剥没），于是漏掉了一种真实布局：
+	// 一个顶层目录里只放了一个可执行文件。判断依据就在手边 —— 名字里
+	// 还有下一段（`php-8.5/bin/php`）就说明第一段是包装目录，而
+	// `php` 这样的一段名字本身就是那个文件，剥了就什么都没了。
+	// 显式的目录项也算数（`pkg/`）。
+	if meaningful == 1 {
+		nested := strings.Contains(strings.TrimSuffix(single, "/"), "/")
+		// 目录项在归档里通常带尾斜杠（`pkg/`），而这里的 single 已经过
+		// Clean，尾斜杠没了 —— 两种写法都要查。
+		isDir := dirs[single] || dirs[single+"/"]
+		if nested || isDir {
+			return prefix
+		}
 		return ""
 	}
 	return prefix
@@ -243,11 +263,11 @@ func writeFile(target string, mode os.FileMode, r io.Reader, budget *int64) erro
 func extractTarGz(archivePath, absDest string, opt ExtractOptions) error {
 	strip := ""
 	if opt.StripSingleRoot {
-		names, err := tarNames(archivePath)
+		names, dirs, err := tarNames(archivePath)
 		if err != nil {
 			return err
 		}
-		strip = stripPrefix(names)
+		strip = stripPrefix(names, dirs)
 	}
 
 	f, err := os.Open(archivePath)
@@ -317,28 +337,37 @@ func extractTarEntry(tr *tar.Reader, header *tar.Header, absDest, strip string, 
 	}
 }
 
-func tarNames(archivePath string) ([]string, error) {
+// tarNames 读出归档里的全部条目名，并标出哪些是目录。
+//
+// 目录标记是"要不要剥掉单一顶层目录"的判断依据之一：只有一项时，
+// 那一项是目录才剥（见 stripPrefix）。
+func tarNames(archivePath string) ([]string, map[string]bool, error) {
 	f, err := os.Open(archivePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = gz.Close() }()
 	var names []string
+	dirs := map[string]bool{}
 	tr := tar.NewReader(gz)
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
-			return names, nil
+			return names, dirs, nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		names = append(names, header.Name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			dirs[header.Name] = true
+		}
 	}
 }
 
@@ -352,10 +381,14 @@ func extractZip(archivePath, absDest string, opt ExtractOptions) error {
 	strip := ""
 	if opt.StripSingleRoot {
 		names := make([]string, 0, len(reader.File))
+		dirs := make(map[string]bool, len(reader.File))
 		for _, f := range reader.File {
 			names = append(names, f.Name)
+			if f.FileInfo().IsDir() {
+				dirs[f.Name] = true
+			}
 		}
-		strip = stripPrefix(names)
+		strip = stripPrefix(names, dirs)
 	}
 
 	budget := opt.MaxTotalBytes

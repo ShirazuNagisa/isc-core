@@ -30,6 +30,9 @@ var infraMessagesEn = map[string]string{
 	"job.err.interrupted":        "The kernel stopped while this job was running",
 	"job.err.interrupted_detail": "The job did not finish: the kernel shut down while it was executing. Run it again.",
 
+	// --- app hosting ---
+	"apps.error.docker_required": "This deployment method needs Docker Desktop, but none was found on this machine. Install and start Docker Desktop, or choose another method.",
+
 	// --- runtime provisioning (D28) ---
 	"runtime.msg.downloading":  "Downloading %s %s%s",
 	"runtime.msg.extracting":   "Extracting %s %s",
