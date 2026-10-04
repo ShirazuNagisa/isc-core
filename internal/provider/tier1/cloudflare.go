@@ -2,6 +2,7 @@ package tier1
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
@@ -93,9 +94,44 @@ func (c *Cloudflare) clientFor(cred dns.Credential, httpInterface string) *clien
 type cfEnvelope struct {
 	Success    bool          `json:"success"`
 	Errors     []cfError     `json:"errors"`
-	Messages   []string      `json:"messages"`
+	Messages   []cfMessage   `json:"messages"`
 	Result     any           `json:"result"`
 	ResultInfo *cfResultInfo `json:"result_info"`
+}
+
+// cfMessage 是 Cloudflare 响应里 messages 数组的一个元素。
+//
+// 它在文档里是对象 `{"code":…,"message":…}`，**但历史上也出现过裸字符串**。
+// 早先这里声明成 []string，于是只要服务商返回一个对象元素，整个响应就
+// 解不出来 —— 表现是"凭据校验失败：解析响应失败"，而令牌其实完全正常。
+// 校验恰恰是最需要给出准确结论的地方，不能因为一个附带字段的形状而误报。
+type cfMessage struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// UnmarshalJSON 同时接受对象与裸字符串两种写法。
+func (m *cfMessage) UnmarshalJSON(b []byte) error {
+	var text string
+	if err := json.Unmarshal(b, &text); err == nil {
+		*m = cfMessage{Message: text}
+		return nil
+	}
+	type plain cfMessage
+	var obj plain
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return err
+	}
+	*m = cfMessage(obj)
+	return nil
+}
+
+// String 让 messages 能像以前一样直接参与拼接。
+func (m cfMessage) String() string {
+	if m.Code != 0 && m.Message != "" {
+		return fmt.Sprintf("%d %s", m.Code, m.Message)
+	}
+	return m.Message
 }
 
 type cfError struct {
@@ -565,7 +601,11 @@ func cfErrorCodes(env cfEnvelope) []int {
 func cfErrorText(env cfEnvelope) string {
 	if len(env.Errors) == 0 {
 		if len(env.Messages) > 0 {
-			return strings.Join(env.Messages, "; ")
+			texts := make([]string, 0, len(env.Messages))
+			for _, m := range env.Messages {
+				texts = append(texts, m.String())
+			}
+			return strings.Join(texts, "; ")
 		}
 		return i18n.T("tier1.no_error_detail")
 	}

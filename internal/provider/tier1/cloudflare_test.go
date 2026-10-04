@@ -660,3 +660,57 @@ func TestCloudflareListZonesExplainsGlobalAPIKey(t *testing.T) {
 		t.Fatalf("列出区域失败时没点明 Global API Key: %s", err)
 	}
 }
+
+// Cloudflare 的 messages 在文档里是对象，但历史响应里也出现过裸字符串。
+// 早先声明成 []string，只要出现一个对象元素，**整个响应就解不出来**，
+// 校验于是报"解析响应失败" —— 而令牌完全正常。
+func TestCloudflareMessagesAcceptObjectsAndStrings(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "对象形式（文档写法）",
+			body: `{"success":true,"result":{"status":"active"},
+			        "messages":[{"code":1000,"message":"ok"}]}`,
+		},
+		{
+			name: "裸字符串形式（历史写法）",
+			body: `{"success":true,"result":{"status":"active"},"messages":["ok"]}`,
+		},
+		{
+			name: "空数组",
+			body: `{"success":true,"result":{"status":"active"},"messages":[]}`,
+		},
+		{
+			name: "字段缺失",
+			body: `{"success":true,"result":{"status":"active"}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, srv := newFakeAPI(t)
+			f.on(http.MethodGet, "/user/tokens/verify", func(w http.ResponseWriter, _ *http.Request) {
+				writeJSONBody(w, 200, tc.body)
+			})
+			c := NewCloudflare(srv.URL)
+			if err := c.Verify(context.Background(), cfCred()); err != nil {
+				t.Fatalf("校验不该失败：%v", err)
+			}
+		})
+	}
+}
+
+// 只有 messages、没有 errors 时，错误说明要能读出来。
+func TestCloudflareErrorTextReadsObjectMessages(t *testing.T) {
+	t.Parallel()
+
+	env := cfEnvelope{Messages: []cfMessage{{Code: 1000, Message: "something happened"}}}
+	if got := cfErrorText(env); got != "1000 something happened" {
+		t.Fatalf("cfErrorText = %q", got)
+	}
+}

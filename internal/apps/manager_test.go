@@ -790,3 +790,40 @@ func TestDockerAppFailsFastWithoutDocker(t *testing.T) {
 		t.Fatalf("the recorded reason should mention Docker: %q", stored.LastError)
 	}
 }
+
+// 子进程的可执行文件必须按**子进程的 PATH** 解析，而不是内核自己的 PATH。
+//
+// 这是一个真实踩过的坑：托管运行时（供给来的 PHP / .NET / Python / JDK）
+// 都不在系统 PATH 上，而 exec.Command 用的是内核进程的 PATH，于是
+//
+//	exec: "php": executable file not found in $PATH
+//
+// —— 运行时明明已经供给好了。更隐蔽的一种是 python3 静默跑成系统里的旧
+// 版本，让预设声明的最低版本形同虚设。
+func TestLookPathInUsesTheGivenEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-php")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	env := []string{"PATH=" + dir + string(os.PathListSeparator) + "/usr/bin:/bin"}
+	if got := lookPathIn(env, "fake-php"); got != bin {
+		t.Fatalf("lookPathIn = %q，期望 %q", got, bin)
+	}
+
+	// 不在 PATH 里就找不到。
+	if got := lookPathIn(env, "definitely-not-here"); got != "" {
+		t.Fatalf("不该找到不存在的可执行文件，得到 %q", got)
+	}
+
+	// 目录不算可执行文件。
+	if got := lookPathIn([]string{"PATH=" + dir}, filepath.Base(dir)); got != "" {
+		t.Fatalf("目录不该被当作可执行文件，得到 %q", got)
+	}
+
+	// 没有 PATH 时返回空，而不是 panic。
+	if got := lookPathIn([]string{"HOME=/tmp"}, "fake-php"); got != "" {
+		t.Fatalf("没有 PATH 时应返回空，得到 %q", got)
+	}
+}

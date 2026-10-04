@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -443,6 +444,81 @@ func (m *Manager) runBuild(ctx context.Context, app *App, progress func(float64,
 }
 
 // runStep 执行一个构建步骤并等待它结束。
+// resolveToolchain 重新解析应用该用的运行时，写回 app.toolchain。
+//
+// 只解析、不下载：这一步可能发生在开机恢复时，不该因为"少一个运行时"
+// 就在启动路径上发起一次网络下载。真的没装，后面的步骤会给出明确错误。
+func (m *Manager) resolveToolchain(ctx context.Context, app *App) {
+	if m.runtimes == nil {
+		return
+	}
+	minVersion := ""
+	if preset, err := presets.Lookup(app.PresetID); err == nil {
+		minVersion = preset.MinVersion
+	}
+	installed, ok, err := m.runtimes.Resolve(ctx, app.Kind, minVersion)
+	if err != nil || !ok {
+		return
+	}
+	app.toolchain = installed
+}
+
+// resolveExecutable 把计划里的可执行文件名解析成可执行文件路径。
+//
+// 三条规则，顺序不能换：
+//
+//  1. 绝对路径原样使用；
+//  2. 相对源码根存在 → 那是"运行自己构建出来的产物"（go 编译出的二进制等）；
+//  3. 否则按**子进程的 PATH** 查找。
+//
+// 第 3 条是关键：exec.Command 的查找用的是当前进程的 PATH，而 cmd.Env 只
+// 影响子进程启动之后看到的环境 —— 两者是两回事。而托管运行时（供给来的
+// PHP、.NET、Python、JDK）都不在系统 PATH 上，于是会出现两种故障：
+//
+//	exec: "php": executable file not found in $PATH
+//	  直接起不来，错误信息还只字未提"运行时其实已经装好了"。
+//
+//	python3 静默跑成系统里的旧版本
+//	  更隐蔽：预设声明的最低版本形同虚设。实测一个要求 >=3.10 的项目
+//	  跑在了系统 3.9.6 上，而内核明明已经供给好 3.13。
+func (m *Manager) resolveExecutable(app App, env []string, name string) string {
+	if name == "" || filepath.IsAbs(name) {
+		return name
+	}
+	if candidate := filepath.Join(app.SourcePath, name); fileExists(candidate) {
+		return candidate
+	}
+	if !strings.ContainsRune(name, os.PathSeparator) {
+		if resolved := lookPathIn(env, name); resolved != "" {
+			return resolved
+		}
+	}
+	return name
+}
+
+// lookPathIn 在一组环境变量给出的 PATH 里查找可执行文件。
+//
+// 与 exec.LookPath 的区别只有一点，但正是要命的那一点：它看的是**这组
+// 环境变量**（也就是即将交给子进程的那份 PATH），而不是当前进程的 PATH。
+func lookPathIn(env []string, name string) string {
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			continue
+		}
+		for _, dir := range filepath.SplitList(kv[len("PATH="):]) {
+			if dir == "" {
+				continue
+			}
+			candidate := filepath.Join(dir, name)
+			info, err := os.Stat(candidate)
+			if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
 func (m *Manager) runStep(ctx context.Context, app App, step presets.Step, progress func(float64, string)) error {
 	if m.procs == nil {
 		return fmt.Errorf("%w: process control is unavailable on this platform", platform.ErrNotImplemented)
@@ -453,18 +529,12 @@ func (m *Manager) runStep(ctx context.Context, app App, step presets.Step, progr
 	if step.Dir != "" {
 		dir = filepath.Join(app.SourcePath, step.Dir)
 	}
-	executable := step.Executable
-	if !filepath.IsAbs(executable) {
-		// 相对路径是"运行自己构建出来的产物"，按源码根解析。
-		if candidate := filepath.Join(app.SourcePath, executable); fileExists(candidate) {
-			executable = candidate
-		}
-	}
+	env := m.envFor(app, step.Env)
 	process, err := m.procs.Start(platform.ProcessSpec{
-		Executable: executable,
+		Executable: m.resolveExecutable(app, env, step.Executable),
 		Args:       step.Args,
 		Dir:        dir,
-		Env:        m.envFor(app, step.Env),
+		Env:        env,
 		OnOutput: func(chunk string) {
 			if m.logs != nil {
 				m.logs.Append(app.ID, chunk)
@@ -490,13 +560,24 @@ func (m *Manager) runStep(ctx context.Context, app App, step presets.Step, progr
 // 声明的变量。把运行时的 bin 放进 PATH 是关键 —— 否则托管运行时里的
 // npm/pip 会因为"找不到命令"失败，而用户看到的只是"装依赖失败"。
 func (m *Manager) envFor(app App, extra []string) []string {
+	// 取出现有的 PATH，改完再放回去 —— **不要**再 append 一份。
+	//
+	// 两份 PATH 并存时"子进程实际用哪一份"取决于 libc 取第一个还是最后一个
+	// 匹配，而按子进程 PATH 查找可执行文件的代码同样会撞上这个歧义：先命中
+	// 的那份里有 python3（系统 3.9），托管的那份就永远轮不到 —— 预设声明的
+	// 最低版本被静默绕过，而内核明明已经供给好了 3.13。
 	env := platform.MinimalEnv()
 	path := ""
+	kept := make([]string, 0, len(env)+4)
 	for _, kv := range env {
 		if len(kv) > 5 && kv[:5] == "PATH=" {
 			path = kv[5:]
+			continue
 		}
+		kept = append(kept, kv)
 	}
+	env = kept
+
 	if app.toolchain.Executable != "" {
 		binDir := filepath.Dir(app.toolchain.Executable)
 		path = binDir + string(os.PathListSeparator) + path
@@ -552,6 +633,15 @@ func (m *Manager) startWithRestarts(ctx context.Context, app *App, progress func
 
 	// 渲染后的计划才是真正要执行的东西（见 presets.BuildPlan 的说明）。
 	plan := presets.Render(app.Plan, app.LocalPort)
+
+	// toolchain 是**运行期状态、不落库**（见 App.toolchain 的说明），
+	// 因此每次启动都要重新解析。少了这一步，内核重启或开机恢复之后 PATH
+	// 里就没有托管运行时的目录，于是同一个应用"部署时跑的是供给来的
+	// 3.13，重启后悄悄变成系统里的 3.9" —— 版本静默漂移比起不来更难发现。
+	if app.toolchain.Executable == "" && app.Kind != runtime.KindNone && app.Kind != runtime.KindDocker {
+		m.resolveToolchain(ctx, app)
+	}
+
 	inst := &instance{app: *app, restarts: restarts}
 	if app.Kind == runtime.KindNone && plan.Run.Executable == "" {
 		// 静态站点：内核自己托管，不需要外部进程，也不需要运行时。
@@ -562,11 +652,12 @@ func (m *Manager) startWithRestarts(ctx context.Context, app *App, progress func
 		if m.procs == nil {
 			return fmt.Errorf("%w: process control is unavailable on this platform", platform.ErrNotImplemented)
 		}
+		runEnv := m.envFor(*app, plan.Run.Env)
 		process, err := m.procs.Start(platform.ProcessSpec{
-			Executable: plan.Run.Executable,
+			Executable: m.resolveExecutable(*app, runEnv, plan.Run.Executable),
 			Args:       plan.Run.Args,
 			Dir:        filepath.Join(app.SourcePath, plan.Run.Dir),
-			Env:        m.envFor(*app, plan.Run.Env),
+			Env:        runEnv,
 			OnOutput: func(chunk string) {
 				if m.logs != nil {
 					m.logs.Append(app.ID, chunk)
