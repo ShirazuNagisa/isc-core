@@ -61,6 +61,9 @@ const (
 
 	ActionProxyRoutes = "proxy.routes"
 
+	// Phecda 的公网服务集合（整体替换，与代理路由同形）。
+	ActionPublicServices = "phecda.public_services"
+
 	ActionCertRenew      = "cert.renew"
 	ActionNotifyChannels = "notify.channels"
 

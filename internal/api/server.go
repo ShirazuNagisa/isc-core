@@ -141,6 +141,10 @@ type PhecdaStore interface {
 	SaveDeployment(context.Context, gen.PhecdaDeployment) error
 	ListDeployments(context.Context) ([]gen.PhecdaDeployment, error)
 	GetDeployment(context.Context, types.UUID) (gen.PhecdaDeployment, bool, error)
+	// 公网服务记录由内核持有，部署上的 public_service_id 才有意义。
+	// 替换集合时会一并清空失效的绑定，因此调用方不需要自己维护一致性。
+	ListPublicServices(context.Context) ([]gen.PublicService, error)
+	ReplacePublicServices(context.Context, []gen.PublicService) error
 }
 
 type Server struct {

@@ -526,6 +526,24 @@ func (e ProviderTier) Valid() bool {
 	}
 }
 
+// Defines values for PublicServiceKind.
+const (
+	DynamicDomain PublicServiceKind = "dynamicDomain"
+	HttpsForward  PublicServiceKind = "httpsForward"
+)
+
+// Valid indicates whether the value is a known member of the PublicServiceKind enum.
+func (e PublicServiceKind) Valid() bool {
+	switch e {
+	case DynamicDomain:
+		return true
+	case HttpsForward:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReachCheckScope.
 const (
 	Local    ReachCheckScope = "local"
@@ -1571,6 +1589,28 @@ type ProxyStatus struct {
 	Running bool    `json:"running"`
 }
 
+// PublicService defines model for PublicService.
+type PublicService struct {
+	DdnsId              *string            `json:"ddns_id,omitempty"`
+	Domains             []string           `json:"domains"`
+	Favorite            *bool              `json:"favorite,omitempty"`
+	Id                  openapi_types.UUID `json:"id"`
+	Kind                PublicServiceKind  `json:"kind"`
+	Name                string             `json:"name"`
+	Order               *int               `json:"order,omitempty"`
+	RouteId             *string            `json:"route_id,omitempty"`
+	VerifiedAt          *time.Time         `json:"verified_at,omitempty"`
+	VerifiedFingerprint *string            `json:"verified_fingerprint,omitempty"`
+}
+
+// PublicServiceKind defines model for PublicService.Kind.
+type PublicServiceKind string
+
+// PublicServiceList defines model for PublicServiceList.
+type PublicServiceList struct {
+	Items []PublicService `json:"items"`
+}
+
 // ReachCheck defines model for ReachCheck.
 type ReachCheck struct {
 	// Detail 观察到的具体事实。
@@ -2036,6 +2076,9 @@ type CreatePhecdaProjectJSONRequestBody = PhecdaProjectInput
 // ReplaceProxyRoutesJSONRequestBody defines body for ReplaceProxyRoutes for application/json ContentType.
 type ReplaceProxyRoutesJSONRequestBody = ProxyRouteList
 
+// ReplacePublicServicesJSONRequestBody defines body for ReplacePublicServices for application/json ContentType.
+type ReplacePublicServicesJSONRequestBody = PublicServiceList
+
 // PlanReachExposeJSONRequestBody defines body for PlanReachExpose for application/json ContentType.
 type PlanReachExposeJSONRequestBody = ExposeRequest
 
@@ -2280,6 +2323,12 @@ type ServerInterface interface {
 	// GetProxyStatus 读取反向代理的运行时状态
 	// (GET /v1/proxy/status)
 	GetProxyStatus(w http.ResponseWriter, r *http.Request)
+	// ListPublicServices 列出已发布的公网服务
+	// (GET /v1/public-services)
+	ListPublicServices(w http.ResponseWriter, r *http.Request)
+	// ReplacePublicServices 整体替换公网服务集合
+	// (PUT /v1/public-services)
+	ReplacePublicServices(w http.ResponseWriter, r *http.Request)
 	// ListReachProviders 列出全部可达方式
 	// (GET /v1/reach/providers)
 	ListReachProviders(w http.ResponseWriter, r *http.Request)
@@ -3737,6 +3786,34 @@ func (siw *ServerInterfaceWrapper) GetProxyStatus(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListPublicServices operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicServices(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPublicServices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplacePublicServices operation middleware
+func (siw *ServerInterfaceWrapper) ReplacePublicServices(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplacePublicServices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListReachProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListReachProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -4116,6 +4193,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments", wrapper.ListPhecdaDeployments)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/phecda/deployments", wrapper.CreatePhecdaDeployment)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments/{id}", wrapper.GetPhecdaDeployment)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/public-services", wrapper.ListPublicServices)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/public-services", wrapper.ReplacePublicServices)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials", wrapper.ListCredentials)

@@ -152,7 +152,15 @@ func scanPhecdaProject(row phecdaScanner) (gen.PhecdaProject, string, error) {
 }
 
 func (p *PhecdaRepository) SaveDeployment(ctx context.Context, deployment gen.PhecdaDeployment) error {
-	_, err := p.s.db.ExecContext(ctx, `INSERT INTO phecda_deployments (id, project_id, preset_id, state, local_port, last_error, public_service_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, preset_id=excluded.preset_id, state=excluded.state, local_port=excluded.local_port, last_error=excluded.last_error, public_service_id=excluded.public_service_id`, deployment.Id.String(), deployment.ProjectId.String(), deployment.PresetId, string(deployment.State), nullableInt(deployment.LocalPort), nullableString(deployment.LastError), nullableUUID(deployment.PublicServiceId))
+	// public_service_id is written as COALESCE(excluded, existing): a caller that omits the
+	// field leaves the current binding alone, and a caller that supplies one sets it.
+	//
+	// Why that matters: deployment state is rewritten by the Supervisor's progress loop every
+	// few hundred milliseconds. If those writes cleared the binding, publishing a service and
+	// then watching it deploy would silently unbind it. Unbinding is therefore never a side
+	// effect of a state write — PublicServices.Replace does it, in the same transaction that
+	// removes the service.
+	_, err := p.s.db.ExecContext(ctx, `INSERT INTO phecda_deployments (id, project_id, preset_id, state, local_port, last_error, public_service_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, preset_id=excluded.preset_id, state=excluded.state, local_port=excluded.local_port, last_error=excluded.last_error, public_service_id=COALESCE(excluded.public_service_id, phecda_deployments.public_service_id)`, deployment.Id.String(), deployment.ProjectId.String(), deployment.PresetId, string(deployment.State), nullableInt(deployment.LocalPort), nullableString(deployment.LastError), nullableUUID(deployment.PublicServiceId))
 	return err
 }
 

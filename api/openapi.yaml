@@ -394,6 +394,51 @@ paths:
           $ref: "#/components/responses/Problem"
         default:
           $ref: "#/components/responses/Problem"
+  /v1/public-services:
+    get:
+      tags: [Phecda]
+      operationId: listPublicServices
+      summary: 列出已发布的公网服务
+      description: |
+        公网服务是 Phecda 项目与内核 DNS / 反代 / 证书对象之间的绑定记录。
+        记录由**内核**持有，而不是由界面自己保存 —— 这样部署上的
+        `public_service_id` 永远指向一条存在的记录。
+      responses:
+        "200":
+          description: 公网服务列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicServiceList"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      tags: [Phecda]
+      operationId: replacePublicServices
+      summary: 整体替换公网服务集合
+      description: |
+        与代理路由相同，用整体替换而不是增删改：集合必须始终自洽。
+
+        同一次事务里会清空指向已不存在服务的部署绑定（`public_service_id`），
+        因此内核不会留下悬空引用，调用方不需要自己清理。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicServiceList"
+      responses:
+        "200":
+          description: 集合已替换
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicServiceList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /v1/debug/noop:
     post:
       tags: [Debug]
@@ -2203,6 +2248,34 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PhecdaDeployment"
+
+    PublicService:
+      type: object
+      required: [id, name, kind, domains]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string, minLength: 1}
+        kind:
+          type: string
+          enum: [dynamicDomain, httpsForward]
+        domains:
+          type: array
+          items: {type: string}
+        ddns_id: {type: string}
+        route_id: {type: string}
+        favorite: {type: boolean}
+        order: {type: integer}
+        verified_at: {type: string, format: date-time}
+        verified_fingerprint: {type: string}
+
+    PublicServiceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicService"
 
     NoopRequest:
       type: object
