@@ -150,7 +150,8 @@ func Catalog() []Artifact {
 			// （TOFU）。它仍然有意义：此后任何一次供给拿到的都必须是同一份
 			// 字节，上游换了内容会立刻失败而不是静默装上别的东西。
 			// 下载时另外核对过：gzip 完整（未截断）、内容是 Mach-O arm64。
-			Verified: "TOFU: sha256 computed locally from the official channel, 2026-10-04; gzip integrity and Mach-O arm64 checked",
+			// 2026-10-04 复验：重下 15106458 字节，sha256 与固定值逐字节一致。
+			Verified: "TOFU: sha256 computed locally from the official channel, 2026-10-04; gzip integrity and Mach-O arm64 checked; re-downloaded 2026-10-04 and matched",
 		},
 		{
 			Kind: KindPython, Version: "3.13.16", Platform: darwinArm64,
@@ -160,7 +161,9 @@ func Catalog() []Artifact {
 			// python/ 下才是 bin/python3。
 			StripRoot: true, Executable: "bin/python3",
 			License: "PSF-2.0", Source: "astral-sh/python-build-standalone",
-			Verified: "GitHub release API digest (2026-10-04)",
+			// 2026-10-04 端到端实跑：内核真的下载并校验了这一份，在一份真实的
+			// Python 站点上跑起来并能访问（见 internal/apps/network_test.go）。
+			Verified: "GitHub release API digest; downloaded, verified and deployed end-to-end on 2026-10-04",
 		},
 	}
 }
