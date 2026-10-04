@@ -43,6 +43,7 @@ var tier1MessagesZh = map[string]string{
 	// --- Cloudflare ---
 	"tier1.cf.need_token":          "tier1: Cloudflare 需要 API 令牌",
 	"tier1.cf.rejected":            "tier1: Cloudflare 拒绝了该凭据：%s",
+	"tier1.cf.global_key":          "tier1: Cloudflare 判定这段凭据的请求头不合法。最常见的原因是填了 Global API Key —— 它是 37 位十六进制，不能当作 API Token 使用。请到 Cloudflare 控制台「我的个人资料 → API 令牌」创建一个 Token（建议用「编辑区域 DNS」模板）。",
 	"tier1.cf.token_not_active":    "tier1: Cloudflare 令牌状态为 %q，不是 active",
 	"tier1.cf.list_zones_failed":   "tier1: 列出区域失败：%s",
 	"tier1.cf.zones_bad_shape":     "tier1: 区域列表的响应结构不符合预期",

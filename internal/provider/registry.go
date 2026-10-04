@@ -29,6 +29,13 @@ type Provider struct {
 	DisplayName string
 	// Tier 是能力分层：1 = 完整 CRUD，2 = 仅动态解析。
 	Tier int
+	// ConsoleURL 是该服务商**创建 API 凭据**的控制台页面；空表示没有。
+	//
+	// 把它放在内核而不是 GUI 里，理由和 CredentialFields 一样：
+	// 服务商改版时只该改一处，而 GUI 不该认识任何一家的网址。
+	// 界面据此把用户直接送到正确的那一页 —— 这几家的凭据入口都藏得
+	// 不浅，让用户自己翻一遍既是摩擦，也容易抄错东西。
+	ConsoleURL string
 	// CredentialFields 声明凭据字段。
 	//
 	// 每个字段的 DdnsGoSlot 指出它对应 ddns-go 的哪个槽位 ——

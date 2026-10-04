@@ -1437,6 +1437,19 @@ type Provider struct {
 	// Capabilities 该服务商实际支持的操作。GUI 据此置灰不支持的功能。
 	Capabilities ProviderCapabilities `json:"capabilities"`
 
+	// ConsoleUrl 该服务商**创建 API 凭据**的控制台页面。
+	//
+	// 存在的理由只有一个：把用户直接送到正确的那一页。这几家的
+	// 凭据入口都藏得不浅（Cloudflare 在"我的个人资料 → API 令牌"，
+	// 阿里云在 RAM 控制台），让用户自己翻一遍是纯粹的摩擦 ——
+	// 翻错地方还会顺手把权限过大的 Global API Key 抄出来。
+	//
+	// 为空表示这家没有稳定的凭据页面，界面就不提供跳转。
+	//
+	//
+	// Examples: https://dash.cloudflare.com/profile/api-tokens
+	ConsoleUrl *string `json:"console_url,omitempty"`
+
 	// CredentialFields 该服务商所需的凭据字段。GUI 遍历它生成表单，
 	// 因此**不需要为每家服务商写死界面**。
 	CredentialFields []ProviderField `json:"credential_fields"`

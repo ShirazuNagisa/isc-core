@@ -104,6 +104,7 @@ func builtin() []Provider {
 		{
 			Name:             "cloudflare",
 			DisplayName:      "Cloudflare",
+			ConsoleURL:       "https://dash.cloudflare.com/profile/api-tokens",
 			Tier:             1,
 			CredentialFields: []credential.FieldSpec{fieldAPIToken},
 			// 实现由 attachImplementations 接上：动态更新来自移植的上游代码，
@@ -112,6 +113,7 @@ func builtin() []Provider {
 		{
 			Name:        "alidns",
 			DisplayName: i18n.T("provider.name.alidns"),
+			ConsoleURL:  "https://ram.console.aliyun.com/manage/ak",
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldAccessKeyID, fieldAccessKeySecret,
@@ -120,6 +122,7 @@ func builtin() []Provider {
 		{
 			Name:        "tencentcloud",
 			DisplayName: i18n.T("provider.name.tencentcloud"),
+			ConsoleURL:  "https://console.cloud.tencent.com/cam/capi",
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldSecretID, fieldSecretKey,
@@ -131,6 +134,7 @@ func builtin() []Provider {
 			// 因此作为独立服务商登记 —— ddns-go 也是分成两个实现的。
 			Name:        "dnspod",
 			DisplayName: "DNSPod",
+			ConsoleURL:  "https://console.dnspod.cn/account/token/token",
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldDNSPodID, fieldDNSPodToken,
@@ -139,6 +143,7 @@ func builtin() []Provider {
 		{
 			Name:        "huaweicloud",
 			DisplayName: i18n.T("provider.name.huaweicloud"),
+			ConsoleURL:  "https://console.huaweicloud.com/iam/#/mine/accessKey",
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldAccessKeyID, fieldAccessKeySecret,
@@ -147,6 +152,7 @@ func builtin() []Provider {
 		{
 			Name:        "godaddy",
 			DisplayName: "GoDaddy",
+			ConsoleURL:  "https://developer.godaddy.com/keys",
 			Tier:        1,
 			CredentialFields: []credential.FieldSpec{
 				fieldAPIKey, fieldAPISecret,

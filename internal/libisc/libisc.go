@@ -299,9 +299,63 @@ func Call(method, path, body string) map[string]any {
 	}
 	if status < 200 || status >= 300 {
 		return failMap(codeForStatus(status), status,
-			fmt.Errorf(i18n.T("libisc.call_failed"), status, strings.TrimSpace(string(raw))))
+			fmt.Errorf(i18n.T("libisc.call_failed"), status, readableProblem(raw)))
 	}
 	return map[string]any{"ok": true, "status": status, "body": decodeBody(raw)}
+}
+
+// problemDocument 是内核自己发出的 RFC 7807 错误文档里我们关心的两个字段。
+type problemDocument struct {
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+// readableProblem 把错误响应的正文压缩成一句给人看的话。
+//
+// # 为什么要做这一步
+//
+// 错误正文是完整的 problem+json，直接塞进 error 的结果是：界面上出现
+// 一屏转义过的花括号（\"code\":\"upstream_error\",\"detail\":…），用户读不出
+// 重点，而且那串没有任何空格的文本会把布局撑坏 —— 曾经把整个左侧栏
+// 挤没。GUI 拿到的应该是"服务商拒绝了这次操作：列出区域失败：…"。
+//
+// 解析不出来就退回原始正文，但要截断：错误信息是给人看的，不是日志转储。
+func readableProblem(raw []byte) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return ""
+	}
+	var doc problemDocument
+	if json.Unmarshal([]byte(trimmed), &doc) == nil {
+		switch {
+		case doc.Title != "" && doc.Detail != "":
+			return fmt.Sprintf(i18n.T("libisc.problem_title_detail"), doc.Title, doc.Detail)
+		case doc.Detail != "":
+			return doc.Detail
+		case doc.Title != "":
+			return doc.Title
+		}
+	}
+	return truncateProblem(trimmed)
+}
+
+// maxProblemBytes 是退回原始正文时的长度上限。
+const maxProblemBytes = 400
+
+// truncateProblem 按字节截断，并保证不切碎多字节字符。
+func truncateProblem(text string) string {
+	if len(text) <= maxProblemBytes {
+		return text
+	}
+	runes := []rune(text)
+	kept := 0
+	for i, r := range runes {
+		kept += len(string(r))
+		if kept > maxProblemBytes {
+			return string(runes[:i]) + "…"
+		}
+	}
+	return text
 }
 
 // statusInfo 把 health 与 meta 合成一份，GUI 一次调用就能拿全。
@@ -320,7 +374,7 @@ func Status() map[string]any {
 			return nil, err
 		}
 		if status < 200 || status >= 300 {
-			return nil, fmt.Errorf(i18n.T("libisc.call_failed"), status, strings.TrimSpace(string(raw)))
+			return nil, fmt.Errorf(i18n.T("libisc.call_failed"), status, readableProblem(raw))
 		}
 		var out any
 		if err := json.Unmarshal(raw, &out); err != nil {

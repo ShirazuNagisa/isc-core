@@ -31,6 +31,7 @@ var messagesZh = map[string]string{
 	// --- 守护进程 ---
 	"daemon.starting":             "ISC 内核启动中",
 	"daemon.started":              "ISC 内核已启动",
+	"daemon.outbound_proxy":       "出站请求走 %s",
 	"daemon.stopping":             "ISC 内核正在关闭",
 	"daemon.stopped":              "ISC 内核已停止",
 	"daemon.already_running":      "检测到内核已在运行（PID %d），请勿重复启动",
@@ -118,6 +119,7 @@ var messagesZh = map[string]string{
 	"libisc.meta_decode_failed":   "解析内核元信息失败: %w",
 	"libisc.unsupported_endpoint": "暂不支持的端点：%s",
 	"libisc.bad_status":           "内核返回 %d：%s",
+	"libisc.problem_title_detail": "%s：%s",
 	"libisc.handler_missing":      "内核的接口处理器尚未就绪",
 	"libisc.bus_missing":          "内核的事件总线尚未就绪",
 	"libisc.bad_path":             "路径必须以 / 开头：%q",

@@ -30,6 +30,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
 )
 
 // DefaultMaxBytes 是单个产物的默认体积上限。
@@ -136,7 +138,7 @@ func (d *Downloader) client() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			ResponseHeaderTimeout: 30 * time.Second,
-			Proxy:                 http.ProxyFromEnvironment,
+			Proxy:                 sysproxy.Func(),
 		},
 	}
 }

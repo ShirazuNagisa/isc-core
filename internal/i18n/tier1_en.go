@@ -38,6 +38,7 @@ var tier1MessagesEn = map[string]string{
 	// --- Cloudflare ---
 	"tier1.cf.need_token":          "tier1: Cloudflare needs an API token",
 	"tier1.cf.rejected":            "tier1: Cloudflare rejected this credential: %s",
+	"tier1.cf.global_key":          "tier1: Cloudflare rejected the request headers for this credential. The usual cause is a Global API Key (37 hex characters), which cannot be used as an API Token. Create one under My Profile -> API Tokens (the \"Edit zone DNS\" template works well).",
 	"tier1.cf.token_not_active":    "tier1: the Cloudflare token status is %q, not active",
 	"tier1.cf.list_zones_failed":   "tier1: failed to list zones: %s",
 	"tier1.cf.zones_bad_shape":     "tier1: the zone list response has an unexpected shape",

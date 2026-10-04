@@ -90,4 +90,5 @@ var infraMessagesZh = map[string]string{
 	"provider.cf.bad_status":     "provider: Cloudflare 返回 HTTP %d",
 	"provider.cf.not_active":     "provider: Cloudflare 令牌状态为 %q，不是 active",
 	"provider.cf.no_detail":      "未提供错误详情",
+	"provider.cf.global_key":     "provider: Cloudflare 判定该凭据的请求头不合法。最常见的原因是填了 Global API Key —— 它是 37 位十六进制，不能当作 API Token 使用。请到 Cloudflare 控制台「我的个人资料 → API 令牌」创建一个 Token（建议用「编辑区域 DNS」模板）。",
 }

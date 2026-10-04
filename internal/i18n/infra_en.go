@@ -86,4 +86,5 @@ var infraMessagesEn = map[string]string{
 	"provider.cf.bad_status":     "provider: Cloudflare returned HTTP %d",
 	"provider.cf.not_active":     "provider: the Cloudflare token status is %q, not active",
 	"provider.cf.no_detail":      "no error detail was provided",
+	"provider.cf.global_key":     "provider: Cloudflare rejected the request headers for this credential. The usual cause is a Global API Key (37 hex characters), which cannot be used as an API Token. Create one under My Profile -> API Tokens (the \"Edit zone DNS\" template works well).",
 }

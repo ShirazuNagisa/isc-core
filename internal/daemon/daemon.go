@@ -44,6 +44,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/store"
+	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
@@ -557,6 +558,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.recoverApps(runCtx)
 
 	d.readyOnce.Do(func() { close(d.ready) })
+	// 把内核眼中的代理配置写进日志。
+	//
+	// 用户报"凭据验证失败"时，第一件要排除的事就是
+	// "请求到底有没有走他配的代理"—— 有这一行就不用再猜。
+	d.log.Info(i18n.T("daemon.outbound_proxy", sysproxy.Describe()))
 	d.log.Info(i18n.T("daemon.started"))
 
 	// 16. 等待退出信号

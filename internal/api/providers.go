@@ -39,6 +39,9 @@ func toGenProvider(cat *i18n.Catalog, p provider.Provider) gen.Provider {
 		// null，而客户端普遍按数组处理，null 会让它们在这里分支。
 		CredentialFields: make([]gen.ProviderField, 0, len(p.CredentialFields)),
 	}
+	if p.ConsoleURL != "" {
+		out.ConsoleUrl = strPtr(p.ConsoleURL)
+	}
 	for _, f := range p.CredentialFields {
 		out.CredentialFields = append(out.CredentialFields, gen.ProviderField{
 			Key:         f.Key,

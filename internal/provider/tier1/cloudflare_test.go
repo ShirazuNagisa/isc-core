@@ -577,3 +577,86 @@ func asAPIError(err error, target **APIError) bool {
 	}
 	return false
 }
+
+// ---------------------------------------------------------------------------
+// Global API Key 误填
+// ---------------------------------------------------------------------------
+
+// 把 Global API Key 当令牌发出去时，Cloudflare 回 6003 Invalid request
+// headers —— 用户完全看不出问题在哪。这里断言我们把它翻译成了
+// 指向「API 令牌」页面的说明。
+func TestCloudflareVerifyExplainsGlobalAPIKey(t *testing.T) {
+	t.Parallel()
+
+	f, srv := newFakeAPI(t)
+	f.on(http.MethodGet, "/user/tokens/verify", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSONBody(w, 400,
+			`{"success":false,"errors":[{"code":6003,"message":"Invalid request headers"}]}`)
+	})
+
+	c := NewCloudflare(srv.URL)
+	err := c.Verify(context.Background(), dns.Credential{
+		Fields: map[string]string{"token": "0123456789abcdef0123456789abcdef01234"},
+	})
+	if err == nil {
+		t.Fatal("应当报错")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Global API Key") {
+		t.Fatalf("错误信息没点明 Global API Key: %s", msg)
+	}
+	if strings.Contains(msg, "6003") {
+		t.Fatalf("不该把原始错误码甩给用户: %s", msg)
+	}
+}
+
+// 形状本身就是 Global API Key 时，即使服务商回的是别的错误码也要提示。
+func TestCloudflareGlobalAPIKeyHintByShape(t *testing.T) {
+	t.Parallel()
+
+	// 37 位十六进制 = Global API Key。
+	const globalKey = "0123456789abcdef0123456789abcdef01234"
+	if len(globalKey) != 37 {
+		t.Fatalf("测试样本长度应为 37，实际 %d", len(globalKey))
+	}
+	if !CloudflareGlobalAPIKeyHint(globalKey) {
+		t.Error("37 位十六进制应当被认作 Global API Key")
+	}
+	// 40 位的 API Token（含 - 与 _）不能被误判。
+	const apiToken = "abcdefghijklmnopqrstuvwxyz0123456789_-AB"
+	if len(apiToken) != 40 {
+		t.Fatalf("测试样本长度应为 40，实际 %d", len(apiToken))
+	}
+	if CloudflareGlobalAPIKeyHint(apiToken) {
+		t.Error("40 位 API Token 被误判成了 Global API Key")
+	}
+	// 有 6003 时无条件判定。
+	if !CloudflareGlobalAPIKeyHint(apiToken, 6003) {
+		t.Error("错误码 6003 应当触发该提示")
+	}
+	if CloudflareGlobalAPIKeyHint(apiToken, 1000) {
+		t.Error("错误码 1000（令牌无效）不该触发 Global API Key 提示")
+	}
+}
+
+// 直接进 DNS 分区（没先点"校验"）时，也要给出同样的指引。
+func TestCloudflareListZonesExplainsGlobalAPIKey(t *testing.T) {
+	t.Parallel()
+
+	f, srv := newFakeAPI(t)
+	f.on(http.MethodGet, "/zones", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSONBody(w, 400,
+			`{"success":false,"errors":[{"code":6003,"message":"Invalid request headers"}]}`)
+	})
+
+	c := NewCloudflare(srv.URL)
+	_, err := c.ListZones(context.Background(), dns.Credential{
+		Fields: map[string]string{"token": "0123456789abcdef0123456789abcdef01234"},
+	})
+	if err == nil {
+		t.Fatal("应当报错")
+	}
+	if !strings.Contains(err.Error(), "Global API Key") {
+		t.Fatalf("列出区域失败时没点明 Global API Key: %s", err)
+	}
+}

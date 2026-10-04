@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
 )
 
 // WebhookChannel 把通知 POST 到一个 HTTP 地址。
@@ -89,7 +91,7 @@ func NewWebhookChannel(opts WebhookOptions) (*WebhookChannel, error) {
 		url:     opts.URL,
 		method:  method,
 		headers: opts.Headers,
-		client:  &http.Client{Timeout: timeout},
+		client:  newOutboundClient(timeout),
 	}
 
 	if opts.BodyTemplate != "" {
@@ -239,4 +241,22 @@ func (l *LogChannel) Kind() string { return "log" }
 func (l *LogChannel) Send(_ context.Context, msg Message) error {
 	l.sink(msg)
 	return nil
+}
+
+// outboundTransport 是通知投递用的传输层。
+//
+// 与 provider 包同理：Go 只认代理环境变量，不读 macOS 系统代理。
+// 用户把 Webhook 指向外网服务时，少了这一行就会"浏览器能开、通知发不出"。
+var outboundTransport = &http.Transport{
+	Proxy:                 sysproxy.Func(),
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
+
+// newOutboundClient 构造使用统一传输层的客户端。
+func newOutboundClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: outboundTransport}
 }

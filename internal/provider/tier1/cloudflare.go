@@ -7,6 +7,8 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ShirazuNagisa/isc-core/internal/dns"
@@ -136,7 +138,8 @@ type cfRecord struct {
 // 提供的只读端点。用"列一下 zones"来校验是常见的错误做法：那需要额外的
 // 权限，会让只有 DNS 编辑权限的最小权限 token 被误判为无效。
 func (c *Cloudflare) Verify(ctx context.Context, cred dns.Credential) error {
-	if cred.Field("token") == "" {
+	token := strings.TrimSpace(cred.Field("token"))
+	if token == "" {
 		return errors.New(i18n.T("tier1.cf.need_token"))
 	}
 
@@ -144,9 +147,16 @@ func (c *Cloudflare) Verify(ctx context.Context, cred dns.Credential) error {
 	var env cfEnvelope
 	if err := cl.doJSON(ctx, i18n.T("tier1.op.verify"), http.MethodGet,
 		cl.URL("/user/tokens/verify"), nil, nil, &env); err != nil {
+		// 鉴权被拒是 4xx，会先走这条路径 —— Global API Key 就在其中。
+		if hint := cloudflareGlobalKeyError(token, err); hint != nil {
+			return hint
+		}
 		return err
 	}
 	if !env.Success {
+		if CloudflareGlobalAPIKeyHint(token, cfErrorCodes(env)...) {
+			return errors.New(i18n.T("tier1.cf.global_key"))
+		}
 		return fmt.Errorf(i18n.T("tier1.cf.rejected"), cfErrorText(env))
 	}
 
@@ -190,6 +200,12 @@ func (c *Cloudflare) ListZones(ctx context.Context, cred dns.Credential) ([]dns.
 		err := cl.doJSON(ctx, i18n.T("tier1.op.list_zones"), http.MethodGet,
 			cl.URL("/zones?"+params.Encode()), nil, nil, &env)
 		if err != nil {
+			// 用户未必先点过"校验"再进 DNS 分区。直接撞上
+			// "HTTP 400: Invalid request headers" 同样无解，
+			// 所以这条路径也要给出同样的指引。
+			if hint := cloudflareGlobalKeyError(cred.Field("token"), err); hint != nil {
+				return nil, hint
+			}
 			return nil, err
 		}
 		if !env.Success {
@@ -485,6 +501,67 @@ func normalizeCloudflareTTL(ttl int) int {
 // ---------------------------------------------------------------------------
 
 // cfErrorText 汇总信封里的错误信息。
+// cloudflareInvalidHeaders 是 Cloudflare 对"Authorization 头不合法"的错误码。
+//
+// 触发条件是把 Global API Key 当成 Bearer 令牌发出去：Cloudflare 认不出
+// 这个形状，于是回 6003 Invalid request headers —— 一个完全指不到重点的
+// 错误，用户会以为是自己抄错了 token。
+const cloudflareInvalidHeaders = 6003
+
+// globalAPIKeyPattern 匹配 Cloudflare Global API Key 的形状。
+//
+// Global API Key 是 37 位十六进制；API Token 是 40 位、通常含 - 和 _。
+// 长度与字符集都不同，所以形状判断可靠，不会把合法令牌误判。
+var globalAPIKeyPattern = regexp.MustCompile(`^[0-9a-fA-F]{37}$`)
+
+// CloudflareGlobalAPIKeyHint 判断这次鉴权失败是不是"填了 Global API Key"。
+//
+// 单列成一个函数是为了让两条路径（本包的完整实现、旧版 Tier-2 校验器）
+// 得到同一份判断 —— 这类"用户最常踩的坑"只该有一处定义。
+func CloudflareGlobalAPIKeyHint(token string, codes ...int) bool {
+	for _, c := range codes {
+		if c == cloudflareInvalidHeaders {
+			return true
+		}
+	}
+	return globalAPIKeyPattern.MatchString(strings.TrimSpace(token))
+}
+
+// cloudflareRejectedHeaders 判断一个 HTTP 错误响应是不是"Authorization
+// 头不合法"—— 把 Global API Key 当 Bearer 令牌发出去就是这种结果。
+//
+// 除了错误码，还看令牌形状：即使服务商换了错误码，37 位十六进制
+// 这个特征本身也足以说明问题，而用户最需要的就是这句话。
+func cloudflareRejectedHeaders(token string, apiErr *APIError) bool {
+	if apiErr == nil {
+		return false
+	}
+	if apiErr.Code == strconv.Itoa(cloudflareInvalidHeaders) ||
+		strings.Contains(apiErr.Message, "Invalid request headers") {
+		return true
+	}
+	return globalAPIKeyPattern.MatchString(strings.TrimSpace(token))
+}
+
+// cloudflareGlobalKeyError 在"填了 Global API Key"时返回带指引的错误；
+// 其它失败返回 nil，由调用方按原样上报。
+func cloudflareGlobalKeyError(token string, err error) error {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && cloudflareRejectedHeaders(token, apiErr) {
+		return errors.New(i18n.T("tier1.cf.global_key"))
+	}
+	return nil
+}
+
+// cfErrorCodes 取出响应里的错误码，供上面的判定使用。
+func cfErrorCodes(env cfEnvelope) []int {
+	codes := make([]int, 0, len(env.Errors))
+	for _, e := range env.Errors {
+		codes = append(codes, e.Code)
+	}
+	return codes
+}
+
 func cfErrorText(env cfEnvelope) string {
 	if len(env.Errors) == 0 {
 		if len(env.Messages) > 0 {

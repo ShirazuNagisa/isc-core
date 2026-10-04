@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
 )
 
 func getLocalAddrFromInterfaceByNetwork(ifaceName, network string) (string, error) {
@@ -72,7 +74,7 @@ func newHTTPDialer(localAddr *net.TCPAddr) *net.Dialer {
 
 var defaultTransport = &http.Transport{
 	// from http.DefaultTransport
-	Proxy: http.ProxyFromEnvironment,
+	Proxy: sysproxy.Func(),
 	DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		return dialer.DialContext(ctx, network, address)
 	},
@@ -126,7 +128,7 @@ func CreateHTTPClientWithInterface(ifaceName string) *http.Client {
 	boundDialer := newHTTPDialer(localAddr)
 	setLinuxBindToDevice(boundDialer, ifaceName)
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: sysproxy.Func(),
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return boundDialer.DialContext(ctx, network, address)
 		},

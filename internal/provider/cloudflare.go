@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+	"github.com/ShirazuNagisa/isc-core/internal/provider/tier1"
+	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
 )
 
 // cloudflareAPIBase 是 Cloudflare API 的默认基址。
@@ -20,6 +23,26 @@ const cloudflareAPIBase = "https://api.cloudflare.com/client/v4"
 // 比常规请求短：用户在界面上点"测试连接"时会一直看着转圈，
 // 15 秒还没结果就已经算是交互事故了。
 const verifyTimeout = 15 * time.Second
+
+// outboundTransport 是校验器访问服务商 API 用的传输层。
+//
+// 这里必须显式指定 Proxy：走 http.DefaultTransport 只会读环境变量，
+// 而 macOS 用户的代理配置在系统设置里。少了这一行的后果不是"没走代理"
+// 这么轻描淡写 —— 用户开着代理时，直连出去会被本地网络拦截，
+// 界面上显示的是"凭据验证失败"，用户会一路去怀疑自己的 API Token。
+var outboundTransport = &http.Transport{
+	Proxy:                 sysproxy.Func(),
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
+
+// newOutboundClient 构造使用统一传输层的客户端。
+func newOutboundClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: outboundTransport}
+}
 
 // CloudflareVerifier 校验 Cloudflare API Token。
 //
@@ -37,7 +60,7 @@ type CloudflareVerifier struct {
 func NewCloudflareVerifier() CloudflareVerifier {
 	return CloudflareVerifier{
 		BaseURL: cloudflareAPIBase,
-		Client:  &http.Client{Timeout: verifyTimeout},
+		Client:  newOutboundClient(verifyTimeout),
 	}
 }
 
@@ -71,7 +94,7 @@ func (v CloudflareVerifier) Verify(ctx context.Context, fields map[string]string
 	}
 	client := v.Client
 	if client == nil {
-		client = &http.Client{Timeout: verifyTimeout}
+		client = newOutboundClient(verifyTimeout)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
@@ -105,6 +128,13 @@ func (v CloudflareVerifier) Verify(ctx context.Context, fields map[string]string
 	}
 
 	if !parsed.Success {
+		codes := make([]int, 0, len(parsed.Errors))
+		for _, e := range parsed.Errors {
+			codes = append(codes, e.Code)
+		}
+		if tier1.CloudflareGlobalAPIKeyHint(token, codes...) {
+			return errors.New(i18n.T("provider.cf.global_key"))
+		}
 		return fmt.Errorf(i18n.T("provider.cf.rejected"), cloudflareErrorMessage(parsed))
 	}
 	if resp.StatusCode != http.StatusOK {

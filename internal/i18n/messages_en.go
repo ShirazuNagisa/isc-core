@@ -30,6 +30,7 @@ var messagesEn = map[string]string{
 	// --- daemon ---
 	"daemon.starting":             "ISC core is starting",
 	"daemon.started":              "ISC core started",
+	"daemon.outbound_proxy":       "Outbound requests use %s",
 	"daemon.stopping":             "ISC core is shutting down",
 	"daemon.stopped":              "ISC core stopped",
 	"daemon.already_running":      "ISC core already appears to be running (PID %d); refusing to start a second instance",
@@ -117,6 +118,7 @@ var messagesEn = map[string]string{
 	"libisc.meta_decode_failed":   "decoding the kernel meta response failed: %w",
 	"libisc.unsupported_endpoint": "unsupported endpoint: %s",
 	"libisc.bad_status":           "the kernel returned %d: %s",
+	"libisc.problem_title_detail": "%s: %s",
 	"libisc.handler_missing":      "the kernel API handler is not ready yet",
 	"libisc.bus_missing":          "the kernel event bus is not ready yet",
 	"libisc.bad_path":             "the path must start with /: %q",

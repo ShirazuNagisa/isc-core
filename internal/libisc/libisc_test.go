@@ -4,7 +4,9 @@ package libisc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
@@ -198,5 +200,81 @@ func TestStopWithoutStart(t *testing.T) {
 	res := Stop()
 	if res["ok"] != true || res["stopped"] != false {
 		t.Errorf("未启动时停止应当是 ok 且 stopped=false: %v", res)
+	}
+}
+
+// 错误正文必须是给人看的一句话。
+//
+// 这里守的是一个真实事故：内核把整个 problem+json 塞进 error，界面上
+// 出现一屏转义过的花括号；那串没有任何空格的文本还把布局撑坏，DNS 服务商
+// 一出错，整个左侧栏就被挤没了。GUI 拿到的应该是可读的原因。
+func TestCallReportsReadableProblem(t *testing.T) {
+	startTemp(t)
+
+	// /v1/nope 会得到内核自己生成的 problem+json。
+	res := Call("GET", "/v1/nope", "")
+	if res["ok"] != false {
+		t.Fatalf("未知路径应当失败: %v", res)
+	}
+	msg, _ := res["error"].(string)
+	if msg == "" {
+		t.Fatal("错误信息不该为空")
+	}
+	if strings.Contains(msg, `{"`) || strings.Contains(msg, `"type"`) {
+		t.Fatalf("错误信息里不该出现原始 JSON：%s", msg)
+	}
+	if len([]rune(msg)) > 400 {
+		t.Fatalf("错误信息过长（%d 字符），界面会被撑坏：%s", len([]rune(msg)), msg)
+	}
+}
+
+func TestReadableProblemPrefersTitleAndDetail(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "标题与详情都有",
+			raw:  `{"code":"upstream_error","status":400,"title":"服务商拒绝了这次操作","detail":"列出区域失败：证书不匹配"}`,
+			want: "服务商拒绝了这次操作：列出区域失败：证书不匹配",
+		},
+		{
+			name: "只有详情",
+			raw:  `{"detail":"磁盘写满了"}`,
+			want: "磁盘写满了",
+		},
+		{
+			name: "只有标题",
+			raw:  `{"title":"没有找到"}`,
+			want: "没有找到",
+		},
+		{
+			name: "不是 JSON 时原样返回",
+			raw:  "plain text failure",
+			want: "plain text failure",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := readableProblem([]byte(tc.raw)); got != tc.want {
+				t.Errorf("readableProblem = %q，期望 %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// 退回原始正文时必须截断，且不能把多字节字符切碎。
+func TestTruncateProblemKeepsRunesIntact(t *testing.T) {
+	long := strings.Repeat("错误信息", 400)
+	got := truncateProblem(long)
+	if len([]rune(got)) >= len([]rune(long)) {
+		t.Fatal("超长正文没有被截断")
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("截断后应有省略号: %q", got)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("截断切碎了多字节字符: %q", got)
 	}
 }

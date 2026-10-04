@@ -123,10 +123,22 @@ func TestProvidersExposeCredentialFields(t *testing.T) {
 		}
 	}
 
-	// Tier-1 五家必须在列表里。
+	// Tier-1 六家必须在列表里，而且都要有凭据页面地址。
+	//
+	// 地址是界面上"选完服务商就带你去正确的那一页"的依据：
+	// 少一个，那家的用户就得自己去翻控制台。
 	for _, want := range []string{"cloudflare", "alidns", "tencentcloud", "dnspod", "huaweicloud", "godaddy"} {
-		if _, ok := byName[want]; !ok {
+		p, ok := byName[want]
+		if !ok {
 			t.Errorf("Tier-1 服务商 %s 未出现在列表中", want)
+			continue
+		}
+		if p.ConsoleUrl == nil || *p.ConsoleUrl == "" {
+			t.Errorf("Tier-1 服务商 %s 没有凭据页面地址（console_url）", want)
+			continue
+		}
+		if !strings.HasPrefix(*p.ConsoleUrl, "https://") {
+			t.Errorf("服务商 %s 的凭据页面必须是 https：%s", want, *p.ConsoleUrl)
 		}
 	}
 
