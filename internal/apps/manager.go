@@ -373,7 +373,14 @@ func (m *Manager) runInstall(ctx context.Context, app *App, progress func(float6
 		if err := m.setState(ctx, app, StateProvisioning); err != nil {
 			return err
 		}
-		installed, err := m.runtimes.Provision(ctx, app.Kind, "", progress)
+		// 用预设声明的最低版本，而不是"随便什么版本都行"：一个需要
+		// Node 18 的项目装在 Node 16 上，失败会以"语法错误 / 不支持的特性"
+		// 的形式出现在应用日志里，离真正的原因很远。
+		minVersion := ""
+		if preset, err := presets.Lookup(app.PresetID); err == nil {
+			minVersion = preset.MinVersion
+		}
+		installed, err := m.runtimes.Provision(ctx, app.Kind, minVersion, progress)
 		if err != nil {
 			return err
 		}
