@@ -508,6 +508,42 @@ func (e PhecdaProjectInputPurpose) Valid() bool {
 	}
 }
 
+// Defines values for PresetKind.
+const (
+	PresetKindDocker PresetKind = "docker"
+	PresetKindDotnet PresetKind = "dotnet"
+	PresetKindEmpty  PresetKind = ""
+	PresetKindGo     PresetKind = "go"
+	PresetKindJava   PresetKind = "java"
+	PresetKindNode   PresetKind = "node"
+	PresetKindPhp    PresetKind = "php"
+	PresetKindPython PresetKind = "python"
+)
+
+// Valid indicates whether the value is a known member of the PresetKind enum.
+func (e PresetKind) Valid() bool {
+	switch e {
+	case PresetKindDocker:
+		return true
+	case PresetKindDotnet:
+		return true
+	case PresetKindEmpty:
+		return true
+	case PresetKindGo:
+		return true
+	case PresetKindJava:
+		return true
+	case PresetKindNode:
+		return true
+	case PresetKindPhp:
+		return true
+	case PresetKindPython:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProviderTier.
 const (
 	N1 ProviderTier = 1
@@ -583,6 +619,27 @@ func (e ReachCheckStatus) Valid() bool {
 	case ReachCheckStatusUnknown:
 		return true
 	case ReachCheckStatusWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeInfoSource.
+const (
+	Managed RuntimeInfoSource = "managed"
+	None    RuntimeInfoSource = "none"
+	System  RuntimeInfoSource = "system"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeInfoSource enum.
+func (e RuntimeInfoSource) Valid() bool {
+	switch e {
+	case Managed:
+		return true
+	case None:
+		return true
+	case System:
 		return true
 	default:
 		return false
@@ -1421,6 +1478,32 @@ type PhecdaScanResult struct {
 	Warning    *string              `json:"warning,omitempty"`
 }
 
+// Preset defines model for Preset.
+type Preset struct {
+	DefaultPort      int       `json:"default_port"`
+	DetectorFiles    *[]string `json:"detector_files,omitempty"`
+	DetectorSuffixes *[]string `json:"detector_suffixes,omitempty"`
+	DockerOnly       *bool     `json:"docker_only,omitempty"`
+	Id               string    `json:"id"`
+
+	// Kind 所需的运行时类型；空串表示静态站点（由内核直接托管，无需下载）。
+	// `docker` 表示需要本机已安装 Docker，内核不代为安装。
+	Kind       PresetKind `json:"kind"`
+	MinVersion *string    `json:"min_version,omitempty"`
+	Note       *string    `json:"note,omitempty"`
+	Title      string     `json:"title"`
+	Version    string     `json:"version"`
+}
+
+// PresetKind 所需的运行时类型；空串表示静态站点（由内核直接托管，无需下载）。
+// `docker` 表示需要本机已安装 Docker，内核不代为安装。
+type PresetKind string
+
+// PresetCatalog defines model for PresetCatalog.
+type PresetCatalog struct {
+	Items []Preset `json:"items"`
+}
+
 // Problem RFC 9457 定义的错误对象。
 type Problem struct {
 	// Code 稳定的机器可读错误码，供客户端分支判断。
@@ -1731,6 +1814,32 @@ type RecordList struct {
 	Items []Record `json:"items"`
 }
 
+// RuntimeInfo defines model for RuntimeInfo.
+type RuntimeInfo struct {
+	Executable *string           `json:"executable,omitempty"`
+	Kind       string            `json:"kind"`
+	Path       *string           `json:"path,omitempty"`
+	SizeBytes  *int              `json:"size_bytes,omitempty"`
+	Source     RuntimeInfoSource `json:"source"`
+	Version    string            `json:"version"`
+}
+
+// RuntimeInfoSource defines model for RuntimeInfo.Source.
+type RuntimeInfoSource string
+
+// RuntimeList defines model for RuntimeList.
+type RuntimeList struct {
+	Items []RuntimeInfo `json:"items"`
+}
+
+// RuntimeProvisionRequest defines model for RuntimeProvisionRequest.
+type RuntimeProvisionRequest struct {
+	Kinds []string `json:"kinds"`
+
+	// MinVersions 可选的按类型给出的最低版本要求。
+	MinVersions *map[string]string `json:"min_versions,omitempty"`
+}
+
 // ServiceActionResult defines model for ServiceActionResult.
 type ServiceActionResult struct {
 	Message *string `json:"message,omitempty"`
@@ -1836,6 +1945,27 @@ type SettingsPatchLang string
 
 // SettingsPatchLogLevel defines model for SettingsPatch.LogLevel.
 type SettingsPatchLogLevel string
+
+// SourceEvidence defines model for SourceEvidence.
+type SourceEvidence struct {
+	Confidence float32 `json:"confidence"`
+	File       string  `json:"file"`
+	Signal     string  `json:"signal"`
+}
+
+// SourceInspectRequest defines model for SourceInspectRequest.
+type SourceInspectRequest struct {
+	Path string `json:"path"`
+}
+
+// SourceInspection defines model for SourceInspection.
+type SourceInspection struct {
+	Candidates          []Preset         `json:"candidates"`
+	Evidence            []SourceEvidence `json:"evidence"`
+	RecommendedPresetId string           `json:"recommended_preset_id"`
+	Root                string           `json:"root"`
+	Warnings            *[]string        `json:"warnings,omitempty"`
+}
 
 // VerifyHit defines model for VerifyHit.
 type VerifyHit struct {
@@ -2082,11 +2212,17 @@ type ReplacePublicServicesJSONRequestBody = PublicServiceList
 // PlanReachExposeJSONRequestBody defines body for PlanReachExpose for application/json ContentType.
 type PlanReachExposeJSONRequestBody = ExposeRequest
 
+// ProvisionRuntimesJSONRequestBody defines body for ProvisionRuntimes for application/json ContentType.
+type ProvisionRuntimesJSONRequestBody = RuntimeProvisionRequest
+
 // InstallServiceJSONRequestBody defines body for InstallService for application/json ContentType.
 type InstallServiceJSONRequestBody = ServiceInstallRequest
 
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = SettingsPatch
+
+// InspectSourceJSONRequestBody defines body for InspectSource for application/json ContentType.
+type InspectSourceJSONRequestBody = SourceInspectRequest
 
 // StartVerifySessionJSONRequestBody defines body for StartVerifySession for application/json ContentType.
 type StartVerifySessionJSONRequestBody = VerifyStartRequest
@@ -2311,6 +2447,9 @@ type ServerInterface interface {
 	// ScanPhecdaProject 对项目执行只读技术栈扫描
 	// (POST /v1/phecda/projects/{id}/scan)
 	ScanPhecdaProject(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// ListPresets 列出建站预设
+	// (GET /v1/presets)
+	ListPresets(w http.ResponseWriter, r *http.Request)
 	// ListProviders 列出支持的 DNS 服务商及其能力与凭据字段
 	// (GET /v1/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -2338,6 +2477,15 @@ type ServerInterface interface {
 	// ProbeReachProvider 探测某种可达方式当前是否可用
 	// (GET /v1/reach/providers/{name}/probe)
 	ProbeReachProvider(w http.ResponseWriter, r *http.Request, name ReachProviderName)
+	// ListRuntimes 列出可用的运行时
+	// (GET /v1/runtimes)
+	ListRuntimes(w http.ResponseWriter, r *http.Request)
+	// ProvisionRuntimes 准备运行时（必要时下载）
+	// (POST /v1/runtimes/provision)
+	ProvisionRuntimes(w http.ResponseWriter, r *http.Request)
+	// RemoveRuntime 删除内核安装的运行时
+	// (DELETE /v1/runtimes/{kind})
+	RemoveRuntime(w http.ResponseWriter, r *http.Request, kind string)
 	// InstallService 安装系统服务（需要管理员权限）
 	// (POST /v1/service/install)
 	InstallService(w http.ResponseWriter, r *http.Request)
@@ -2359,6 +2507,9 @@ type ServerInterface interface {
 	// UpdateSettings 修改运行时设置
 	// (PATCH /v1/settings)
 	UpdateSettings(w http.ResponseWriter, r *http.Request)
+	// InspectSource 只读识别一份源码目录
+	// (POST /v1/sources/inspect)
+	InspectSource(w http.ResponseWriter, r *http.Request)
 	// ListVerifySessions 列出外部验证会话
 	// (GET /v1/verify/sessions)
 	ListVerifySessions(w http.ResponseWriter, r *http.Request)
@@ -3730,6 +3881,20 @@ func (siw *ServerInterfaceWrapper) ScanPhecdaProject(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// ListPresets operation middleware
+func (siw *ServerInterfaceWrapper) ListPresets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPresets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -3880,6 +4045,60 @@ func (siw *ServerInterfaceWrapper) ProbeReachProvider(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListRuntimes operation middleware
+func (siw *ServerInterfaceWrapper) ListRuntimes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRuntimes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ProvisionRuntimes operation middleware
+func (siw *ServerInterfaceWrapper) ProvisionRuntimes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProvisionRuntimes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveRuntime operation middleware
+func (siw *ServerInterfaceWrapper) RemoveRuntime(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveRuntime(w, r, kind)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // InstallService operation middleware
 func (siw *ServerInterfaceWrapper) InstallService(w http.ResponseWriter, r *http.Request) {
 
@@ -3969,6 +4188,20 @@ func (siw *ServerInterfaceWrapper) UpdateSettings(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InspectSource operation middleware
+func (siw *ServerInterfaceWrapper) InspectSource(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectSource(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4195,6 +4428,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/phecda/deployments/{id}", wrapper.GetPhecdaDeployment)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/public-services", wrapper.ListPublicServices)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/public-services", wrapper.ReplacePublicServices)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/presets", wrapper.ListPresets)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sources/inspect", wrapper.InspectSource)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/runtimes", wrapper.ListRuntimes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/runtimes/provision", wrapper.ProvisionRuntimes)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/runtimes/{kind}", wrapper.RemoveRuntime)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/credentials", wrapper.ListCredentials)

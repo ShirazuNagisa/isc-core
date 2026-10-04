@@ -63,12 +63,41 @@ type Message struct {
 	Args []any
 }
 
-// Text 在给定目录下渲染消息；没有目录时回退到默认目录。
+// Text 用默认语言渲染消息。
 func (m Message) Text() string {
 	if m.Key == "" {
 		return ""
 	}
 	return i18n.T(m.Key, m.Args...)
+}
+
+// TextIn 用**请求自己的**语言目录渲染消息。
+//
+// API 层必须用这个：语言是跟着请求走的（见 i18n.FromContext），
+// 用默认目录会让英文界面上出现中文提示。
+func (m Message) TextIn(cat *i18n.Catalog) string {
+	if m.Key == "" || cat == nil {
+		return m.Text()
+	}
+	return cat.T(m.Key, m.Args...)
+}
+
+// Messages 把一个消息切片渲染成文本。
+func Messages(list []Message) []string {
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		out = append(out, item.Text())
+	}
+	return out
+}
+
+// MessagesIn 用给定目录渲染消息切片。
+func MessagesIn(list []Message, cat *i18n.Catalog) []string {
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		out = append(out, item.TextIn(cat))
+	}
+	return out
 }
 
 func msg(key string, args ...any) Message { return Message{Key: key, Args: args} }

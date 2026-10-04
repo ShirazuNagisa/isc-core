@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"sync"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
+	hosting "github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
@@ -126,6 +128,7 @@ type Daemon struct {
 	notifier     *notify.Manager
 	notifyConfig *notify.ConfigManager
 	certStore    *acme.Store
+	runtimes     *hosting.Manager
 	certMgr      *acme.Manager
 	certProvider *acme.StoreProvider
 	acmeResolver *acme.Resolver
@@ -420,11 +423,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 任务状态落进 SQLite：进程重启后历史任务仍可查询。
 	d.jobs = job.NewEngine(runCtx, d.bus, st.Jobs(), d.log)
 
+	// 运行时供给：在数据目录下落 cache/ 与 runtimes/（D28）。
+	d.runtimes = hosting.NewManager(d.opts.Paths.Root(), goruntime.GOOS, goruntime.GOARCH)
+
 	// 登记内核支持的任务类型。
 	//
 	// 登记之后，拼错的 kind 会在提交时被拒绝，而不是留下一个永远失败、
 	// 又查不出原因的任务。新增任务类型的子系统必须在这里补一行。
-	d.jobs.RegisterKinds("debug.noop")
+	d.jobs.RegisterKinds("debug.noop", api.JobKindRuntimeProvision)
 
 	// 把上次运行遗留的 pending / running 任务归位。
 	//
@@ -467,6 +473,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Notify:         d.notifier,
 		NotifyConfig:   d.notifyConfig,
 		Phecda:         st.Phecda(),
+		Runtimes:       d.runtimes,
 		CertProvider:   d.certProvider,
 		CertInvalidate: d.certProvider.Invalidate,
 		Certs:          d.certMgr,

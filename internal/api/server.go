@@ -26,6 +26,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
+	"github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
@@ -122,6 +123,12 @@ type Deps struct {
 
 	// NotifyConfig 是配置驱动的通道管理。
 	NotifyConfig *notify.ConfigManager
+
+	// Runtimes 解析与供给业务运行时（D28）。
+	//
+	// 为空时 /v1/runtimes 返回空清单、供给接口明确报错 —— 库的使用者
+	// 可以只要 DNS/反代那部分能力。
+	Runtimes *runtime.Manager
 
 	// Phecda persists project metadata, scan evidence, and deployment state.
 	Phecda PhecdaStore

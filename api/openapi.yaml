@@ -439,6 +439,121 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /v1/presets:
+    get:
+      tags: [Hosting]
+      operationId: listPresets
+      summary: 列出建站预设
+      description: |
+        预设描述"某种技术栈该怎么装、怎么构建、怎么启动"。命令一律是
+        固定 argv，**不经 shell**；参数里的 `{port}` 在部署时替换为分配到的
+        本地端口。
+      responses:
+        "200":
+          description: 预设目录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresetCatalog"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/sources/inspect:
+    post:
+      tags: [Hosting]
+      operationId: inspectSource
+      summary: 只读识别一份源码目录
+      description: |
+        只做目录列举与少量标志文件的内容读取。**不执行**源码里的任何东西、
+        不联网、不写入任何文件。
+
+        结果里包含识别证据、候选预设与推荐预设。识别不出已知技术栈时
+        推荐自定义服务器，并在 `warnings` 里说明。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SourceInspectRequest"
+      responses:
+        "200":
+          description: 识别结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceInspection"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/runtimes:
+    get:
+      tags: [Hosting]
+      operationId: listRuntimes
+      summary: 列出可用的运行时
+      description: |
+        包含两类：系统里已安装且可用的解释器（`source=system`），
+        以及内核此前下载并校验过的托管运行时（`source=managed`）。
+      responses:
+        "200":
+          description: 运行时清单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/runtimes/provision:
+    post:
+      tags: [Hosting]
+      operationId: provisionRuntimes
+      summary: 准备运行时（必要时下载）
+      description: |
+        按"系统已装 → 已供给 → 下载固定发行版"的顺序让运行时可用。
+        下载是长操作，因此返回 202 与任务 id，进度经 `job.progress` 事件推送。
+
+        Docker 不在供给范围内：内核只检测它，不代为安装。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeProvisionRequest"
+      responses:
+        "202":
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/runtimes/{kind}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        description: 运行时类型，例如 node / python / php / go / java / dotnet。
+        schema:
+          type: string
+    delete:
+      tags: [Hosting]
+      operationId: removeRuntime
+      summary: 删除内核安装的运行时
+      description: |
+        只删除**内核自己装的**运行时（目录里有标记文件）。系统里已安装的
+        解释器不受影响 —— 内核没有装它，也就没有资格卸它。
+      responses:
+        "204":
+          description: 已删除（或本来就没有托管的该运行时）
+        default:
+          $ref: "#/components/responses/Problem"
+
   /v1/debug/noop:
     post:
       tags: [Debug]
@@ -2084,6 +2199,106 @@ components:
       properties:
         job_id:
           type: string
+
+    Preset:
+      type: object
+      required: [id, version, title, kind, default_port]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        title: {type: string}
+        kind:
+          type: string
+          description: |
+            所需的运行时类型；空串表示静态站点（由内核直接托管，无需下载）。
+            `docker` 表示需要本机已安装 Docker，内核不代为安装。
+          enum: ["", node, python, php, go, java, dotnet, docker]
+        min_version: {type: string}
+        default_port: {type: integer, minimum: 1, maximum: 65535}
+        docker_only: {type: boolean}
+        detector_files:
+          type: array
+          items: {type: string}
+        detector_suffixes:
+          type: array
+          items: {type: string}
+        note: {type: string}
+
+    PresetCatalog:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Preset"
+
+    SourceInspectRequest:
+      type: object
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1}
+
+    SourceEvidence:
+      type: object
+      required: [file, signal, confidence]
+      properties:
+        file: {type: string}
+        signal: {type: string}
+        confidence: {type: number, minimum: 0, maximum: 1}
+
+    SourceInspection:
+      type: object
+      required: [root, evidence, candidates, recommended_preset_id]
+      properties:
+        root: {type: string}
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceEvidence"
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/Preset"
+        recommended_preset_id: {type: string}
+        warnings:
+          type: array
+          items: {type: string}
+
+    RuntimeInfo:
+      type: object
+      required: [kind, version, source]
+      properties:
+        kind: {type: string}
+        version: {type: string}
+        source:
+          type: string
+          enum: [system, managed, none]
+        path: {type: string}
+        executable: {type: string}
+        size_bytes: {type: integer}
+
+    RuntimeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeInfo"
+
+    RuntimeProvisionRequest:
+      type: object
+      required: [kinds]
+      properties:
+        kinds:
+          type: array
+          minItems: 1
+          items: {type: string}
+        min_versions:
+          type: object
+          description: 可选的按类型给出的最低版本要求。
+          additionalProperties: {type: string}
 
     JobList:
       type: object
