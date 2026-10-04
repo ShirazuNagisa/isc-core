@@ -6,18 +6,19 @@ package i18n
 // 必须与 infraMessagesZh 的 key 集合完全一致 —— 由目录完整性测试强制保证。
 var infraMessagesEn = map[string]string{
 	// --- DNS service layer ---
-	"dns.err.unsupported": "dns: provider %s does not support %s",
-	"dns.err.not_found":   "dns: the record does not exist",
-	"dns.op.record_mgmt":  "record management",
-	"dns.op.list_zones":   "listing zones",
-	"dns.op.list_records": "listing records",
-	"dns.op.create":       "creating records",
-	"dns.op.update":       "updating records",
-	"dns.op.delete":       "deleting records",
-	"dns.err.no_zone_id":  "dns: the zone ID is missing",
-	"dns.err.no_type":     "dns: the record type cannot be empty",
-	"dns.err.no_name":     "dns: the record name cannot be empty",
-	"dns.err.no_verify":   "dns: this provider does not support credential verification",
+	"dns.err.unsupported":    "dns: provider %s does not support %s",
+	"dns.err.not_found":      "dns: the record does not exist",
+	"dns.op.record_mgmt":     "record management",
+	"dns.op.list_zones":      "listing zones",
+	"dns.op.list_records":    "listing records",
+	"dns.op.create":          "creating records",
+	"dns.op.update":          "updating records",
+	"dns.op.delete":          "deleting records",
+	"dns.err.no_zone_id":     "dns: the zone ID is missing",
+	"dns.err.zone_not_found": "dns: no zone %q under this credential (tried both the zone name and ID)",
+	"dns.err.no_type":        "dns: the record type cannot be empty",
+	"dns.err.no_name":        "dns: the record name cannot be empty",
+	"dns.err.no_verify":      "dns: this provider does not support credential verification",
 
 	// --- job engine ---
 	"job.err.closed":             "job: the engine is closed and refuses new jobs",

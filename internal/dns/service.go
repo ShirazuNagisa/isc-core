@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"strings"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // Service 是记录管理的领域服务：按能力分发到具体服务商实现。
@@ -212,11 +213,36 @@ func (s *Service) DeleteRecord(ctx context.Context, credentialID, zoneID, record
 // 只填 ID 与 Name 中的 ID：记录操作只需要 zone ID，而为了拿到名字
 // 去列一次区域是多余的往返。少数服务商确实需要区域名（GoDaddy 的
 // 路径里就是域名），它们的实现应当自行处理 —— 见各实现里的说明。
-func (s *Service) zoneOf(_ context.Context, _ Credential, _ Provider, zoneID string) (Zone, error) {
-	if zoneID == "" {
+func (s *Service) zoneOf(ctx context.Context, cred Credential, impl Provider, id string) (Zone, error) {
+	if id == "" {
 		return Zone{}, errors.New(i18n.T("dns.err.no_zone_id"))
 	}
-	return Zone{ID: zoneID}, nil
+
+	// 列不了区域的服务商（理论上不该出现在记录管理这条路上）
+	// 只能把标识同时当作 ID 与名称使用。
+	lister, ok := impl.(ZoneLister)
+	if !ok {
+		return Zone{ID: id, Name: id}, nil
+	}
+
+	zones, err := lister.ListZones(ctx, cred)
+	if err != nil {
+		return Zone{}, err
+	}
+	for _, z := range zones {
+		if z.ID == id {
+			return z, nil
+		}
+	}
+	// 再按名称找一次：契约里的路径参数是 zoneId，但区域名才是用户和
+	// 外部客户端手里天然就有的东西。只认 ID 的话，传名字会一路透传到
+	// 服务商那里，换回一条"对象标识符无效"的 404 —— 用户完全无从下手。
+	for _, z := range zones {
+		if strings.EqualFold(z.Name, id) {
+			return z, nil
+		}
+	}
+	return Zone{}, fmt.Errorf(i18n.T("dns.err.zone_not_found"), id)
 }
 
 // validateRecord 校验记录的基本字段。

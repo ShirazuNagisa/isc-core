@@ -12,16 +12,17 @@ var infraMessagesZh = map[string]string{
 	"dns.err.not_found":   "dns: 记录不存在",
 	// 这三个是**能力名**：它们会被拼进上面那条 "不支持%s" 里，
 	// 因此必须与 dns 包里的能力标识一一对应。
-	"dns.op.record_mgmt":  "记录管理",
-	"dns.op.list_zones":   "列出区域",
-	"dns.op.list_records": "列出记录",
-	"dns.op.create":       "新增记录",
-	"dns.op.update":       "修改记录",
-	"dns.op.delete":       "删除记录",
-	"dns.err.no_zone_id":  "dns: 缺少区域 ID",
-	"dns.err.no_type":     "dns: 记录类型不能为空",
-	"dns.err.no_name":     "dns: 记录名不能为空",
-	"dns.err.no_verify":   "dns: 该服务商不支持凭据校验",
+	"dns.op.record_mgmt":     "记录管理",
+	"dns.op.list_zones":      "列出区域",
+	"dns.op.list_records":    "列出记录",
+	"dns.op.create":          "新增记录",
+	"dns.op.update":          "修改记录",
+	"dns.op.delete":          "删除记录",
+	"dns.err.no_zone_id":     "dns: 缺少区域 ID",
+	"dns.err.zone_not_found": "dns: 这个凭据下找不到区域 %q（区域名与 ID 都试过了）",
+	"dns.err.no_type":        "dns: 记录类型不能为空",
+	"dns.err.no_name":        "dns: 记录名不能为空",
+	"dns.err.no_verify":      "dns: 该服务商不支持凭据校验",
 
 	// --- 任务引擎 ---
 	"job.err.closed":             "job: 引擎已关闭，拒绝新任务",

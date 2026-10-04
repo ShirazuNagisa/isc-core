@@ -1166,3 +1166,62 @@ Text(message)
 - 这一条与 `ServicesView` 此前那轮修复是同一个问题。当时的修法
   （固定列表宽度 + `minWidth: 0` + `clipped`）只解决了宽度一半，
   所以问题在 DNS 分区又出现了一次。
+
+## D34 区域标识必须解析成完整的 Zone，不能原样透传
+
+**日期**：2026-10-04
+**状态**：已决定
+
+### 背景
+
+D32 修好代理之后，用户重新创建了 API 令牌，记录列表仍然失败：
+
+```
+HTTP 404: Could not route to /client/v4/zones/shirazu-nagisa.com/dns_records,
+perhaps your object identifier is invalid?
+```
+
+区域列得出来，记录列不出来。原因是**区域有两个标识，而不同服务商要的
+不是同一个**：
+
+- Cloudflare 的记录端点是 `/zones/{zone_id}/dns_records`，**只认 ID**
+  （一串 32 位十六进制），把区域名放进去就是上面那条 404；
+- 阿里云与 DNSPod 要的是**域名**；
+- GoDaddy / 阿里云的 Zone.ID 恰好就等于域名，所以它们掩盖了这个问题。
+
+而 `dns.Service.zoneOf` 当时是个桩：把路径参数原样塞进 `Zone.ID`，
+`Zone.Name` 留空。于是
+
+- Cloudflare 拿到"名字当 ID"→ 404；
+- 阿里云 / DNSPod 拿到空域名 → 用空字符串去请求。
+
+契约里这个路径参数叫 `zoneId`，但界面传的是区域名（用户认的是名字），
+而多一层解析就能同时满足两边。
+
+### 结论
+
+**`zoneOf` 必须把调用方给的标识解析成完整的 `Zone`：先按 ID 匹配，
+再按名称匹配（忽略大小写），都匹配不到就报一条点名区域的错误。**
+
+界面同时改为传区域 **ID**（契约如此），区域名只用于显示。
+
+### 理由
+
+- `Zone` 有 ID 和 Name 两个字段，就意味着**总有一天有人需要另一个**。
+  只填一个的透传是"看起来能用"，直到遇到那家需要的不是这个的服务商。
+- 用户手里的、以及从列表里选出来的天然是区域名。只认 ID 的接口会把
+  一次"选错了"变成一条服务商的黑话 404，用户完全无从下手 —— 这正是
+  用户卡住的地方。
+- 解析出的错误要说人话：`找不到区域 "other.example"` 而不是
+  "object identifier is invalid"。
+
+### 后果与约束
+
+- 每次记录 CRUD 会多一次 `ListZones`。这是刻意的：记录操作由人点击触发，
+  不在这条路上（ACME 签发直接调实现层，不走 Service），一次额外调用
+  换"ID 与名称都对"是划算的。
+- `TestListRecordsByZoneNameReachesCloudflareWithZoneID` 用一个"只认 ID"
+  的假 Cloudflare 把 `dns.Service → tier1.Cloudflare → HTTP` 整条链路
+  跑一遍，并断言打出去的是带区域 ID 的路径。在修复前它复现的正是上面
+  那条 404 —— 回归测试必须对旧代码失败才有意义。
+- 新增服务商实现时：`Zone.ID` 与 `Zone.Name` 都会被填好，按需取用。
