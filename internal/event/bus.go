@@ -64,6 +64,26 @@ const (
 	TypeLogAppended = "log.appended"
 	// TypeConfigChanged 配置变化。
 	TypeConfigChanged = "config.changed"
+
+	// TypeAppStateChanged 业务应用状态变化（启动中 / 运行 / 停止 / 失败）。
+	//
+	// 这是 GUI 的主驱动事件：应用状态由内核推进，界面只是呈现它。
+	TypeAppStateChanged = "app.state_changed"
+	// TypeAppHealthChanged 业务应用健康状态变化（端口探测 / HTTP 检查的结果）。
+	//
+	// 与 state 分开：进程活着但站点 500，是"运行中但不健康"，
+	// 这两件事对用户的含义不同，合成一个字段会丢掉这个区别。
+	TypeAppHealthChanged = "app.health_changed"
+
+	// TypeRuntimeProvisioned 一个运行时已就绪（系统已有或下载完成）。
+	TypeRuntimeProvisioned = "runtime.provisioned"
+	// TypeRuntimeRemoved 一个托管运行时已被删除。
+	TypeRuntimeRemoved = "runtime.removed"
+
+	// TypeAdvisoryRaised 建议引擎报告了一条新建议。
+	TypeAdvisoryRaised = "advisory.raised"
+	// TypeAdvisoryCleared 一条建议已不再成立。
+	TypeAdvisoryCleared = "advisory.cleared"
 )
 
 // DefaultCapacity 是环形缓冲的默认容量。

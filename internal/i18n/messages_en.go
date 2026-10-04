@@ -54,6 +54,8 @@ var messagesEn = map[string]string{
 	"platform.not_implemented":  "Platform backend not implemented: %s",
 	"platform.low_port_denied":  "Missing CAP_NET_BIND_SERVICE; cannot bind ports below 1024",
 	"platform.low_port_granted": "Low ports can be bound",
+	// Hosting application processes (D25): unimplemented platforms degrade to guided mode.
+	"platform.processes_unsupported": "This platform cannot host application processes yet; keep the service running yourself",
 
 	// --- CLI ---
 	"cli.daemon_not_running":      "ISC core is not running. Start it with 'isc daemon run' or install it as a system service.",

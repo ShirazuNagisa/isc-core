@@ -55,6 +55,8 @@ var messagesZh = map[string]string{
 	"platform.not_implemented":  "该平台后端尚未实现：%s",
 	"platform.low_port_denied":  "缺少 CAP_NET_BIND_SERVICE，无法绑定 <1024 端口",
 	"platform.low_port_granted": "可绑定低端口",
+	// 业务进程托管（D25）：未实现的平台降级为引导模式。
+	"platform.processes_unsupported": "当前平台尚不支持由内核托管业务进程，请自行让服务常驻",
 
 	// --- CLI ---
 	"cli.daemon_not_running":      "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。",

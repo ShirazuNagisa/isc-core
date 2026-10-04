@@ -155,6 +155,24 @@ func (b restrictedLowPortBinder) Describe() ImplState {
 }
 
 // ---------------------------------------------------------------------------
+// Processes
+// ---------------------------------------------------------------------------
+
+// unsupportedProcessController 用于尚未实现进程托管的平台。
+//
+// 上层据此降级为引导模式：告诉用户该平台需要自行让服务常驻，
+// 而不是假装启动了、随后又静默失败。
+type unsupportedProcessController struct{ Unsupported }
+
+func newUnsupportedProcessController(reason string) ProcessController {
+	return &unsupportedProcessController{Unsupported{Name: "processes", Reason: reason}}
+}
+
+func (c *unsupportedProcessController) Start(ProcessSpec) (Process, error) {
+	return nil, unimplemented("processes")
+}
+
+// ---------------------------------------------------------------------------
 // 公共小工具
 // ---------------------------------------------------------------------------
 

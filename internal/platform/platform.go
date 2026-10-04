@@ -18,6 +18,8 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -38,6 +40,12 @@ type Bundle struct {
 	Transport      Transport
 	LowPortBinder  LowPortBinder
 
+	// Processes 启动并控制业务子进程。
+	//
+	// v0.2.0 起内核托管业务服务（见 D25），因此这是唯一一个直接执行
+	// 用户代码的后端；未实现的平台降级为引导模式。
+	Processes ProcessController
+
 	// OS 是运行平台的 GOOS 值，用于日志与 /v1/meta。
 	OS string
 	// Arch 是运行平台的 GOARCH 值。
@@ -56,6 +64,7 @@ func (b *Bundle) Capabilities() Capabilities {
 		SecretStore:    stateOf(b.SecretStore),
 		Transport:      stateOf(b.Transport),
 		LowPortBinder:  stateOf(b.LowPortBinder),
+		Processes:      stateOf(b.Processes),
 	}
 }
 
@@ -67,6 +76,7 @@ type Capabilities struct {
 	SecretStore    ImplState `json:"secret_store"`
 	Transport      ImplState `json:"transport"`
 	LowPortBinder  ImplState `json:"low_port_binder"`
+	Processes      ImplState `json:"processes"`
 }
 
 // ImplState 描述一个后端的实现状态。
@@ -451,6 +461,108 @@ type LowPortBinder interface {
 	// CanBindLowPorts 报告当前进程能否直接绑定 <1024 端口。
 	CanBindLowPorts() bool
 	describer
+}
+
+// ---------------------------------------------------------------------------
+// 业务子进程
+// ---------------------------------------------------------------------------
+
+// Signal 是发给子进程的终止强度。
+type Signal int
+
+const (
+	// SignalTerminate 请求优雅退出：应用有机会保存状态、关闭连接。
+	SignalTerminate Signal = iota
+	// SignalKill 立即强杀，不给收尾机会。
+	//
+	// 它存在的意义是"优雅退出没有兑现"时的兜底 —— 只在等待超时之后使用。
+	SignalKill
+)
+
+func (s Signal) String() string {
+	if s == SignalKill {
+		return "kill"
+	}
+	return "terminate"
+}
+
+// ProcessSpec 描述一次子进程启动。
+type ProcessSpec struct {
+	// Executable 是绝对路径或 PATH 中的名字。**不经 shell**（见 D30）。
+	Executable string
+	// Args 是参数数组，逐项传递，不做任何拼接或转义。
+	Args []string
+	// Dir 是工作目录。
+	Dir string
+	// Env 是子进程的**完整**环境。
+	//
+	// 调用方负责最小化它（D30：业务进程不得继承内核环境，以免读到内核的
+	// 访问令牌）。这里刻意不给"nil 表示继承"的语义：Env 为 nil 时实现会
+	// 填入一份最小默认集，而**不是**继承内核进程的环境 —— 让"忘了传"
+	// 的后果是功能受限，而不是密钥泄漏。
+	Env []string
+	// OnOutput 接收合并后的 stdout/stderr 文本片段。
+	//
+	// 实现保证：同一段文本只回调一次；回调在读取 goroutine 上执行，
+	// 因此**必须快速返回**（写入内存环形缓冲即可，不要做 IO）。
+	OnOutput func(chunk string)
+}
+
+// ExitStatus 描述子进程的退出结果。
+type ExitStatus struct {
+	// Code 是退出码；被信号终止时无意义。
+	Code int
+	// Signaled 表示进程被信号终止（Windows 上恒为 false）。
+	Signaled bool
+	// Signal 是被终止的信号名，例如 "terminated" / "killed"。
+	Signal string
+}
+
+func (s ExitStatus) String() string {
+	if s.Signaled {
+		return "signal:" + s.Signal
+	}
+	return "exit:" + strconv.Itoa(s.Code)
+}
+
+// Process 是一个已启动的业务子进程。
+type Process interface {
+	// PID 返回进程号。
+	//
+	// 它是**进程组**的首进程（Unix）。终止必须作用于整组：`npm start`
+	// 会再拉起 node，只杀 npm 会留下一个仍占着端口的孤儿。
+	PID() int
+	// Done 在进程退出后被关闭。
+	Done() <-chan struct{}
+	// Signal 向整个进程组发送信号。
+	Signal(Signal) error
+	// Wait 阻塞到进程退出并回收它，返回退出状态。
+	//
+	// 可以被多次调用：回收只发生一次，后续调用返回同一结果。
+	Wait() (ExitStatus, error)
+}
+
+// ProcessController 启动并控制业务子进程。
+//
+// 未实现的平台返回 ErrNotImplemented，上层据此降级为引导模式
+// （告诉用户该平台需要自行托管进程），而不是静默失败。
+type ProcessController interface {
+	Start(spec ProcessSpec) (Process, error)
+	describer
+}
+
+// MinimalEnv 返回业务子进程的最小默认环境。
+//
+// 刻意**不含**内核进程的其余变量：内核环境里有访问令牌，
+// 让它出现在用户网站的进程环境里没有任何正当理由（见 D30）。
+func MinimalEnv() []string {
+	env := make([]string, 0, 4)
+	for _, key := range []string{"PATH", "HOME", "LANG", "TMPDIR"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
 }
 
 // ---------------------------------------------------------------------------

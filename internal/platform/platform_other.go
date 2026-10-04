@@ -25,6 +25,7 @@ func Current(dataRoot string) *Bundle {
 		SecretStore:   newPlatformSecretStore(dataRoot),
 		Transport:     newLocalTransport(),
 		LowPortBinder: permissiveLowPortBinder{backend: "unknown"},
+		Processes:     newUnsupportedProcessController(i18n.T("platform.unsupported_platform")),
 		OS:            runtime.GOOS,
 		Arch:          runtime.GOARCH,
 	}

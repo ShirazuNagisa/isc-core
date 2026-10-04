@@ -2,7 +2,11 @@
 
 package platform
 
-import "runtime"
+import (
+	"runtime"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+)
 
 // 本文件是 Windows 平台的后端装配点。
 //
@@ -24,7 +28,9 @@ func Current(dataRoot string) *Bundle {
 		SecretStore:    newPlatformSecretStore(dataRoot),
 		Transport:      newLocalTransport(),
 		LowPortBinder:  permissiveLowPortBinder{backend: "windows-native"},
-		OS:             runtime.GOOS,
-		Arch:           runtime.GOARCH,
+		// 进程托管尚未在 Windows 上实现（Job Object / taskkill 需要真机验证）。
+		Processes: newUnsupportedProcessController(i18n.T("platform.processes_unsupported")),
+		OS:        runtime.GOOS,
+		Arch:      runtime.GOARCH,
 	}
 }

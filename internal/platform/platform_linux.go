@@ -34,6 +34,7 @@ func Current(dataRoot string) *Bundle {
 		SecretStore:    newPlatformSecretStore(dataRoot),
 		Transport:      newLocalTransport(),
 		LowPortBinder:  detectLinuxLowPort(),
+		Processes:      newProcessController(),
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
 	}

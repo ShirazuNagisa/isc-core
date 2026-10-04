@@ -97,6 +97,22 @@ func (p Paths) SecretsDir() string { return filepath.Join(p.root, "secrets") }
 // ConfigFile 返回配置文件路径。
 func (p Paths) ConfigFile() string { return filepath.Join(p.config, "isc.yaml") }
 
+// CacheDir 返回下载中转目录。
+//
+// 里面放的是**尚未校验完成**的下载产物（运行时归档）。它与 run/、secrets/
+// 一样按 0700 收紧：内容是外部来源的字节，在通过 SHA-256 校验之前不应
+// 被同机其它用户读取或替换。校验通过后会被移出本目录。
+func (p Paths) CacheDir() string { return filepath.Join(p.root, "cache") }
+
+// RuntimesDir 返回托管运行时目录。
+//
+// 结构为 <root>/runtimes/<kind>/<version>/，每个版本目录内含
+// .isc-runtime.json 标记文件（记录来源 URL 与摘要）。
+//
+// 内容是**不可信输入**：整份解释器/工具链来自网络。因此该目录同样
+// 按 0700 收紧，解压时必须拒绝路径穿越与逃逸符号链接。
+func (p Paths) RuntimesDir() string { return filepath.Join(p.root, "runtimes") }
+
 // String 实现 fmt.Stringer，用于日志。
 func (p Paths) String() string {
 	return fmt.Sprintf("data=%s config=%s", p.root, p.config)
@@ -107,14 +123,14 @@ func (p Paths) String() string {
 // 权限收紧失败不会导致启动失败（某些文件系统不支持），但会返回一个
 // 非致命的告警字符串供调用方记录 —— 静默降级是不可接受的。
 func (p Paths) EnsureDirs() (warnings []string, err error) {
-	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir()} {
+	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return warnings, fmt.Errorf(i18n.T("paths.err.mkdir"), dir, err)
 		}
 	}
-	// run/ 与 secrets/ 都含机密（访问令牌、主密钥密文），
-	// 必须与数据根目录一样收紧到显式白名单。
-	for _, dir := range []string{p.RunDir(), p.SecretsDir()} {
+	// run/ 与 secrets/ 含机密（访问令牌、主密钥密文）；cache/ 与 runtimes/
+	// 含外部来源的字节。四者都必须与数据根目录一样收紧到显式白名单。
+	for _, dir := range []string{p.RunDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir()} {
 		if w := tightenDir(dir); w != "" {
 			warnings = append(warnings, w)
 		}

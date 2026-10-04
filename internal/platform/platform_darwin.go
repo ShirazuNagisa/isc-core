@@ -32,6 +32,7 @@ func Current(dataRoot string) *Bundle {
 		SecretStore:    newPlatformSecretStore(dataRoot),
 		Transport:      newLocalTransport(),
 		LowPortBinder:  permissiveLowPortBinder{backend: "darwin-native"},
+		Processes:      newProcessController(),
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
 	}
