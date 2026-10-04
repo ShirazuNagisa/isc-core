@@ -166,7 +166,7 @@ func WebsitePresets() []Preset {
 			DefaultPort: 3000, DetectorFiles: []string{"package.json"},
 			Install:    []Step{{Executable: "npm", Args: []string{"install"}}},
 			Build:      []Step{{Executable: "npm", Args: []string{"run", "build"}}},
-			Run:        Step{Executable: "npm", Args: []string{"start"}},
+			Run:        Step{Executable: "npm", Args: []string{"start"}, Env: portEnv()},
 			HealthPath: "/",
 		},
 		{
@@ -186,9 +186,13 @@ func WebsitePresets() []Preset {
 		{
 			ID: "go-module", Version: "1", Title: "Go", Kind: KindGo, MinVersion: "1.21.0",
 			DefaultPort: 8080, DetectorFiles: []string{"go.mod"},
-			Install:    []Step{{Executable: "go", Args: []string{"mod", "download"}}},
-			Build:      []Step{{Executable: "go", Args: []string{"build", "-o", ".isc/bin/app", "."}}},
-			Run:        Step{Executable: ".isc/bin/app"},
+			Install: []Step{{Executable: "go", Args: []string{"mod", "download"}}},
+			Build:   []Step{{Executable: "go", Args: []string{"build", "-o", ".isc/bin/app", "."}}},
+			// 端口只能靠环境变量告诉它：Go 没有统一的"端口参数"约定
+			// （net/http 自己不带服务器，监听地址是代码里写的）。
+			// 不传的话应用会去听一个默认端口，而内核在分配到的端口上等它 ——
+			// 症状是"部署超时"，离真正原因很远。
+			Run:        Step{Executable: ".isc/bin/app", Env: portEnv()},
 			HealthPath: "/",
 		},
 		{

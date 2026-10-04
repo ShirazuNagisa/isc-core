@@ -470,3 +470,49 @@ func TestComposeFileWinsOverOtherSignals(t *testing.T) {
 		t.Fatalf("multiple stacks were present, the user should be told")
 	}
 }
+
+// 每个会起进程的预设都必须把**分配到的端口**告诉应用。
+//
+// 否则应用会去监听它自己默认的端口，而内核在分配到的端口上等它 ——
+// 症状是"部署超时"，离真正原因（预设少写了一个环境变量）很远。
+// 这个测试是结构性的：新增预设时忘了传端口，它会直接失败。
+func TestEveryRunnablePresetConveysThePort(t *testing.T) {
+	for _, preset := range WebsitePresets() {
+		if preset.Kind == KindNone {
+			continue // 静态站点由内核自己托管，没有进程。
+		}
+		if preset.ID == "docker-compose" {
+			// 容器的端口由 compose 文件里的映射决定，内核分配的那个必须被
+			// 发布出来 —— 这一点在预设说明里写明，无法在计划里断言。
+			continue
+		}
+		run := preset.Run
+		conveyed := len(run.Env) > 0 || strings.Contains(strings.Join(run.Args, " "), PortPlaceholder)
+		if !conveyed {
+			t.Errorf("preset %s: the run step never tells the app which port to use (args %v, env %v)",
+				preset.ID, run.Args, run.Env)
+		}
+	}
+}
+
+// 端口占位符必须真的到了应用手里，而不是只出现在计划里。
+func TestRenderedPlanCarriesThePortToEveryPreset(t *testing.T) {
+	for _, preset := range WebsitePresets() {
+		if preset.Kind == KindNone || preset.ID == "docker-compose" {
+			continue
+		}
+		if preset.Run.Executable == "" {
+			t.Errorf("preset %s has no run command", preset.ID)
+			continue
+		}
+		rendered := RenderStep(preset.Run, 45678)
+		joined := strings.Join(rendered.Args, " ") + " " + strings.Join(rendered.Env, " ")
+		if !strings.Contains(joined, "45678") {
+			t.Errorf("preset %s: the allocated port never reaches the app (args %v, env %v)",
+				preset.ID, rendered.Args, rendered.Env)
+		}
+		if strings.Contains(joined, PortPlaceholder) {
+			t.Errorf("preset %s: an unrendered placeholder would be passed verbatim: %v", preset.ID, joined)
+		}
+	}
+}

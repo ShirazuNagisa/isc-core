@@ -305,3 +305,113 @@ func containsSubstring(lines []string, want string) bool {
 	}
 	return false
 }
+
+const goServer = `package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+)
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ISC-PHECDA-GO-OK")
+	})
+	fmt.Println("LISTENING 127.0.0.1:" + port)
+	_ = http.ListenAndServe("127.0.0.1:"+port, nil)
+}
+`
+
+// Go 站点端到端：这条路径会真的执行**安装与构建**两步（Node 那条只跑了
+// 启动），因此它是"构建流水线"唯一被真实验证的地方。
+func TestRealGoSiteBuildsAndServes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the real-deployment test in short mode")
+	}
+	requireTool(t, "go")
+
+	manager, _, logs := realManager(t)
+	ctx := context.Background()
+
+	site := t.TempDir()
+	writeSiteFile(t, filepath.Join(site, "go.mod"), "module isce2e\n\ngo 1.21\n")
+	writeSiteFile(t, filepath.Join(site, "main.go"), goServer)
+
+	app, err := manager.Create(ctx, CreateSpec{Name: "go-e2e", PresetID: "go-module", SourcePath: site})
+	if err != nil {
+		// 识别不出来时宁可明确失败，也不要悄悄退回别的预设。
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { manager.Shutdown(context.Background()) })
+
+	if err := manager.Deploy(ctx, app.ID, nil); err != nil {
+		t.Fatalf("deploy: %v\nlogs:\n%s", err, strings.Join(logs.Tail(app.ID, 80), "\n"))
+	}
+
+	// 构建产物必须真的在，而且是可执行的 —— 这是"构建那一步真的跑了"的
+	// 唯一证据（只看状态字段的话，一个空计划也会显示成功）。
+	binary := filepath.Join(site, ".isc", "bin", "app")
+	info, err := os.Stat(binary)
+	if err != nil {
+		t.Fatalf("the build step did not produce a binary: %v", err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("the built binary is not executable: %v", info.Mode())
+	}
+
+	running, _, _ := manager.Get(ctx, app.ID)
+	if running.State != StateRunning || running.Health != HealthHealthy {
+		t.Fatalf("expected running/healthy, got %s/%s (%s)", running.State, running.Health, running.HealthDetail)
+	}
+	body := httpGet(t, fmt.Sprintf("http://127.0.0.1:%d/", running.LocalPort))
+	if !strings.Contains(body, "ISC-PHECDA-GO-OK") {
+		t.Fatalf("unexpected body: %q", body)
+	}
+}
+
+// 构建失败必须**如实报失败**，并且把编译器的输出留在日志里。
+//
+// 把它当成"部署成功"是最糟的一类故障：用户看到"运行中"，访问却是 404。
+func TestRealGoSiteWithABrokenBuildFailsAndKeepsTheCompilerOutput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the real-deployment test in short mode")
+	}
+	requireTool(t, "go")
+
+	manager, _, logs := realManager(t)
+	ctx := context.Background()
+
+	site := t.TempDir()
+	writeSiteFile(t, filepath.Join(site, "go.mod"), "module iscbad\n\ngo 1.21\n")
+	// 故意写一段编译不过的代码。
+	writeSiteFile(t, filepath.Join(site, "main.go"), "package main\n\nfunc main() { this is not go }\n")
+
+	app, err := manager.Create(ctx, CreateSpec{Name: "go-bad", PresetID: "go-module", SourcePath: site})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { manager.Shutdown(context.Background()) })
+
+	err = manager.Deploy(ctx, app.ID, nil)
+	if err == nil {
+		t.Fatalf("a broken build must not be reported as a successful deploy")
+	}
+
+	got, _, _ := manager.Get(ctx, app.ID)
+	if got.State != StateFailed {
+		t.Fatalf("state = %s, want failed", got.State)
+	}
+	if got.LastError == "" {
+		t.Fatalf("the failure must be recorded with a reason")
+	}
+	// 编译器说了什么必须看得到 —— 那是用户唯一能据以修代码的东西。
+	tail := strings.Join(logs.Tail(app.ID, 200), "\n")
+	if !strings.Contains(tail, "main.go") && !strings.Contains(tail, "syntax error") {
+		t.Fatalf("the compiler output was not kept in the app log; got:\n%s", tail)
+	}
+}
