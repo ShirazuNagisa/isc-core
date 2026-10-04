@@ -26,7 +26,20 @@ var (
 // APIVersion 是对外接口的版本。
 //
 // 它与内核版本解耦：内核可以频繁发版，而接口版本只在出现破坏性变更时递增。
-const APIVersion = "v1"
+//
+// # v2（v0.2.0，D27）
+//
+// 9 个 C 函数**一个都没有变**（D24 之后新增能力走 REST，不走 ABI）。
+// 变的是 REST 契约的内容：
+//
+//   - 新增建站侧：/v1/presets、/v1/sources/inspect、/v1/runtimes*、
+//     /v1/apps*、/v1/metrics、/v1/advisories；
+//   - 业务服务的生命周期从 GUI 侧的 Supervisor 移进内核（D25）。
+//
+// 为什么必须递增：v1 的内核**没有** /v1/apps，而 v0.2.0 的界面上每一屏
+// 都依赖它。客户端按 v1 放行的话，用户看到的是一片空白与一堆 404，
+// 而不是一句"内核与界面版本不匹配"。
+const APIVersion = "v2"
 
 // init 在未注入 -ldflags 时，尝试从 Go 构建信息中补齐 Commit。
 //
