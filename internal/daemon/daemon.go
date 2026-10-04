@@ -494,7 +494,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
 		Notify:         d.notifier,
 		NotifyConfig:   d.notifyConfig,
-		Phecda:         st.Phecda(),
 		Runtimes:       d.runtimes,
 		Apps:           d.apps,
 		Metrics:        d.metrics,

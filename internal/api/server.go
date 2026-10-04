@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	apispec "github.com/ShirazuNagisa/isc-core/api"
@@ -32,7 +31,6 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
-	"github.com/oapi-codegen/runtime/types"
 )
 
 // Deps 是 API 层的依赖。
@@ -141,35 +139,14 @@ type Deps struct {
 	// 可以只要 DNS/反代那部分能力。
 	Runtimes *runtime.Manager
 
-	// Phecda persists project metadata, scan evidence, and deployment state.
-	Phecda PhecdaStore
-
 	//
 	// 做成回调而不是直接读路由表：api 包因此不需要知道
 	// "证书需要覆盖什么"是由路由决定的。
 	CertRequests func() []acme.CertRequest
 }
 
-type PhecdaStore interface {
-	ListProjects(context.Context) ([]gen.PhecdaProject, error)
-	GetProject(context.Context, types.UUID) (gen.PhecdaProject, bool, error)
-	SaveProject(context.Context, gen.PhecdaProject) error
-	DeleteProject(context.Context, types.UUID) (bool, error)
-	SaveEvidence(context.Context, types.UUID, []gen.PhecdaScanEvidence) error
-	SaveDeployment(context.Context, gen.PhecdaDeployment) error
-	ListDeployments(context.Context) ([]gen.PhecdaDeployment, error)
-	GetDeployment(context.Context, types.UUID) (gen.PhecdaDeployment, bool, error)
-	// 公网服务记录由内核持有，部署上的 public_service_id 才有意义。
-	// 替换集合时会一并清空失效的绑定，因此调用方不需要自己维护一致性。
-	ListPublicServices(context.Context) ([]gen.PublicService, error)
-	ReplacePublicServices(context.Context, []gen.PublicService) error
-}
-
 type Server struct {
 	Deps
-	phecdaMu          sync.RWMutex
-	phecdaProjects    map[string]gen.PhecdaProject
-	phecdaDeployments map[string]gen.PhecdaDeployment
 }
 
 // 编译期断言：接口实现必须完整。
@@ -186,7 +163,7 @@ func New(d Deps) *Server {
 	if d.Bus == nil {
 		d.Bus = event.NewBus(0)
 	}
-	return &Server{Deps: d, phecdaProjects: make(map[string]gen.PhecdaProject), phecdaDeployments: make(map[string]gen.PhecdaDeployment)}
+	return &Server{Deps: d}
 }
 
 // Routes 返回挂载了全部路由与中间件的 http.Handler。

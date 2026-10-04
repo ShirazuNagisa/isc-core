@@ -61,9 +61,6 @@ const (
 
 	ActionProxyRoutes = "proxy.routes"
 
-	// Phecda 的公网服务集合（整体替换，与代理路由同形）。
-	ActionPublicServices = "phecda.public_services"
-
 	// 建站侧（v0.2.0，见 D25）。
 	ActionSourceInspect    = "hosting.source_inspect"
 	ActionRuntimeProvision = "hosting.runtime_provision"

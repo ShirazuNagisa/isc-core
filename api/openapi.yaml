@@ -63,8 +63,6 @@ tags:
     description: 审计日志
   - name: Config
     description: 配置导入导出与迁移
-  - name: Phecda
-    description: Phecda 项目元数据、只读源码扫描和部署状态
   - name: Debug
     description: 仅用于管线自检的调试端点，不属于产品接口
 
@@ -90,6 +88,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/meta:
+
     get:
       tags: [Meta]
       operationId: getMeta
@@ -111,6 +110,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/events:
+
     get:
       tags: [Events]
       operationId: subscribeEvents
@@ -145,6 +145,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/jobs:
+
     get:
       tags: [Jobs]
       operationId: listJobs
@@ -179,6 +180,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/jobs/{id}:
+
     get:
       tags: [Jobs]
       operationId: getJob
@@ -198,6 +200,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/jobs/{id}/cancel:
+
     post:
       tags: [Jobs]
       operationId: cancelJob
@@ -221,225 +224,8 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
-  /v1/phecda/presets:
-    get:
-      tags: [Phecda]
-      operationId: listPhecdaPresets
-      summary: 列出 Phecda 建站预设
-      responses:
-        "200":
-          description: Phecda 预设目录
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaPresetCatalog"
-        default:
-          $ref: "#/components/responses/Problem"
-
-  /v1/phecda/projects:
-    get:
-      tags: [Phecda]
-      operationId: listPhecdaProjects
-      summary: 列出 Phecda 项目
-      responses:
-        "200":
-          description: 项目列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaProjectList"
-        default:
-          $ref: "#/components/responses/Problem"
-    post:
-      tags: [Phecda]
-      operationId: createPhecdaProject
-      summary: 登记 Phecda 项目来源
-      description: Docker 和非 Docker 来源互斥；image/command Docker 来源不要求源码目录。登记不会执行命令或改变公网配置。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PhecdaProjectInput"
-      responses:
-        "201":
-          description: 项目已登记
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaProject"
-        "400":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-
-  /v1/phecda/projects/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      tags: [Phecda]
-      operationId: getPhecdaProject
-      summary: 读取 Phecda 项目
-      responses:
-        "200":
-          description: 项目详情
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaProject"
-        "404":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-    delete:
-      tags: [Phecda]
-      operationId: deletePhecdaProject
-      summary: 删除 Phecda 项目登记
-      description: 只删除项目元数据，不删除源文件、部署进程、Docker 资源或 DNS 配置。
-      responses:
-        "204":
-          description: 项目登记已删除
-        "404":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-
-  /v1/phecda/projects/{id}/scan:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      tags: [Phecda]
-      operationId: scanPhecdaProject
-      summary: 对项目执行只读技术栈扫描
-      description: 不执行源码、安装脚本或 Docker 命令；敏感文件和版本控制目录不得进入结果。Docker 使用独立检测器。
-      responses:
-        "200":
-          description: 扫描结果
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaScanResult"
-        "404":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-
-  /v1/phecda/deployments:
-    post:
-      tags: [Phecda]
-      operationId: createPhecdaDeployment
-      summary: 登记或更新一个部署状态
-      description: 记录 Supervisor 的部署状态；不会由 ISC-Core 执行构建或启动命令。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PhecdaDeploymentInput"
-      responses:
-        "201":
-          description: 部署状态已登记
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaDeployment"
-        "400":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-    get:
-      tags: [Phecda]
-      operationId: listPhecdaDeployments
-      summary: 列出部署状态
-      responses:
-        "200":
-          description: 部署列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaDeploymentList"
-        default:
-          $ref: "#/components/responses/Problem"
-
-  /v1/phecda/deployments/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      tags: [Phecda]
-      operationId: getPhecdaDeployment
-      summary: 读取部署状态
-      responses:
-        "200":
-          description: 部署状态
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PhecdaDeployment"
-        "404":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-  /v1/public-services:
-    get:
-      tags: [Phecda]
-      operationId: listPublicServices
-      summary: 列出已发布的公网服务
-      description: |
-        公网服务是 Phecda 项目与内核 DNS / 反代 / 证书对象之间的绑定记录。
-        记录由**内核**持有，而不是由界面自己保存 —— 这样部署上的
-        `public_service_id` 永远指向一条存在的记录。
-      responses:
-        "200":
-          description: 公网服务列表
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PublicServiceList"
-        default:
-          $ref: "#/components/responses/Problem"
-    put:
-      tags: [Phecda]
-      operationId: replacePublicServices
-      summary: 整体替换公网服务集合
-      description: |
-        与代理路由相同，用整体替换而不是增删改：集合必须始终自洽。
-
-        同一次事务里会清空指向已不存在服务的部署绑定（`public_service_id`），
-        因此内核不会留下悬空引用，调用方不需要自己清理。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PublicServiceList"
-      responses:
-        "200":
-          description: 集合已替换
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PublicServiceList"
-        "400":
-          $ref: "#/components/responses/Problem"
-        default:
-          $ref: "#/components/responses/Problem"
-
   /v1/presets:
+
     get:
       tags: [Hosting]
       operationId: listPresets
@@ -459,6 +245,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/sources/inspect:
+
     post:
       tags: [Hosting]
       operationId: inspectSource
@@ -488,6 +275,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/runtimes:
+
     get:
       tags: [Hosting]
       operationId: listRuntimes
@@ -506,6 +294,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/runtimes/provision:
+
     post:
       tags: [Hosting]
       operationId: provisionRuntimes
@@ -534,6 +323,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/runtimes/{kind}:
+
     parameters:
       - name: kind
         in: path
@@ -541,6 +331,7 @@ paths:
         description: 运行时类型，例如 node / python / php / go / java / dotnet。
         schema:
           type: string
+
     delete:
       tags: [Hosting]
       operationId: removeRuntime
@@ -555,6 +346,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps:
+
     get:
       tags: [Apps]
       operationId: listApps
@@ -568,6 +360,7 @@ paths:
                 $ref: "#/components/schemas/AppList"
         default:
           $ref: "#/components/responses/Problem"
+
     post:
       tags: [Apps]
       operationId: createApp
@@ -597,11 +390,13 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps/{id}:
+
     parameters:
       - name: id
         in: path
         required: true
         schema: {type: string}
+
     get:
       tags: [Apps]
       operationId: getApp
@@ -621,6 +416,7 @@ paths:
           $ref: "#/components/responses/Problem"
         default:
           $ref: "#/components/responses/Problem"
+
     delete:
       tags: [Apps]
       operationId: deleteApp
@@ -637,11 +433,13 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps/{id}/deploy:
+
     parameters:
       - name: id
         in: path
         required: true
         schema: {type: string}
+
     post:
       tags: [Apps]
       operationId: deployApp
@@ -667,11 +465,13 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps/{id}/start:
+
     parameters:
       - name: id
         in: path
         required: true
         schema: {type: string}
+
     post:
       tags: [Apps]
       operationId: startApp
@@ -689,11 +489,13 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps/{id}/stop:
+
     parameters:
       - name: id
         in: path
         required: true
         schema: {type: string}
+
     post:
       tags: [Apps]
       operationId: stopApp
@@ -708,11 +510,13 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps/{id}/restart:
+
     parameters:
       - name: id
         in: path
         required: true
         schema: {type: string}
+
     post:
       tags: [Apps]
       operationId: restartApp
@@ -730,11 +534,13 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/apps/{id}/logs:
+
     parameters:
       - name: id
         in: path
         required: true
         schema: {type: string}
+
     get:
       tags: [Apps]
       operationId: getAppLogs
@@ -760,6 +566,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/metrics:
+
     get:
       tags: [Insights]
       operationId: getMetrics
@@ -787,6 +594,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/advisories:
+
     get:
       tags: [Insights]
       operationId: listAdvisories
@@ -807,6 +615,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/debug/noop:
+
     post:
       tags: [Debug]
       operationId: runNoopJob
@@ -837,6 +646,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/providers:
+
     get:
       tags: [Providers]
       operationId: listProviders
@@ -872,6 +682,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/credentials:
+
     get:
       tags: [Credentials]
       operationId: listCredentials
@@ -922,6 +733,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/credentials/{id}:
+
     parameters:
       - $ref: "#/components/parameters/CredentialId"
 
@@ -991,6 +803,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/settings:
+
     get:
       tags: [Settings]
       operationId: getSettings
@@ -1032,6 +845,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/audit:
+
     get:
       tags: [Audit]
       operationId: listAudit
@@ -1070,6 +884,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/config/export:
+
     get:
       tags: [Config]
       operationId: exportConfig
@@ -1099,6 +914,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/config/import:
+
     get:
       tags: [Config]
       operationId: describeImport
@@ -1163,6 +979,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/config/import/ddns-go:
+
     post:
       tags: [Config]
       operationId: importDdnsGoConfig
@@ -1206,6 +1023,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/ip/current:
+
     get:
       tags: [IP]
       operationId: getCurrentIP
@@ -1233,6 +1051,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/ddns-tasks:
+
     get:
       tags: [DdnsTasks]
       operationId: listDdnsTasks
@@ -1270,6 +1089,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/ddns-tasks/{id}:
+
     parameters:
       - $ref: "#/components/parameters/DdnsTaskId"
 
@@ -1331,8 +1151,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/ddns-tasks/{id}/run:
+
     parameters:
       - $ref: "#/components/parameters/DdnsTaskId"
+
     post:
       tags: [DdnsTasks]
       operationId: runDdnsTask
@@ -1359,6 +1181,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/credentials/{id}/verify:
+
     post:
       tags: [Credentials]
       operationId: verifyCredential
@@ -1384,9 +1207,12 @@ paths:
                 $ref: "#/components/schemas/CredentialVerifyResult"
         default:
           $ref: "#/components/responses/Problem"
+
   /v1/credentials/{id}/zones:
+
     parameters:
       - $ref: "#/components/parameters/CredentialId"
+
     get:
       tags: [Zones]
       operationId: listZones
@@ -1417,9 +1243,11 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/credentials/{id}/zones/{zoneId}/records:
+
     parameters:
       - $ref: "#/components/parameters/CredentialId"
       - $ref: "#/components/parameters/ZoneId"
+
     get:
       tags: [Records]
       operationId: listRecords
@@ -1474,10 +1302,12 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/credentials/{id}/zones/{zoneId}/records/{recordId}:
+
     parameters:
       - $ref: "#/components/parameters/CredentialId"
       - $ref: "#/components/parameters/ZoneId"
       - $ref: "#/components/parameters/RecordId"
+
     get:
       tags: [Records]
       operationId: getRecord
@@ -1543,6 +1373,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/reach/providers:
+
     get:
       tags: [Reach]
       operationId: listReachProviders
@@ -1564,8 +1395,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/reach/providers/{name}/probe:
+
     parameters:
       - $ref: "#/components/parameters/ReachProviderName"
+
     get:
       tags: [Reach]
       operationId: probeReachProvider
@@ -1601,6 +1434,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/changes:
+
     get:
       tags: [Changes]
       operationId: listChanges
@@ -1624,8 +1458,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/changes/{planId}:
+
     parameters:
       - $ref: "#/components/parameters/PlanId"
+
     get:
       tags: [Changes]
       operationId: getChange
@@ -1643,6 +1479,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/changes/interrupted:
+
     get:
       tags: [Changes]
       operationId: listInterruptedChanges
@@ -1672,6 +1509,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/verify/sessions:
+
     get:
       tags: [Verify]
       operationId: listVerifySessions
@@ -1723,8 +1561,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/verify/sessions/{id}:
+
     parameters:
       - $ref: "#/components/parameters/VerifySessionId"
+
     get:
       tags: [Verify]
       operationId: getVerifySession
@@ -1756,8 +1596,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/reach/providers/{name}/plan:
+
     parameters:
       - $ref: "#/components/parameters/ReachProviderName"
+
     post:
       tags: [Reach]
       operationId: planReachExpose
@@ -1793,6 +1635,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/changes/pending:
+
     get:
       tags: [Changes]
       operationId: listPendingChanges
@@ -1808,8 +1651,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/changes/{planId}/apply:
+
     parameters:
       - $ref: "#/components/parameters/PlanId"
+
     post:
       tags: [Changes]
       operationId: applyChange
@@ -1838,8 +1683,10 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/changes/{planId}/rollback:
+
     parameters:
       - $ref: "#/components/parameters/PlanId"
+
     post:
       tags: [Changes]
       operationId: rollbackChange
@@ -1875,6 +1722,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/proxy/status:
+
     get:
       tags: [Proxy]
       operationId: getProxyStatus
@@ -1890,6 +1738,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/proxy/routes:
+
     get:
       tags: [Proxy]
       operationId: listProxyRoutes
@@ -1946,6 +1795,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/certs:
+
     get:
       tags: [Certs]
       operationId: listCerts
@@ -1965,6 +1815,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/certs/renew:
+
     post:
       tags: [Certs]
       operationId: renewCerts
@@ -1992,6 +1843,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/notify/channels:
+
     get:
       tags: [Notify]
       operationId: listNotifyChannels
@@ -2035,6 +1887,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/notify/deliveries:
+
     get:
       tags: [Notify]
       operationId: listNotifyDeliveries
@@ -2054,6 +1907,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/notify/test:
+
     post:
       tags: [Notify]
       operationId: testNotifyChannels
@@ -2078,6 +1932,7 @@ paths:
   # ---------------------------------------------------------------------------
 
   /v1/service/status:
+
     get:
       tags: [Service]
       operationId: getServiceStatus
@@ -2103,6 +1958,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/service/install:
+
     post:
       tags: [Service]
       operationId: installService
@@ -2122,6 +1978,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/service/uninstall:
+
     post:
       tags: [Service]
       operationId: uninstallService
@@ -2140,6 +1997,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/service/start:
+
     post:
       tags: [Service]
       operationId: startService
@@ -2153,6 +2011,7 @@ paths:
           $ref: "#/components/responses/Problem"
 
   /v1/service/stop:
+
     post:
       tags: [Service]
       operationId: stopService
@@ -2167,6 +2026,7 @@ paths:
 
 components:
   securitySchemes:
+
     bearerAuth:
       type: http
       scheme: bearer
@@ -2175,6 +2035,7 @@ components:
         由内核首次启动时生成的 32 字节随机值经 base64url 编码得到。
 
   parameters:
+
     JobId:
       name: id
       in: path
@@ -2183,6 +2044,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     CredentialId:
       name: id
       in: path
@@ -2191,6 +2053,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     DdnsTaskId:
       name: id
       in: path
@@ -2199,6 +2062,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     ZoneId:
       name: zoneId
       in: path
@@ -2207,6 +2071,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     RecordId:
       name: recordId
       in: path
@@ -2215,6 +2080,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     ReachProviderName:
       name: name
       in: path
@@ -2223,6 +2089,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     PlanId:
       name: planId
       in: path
@@ -2231,6 +2098,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     VerifySessionId:
       name: id
       in: path
@@ -2239,6 +2107,7 @@ components:
       schema:
         type: string
         minLength: 1
+
     Cursor:
       name: cursor
       in: query
@@ -2246,6 +2115,7 @@ components:
       description: 分页游标，取自上一次响应的 next_cursor。
       schema:
         type: string
+
     Limit:
       name: limit
       in: query
@@ -2258,12 +2128,14 @@ components:
         default: 50
 
   responses:
+
     ServiceOK:
       description: 操作成功
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ServiceActionResult"
+
     Problem:
       description: 错误响应（RFC 9457 problem+json）
       content:
@@ -2733,186 +2605,6 @@ components:
         next_cursor:
           type: string
           description: 为空表示没有更多数据。
-
-    PhecdaPresetCatalog:
-      type: object
-      required: [non_docker, docker]
-      properties:
-        non_docker:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaPreset"
-        docker:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaPreset"
-
-    PhecdaPreset:
-      type: object
-      required: [id, version, title, runtime, docker_only, default_port, detector_files]
-      properties:
-        id: {type: string}
-        version: {type: string}
-        title: {type: string}
-        runtime:
-          type: string
-          enum: [staticFiles, node, python, php, go, java, docker]
-        docker_only: {type: boolean}
-        default_port: {type: integer, minimum: 1, maximum: 65535}
-        detector_files:
-          type: array
-          items: {type: string}
-
-    PhecdaProjectInput:
-      type: object
-      required: [name, purpose, source]
-      properties:
-        name: {type: string, minLength: 1}
-        purpose:
-          type: string
-          enum: [website, api, gameServer, fileService, custom]
-        source:
-          $ref: "#/components/schemas/PhecdaProjectSource"
-
-    PhecdaProjectSource:
-      oneOf:
-        - $ref: "#/components/schemas/PhecdaNonDockerSource"
-        - $ref: "#/components/schemas/PhecdaDockerSource"
-
-    PhecdaNonDockerSource:
-      type: object
-      required: [mode, value]
-      properties:
-        mode:
-          type: string
-          enum: [directory, archive, git]
-        value: {type: string}
-        ref: {type: string}
-
-    PhecdaDockerSource:
-      type: object
-      required: [mode, value]
-      properties:
-        mode:
-          type: string
-          enum: [composeFile, dockerfileDirectory, image, command]
-        value: {type: string}
-
-    PhecdaProject:
-      type: object
-      required: [id, name, purpose, source, evidence]
-      properties:
-        id: {type: string, format: uuid}
-        name: {type: string}
-        purpose: {type: string}
-        source:
-          $ref: "#/components/schemas/PhecdaProjectSource"
-        detected_runtime:
-          type: string
-          enum: [staticFiles, node, python, php, go, java, docker]
-        selected_preset_id: {type: string}
-        evidence:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaScanEvidence"
-
-    PhecdaProjectList:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaProject"
-
-    PhecdaScanEvidence:
-      type: object
-      required: [file, signal, confidence]
-      properties:
-        file: {type: string}
-        signal: {type: string}
-        confidence: {type: number, minimum: 0, maximum: 1}
-
-    PhecdaScanResult:
-      type: object
-      required: [project_id, read_only, evidence, candidates]
-      properties:
-        project_id: {type: string, format: uuid}
-        read_only: {type: boolean}
-        evidence:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaScanEvidence"
-        candidates:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaPreset"
-        warning: {type: string}
-
-    PhecdaDeploymentInput:
-      type: object
-      required: [project_id, preset_id, state]
-      properties:
-        id: {type: string, format: uuid}
-        project_id: {type: string, format: uuid}
-        preset_id: {type: string}
-        state:
-          type: string
-          enum: [draft, scanning, preparing, building, running, stopped, failed]
-        local_port: {type: integer}
-        last_error: {type: string}
-        public_service_id: {type: string, format: uuid}
-
-    PhecdaDeployment:
-      type: object
-      required: [id, project_id, preset_id, state]
-      properties:
-        id: {type: string, format: uuid}
-        project_id: {type: string, format: uuid}
-        preset_id: {type: string}
-        state:
-          type: string
-          enum: [draft, scanning, preparing, building, running, stopped, failed]
-        local_port: {type: integer}
-        last_error: {type: string}
-        public_service_id: {type: string, format: uuid}
-
-    PhecdaDeploymentList:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PhecdaDeployment"
-
-    PublicService:
-      type: object
-      required: [id, name, kind, domains]
-      properties:
-        id: {type: string, format: uuid}
-        name: {type: string, minLength: 1}
-        kind:
-          type: string
-          enum: [dynamicDomain, httpsForward]
-        domains:
-          type: array
-          items: {type: string}
-        ddns_id: {type: string}
-        route_id: {type: string}
-        favorite: {type: boolean}
-        order: {type: integer}
-        verified_at: {type: string, format: date-time}
-        verified_fingerprint: {type: string}
-
-    PublicServiceList:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PublicService"
 
     NoopRequest:
       type: object
@@ -3513,6 +3205,7 @@ components:
           description: |
             结果说明。校验失败时这里是**已经翻译过**的原因 ——
             服务商返回的原始错误文本不会告诉用户该去改什么。
+
     Zone:
       type: object
       required: [id, name]
