@@ -59,6 +59,16 @@ var messagesEn = map[string]string{
 	// Hosting application processes (D25): unimplemented platforms degrade to guided mode.
 	"platform.processes_unsupported": "This platform cannot host application processes yet; keep the service running yourself",
 
+	// --- website presets (v0.2.0) ---
+	"preset.note.docker_requires_desktop": "Requires Docker Desktop, which this app does not install for you.",
+	"preset.note.custom_commands":         "You provide the install, build and start commands. They run as an executable with arguments, never through a shell.",
+	"preset.warn.no_stack":                "No known website stack was recognised in this directory; use the custom server option and provide your own commands.",
+	"preset.warn.container_found":         "Container configuration was found. Hosting it requires Docker Desktop, which this app does not install for you.",
+	"preset.warn.multiple_stacks":         "More than one stack was recognised; the recommended preset is %q. Check that it matches what you intend to run.",
+	"preset.warn.node_no_start_script":    "package.json has no \"start\" script; starting %s directly. If your entry point is different, use the custom server option.",
+	"preset.warn.python_entry_file":       "Started the Python entry file directly. If your project needs gunicorn, uvicorn or another server, use the custom server option.",
+	"preset.warn.java_spring_boot":        "The Java preset builds and runs Spring Boot projects with Maven. Make sure mvn or the Maven wrapper is available.",
+
 	// --- CLI ---
 	"cli.daemon_not_running":      "ISC core is not running. Start it with 'isc daemon run' or install it as a system service.",
 	"libisc.already_running":      "the kernel is already running in this process",

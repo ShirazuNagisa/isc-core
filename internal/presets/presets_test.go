@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
 )
 
 // writeFiles 在临时目录里造出一份源码树。
@@ -27,6 +29,10 @@ func writeFiles(t *testing.T, files map[string]string) string {
 // --- 目录 -------------------------------------------------------------------
 
 func TestCatalogIsSelfConsistent(t *testing.T) {
+	known := map[string]bool{}
+	for _, key := range i18n.Keys() {
+		known[key] = true
+	}
 	seen := map[string]bool{}
 	for _, preset := range All() {
 		if err := Validate(preset); err != nil {
@@ -36,6 +42,11 @@ func TestCatalogIsSelfConsistent(t *testing.T) {
 			t.Errorf("duplicate preset id %s", preset.ID)
 		}
 		seen[preset.ID] = true
+		// 说明文案存的是 key，因此在这里核对它真的在消息目录里 ——
+		// 拼错的 key 会把 key 本身显示给用户。
+		if preset.NoteKey != "" && !known[preset.NoteKey] {
+			t.Errorf("preset %s: note key %q is not in the message catalog", preset.ID, preset.NoteKey)
+		}
 	}
 	// v0.2.0 承诺覆盖的建站方式必须都在。
 	for _, want := range []string{"static-html", "node-auto", "python-auto", "php-composer", "go-module", "java-build", "dotnet-web", "docker-compose", "custom"} {

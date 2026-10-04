@@ -30,6 +30,12 @@ var infraMessagesEn = map[string]string{
 	"job.err.interrupted":        "The kernel stopped while this job was running",
 	"job.err.interrupted_detail": "The job did not finish: the kernel shut down while it was executing. Run it again.",
 
+	// --- runtime provisioning (D28) ---
+	"runtime.msg.downloading":  "Downloading %s %s%s",
+	"runtime.msg.extracting":   "Extracting %s %s",
+	"runtime.msg.ready":        "%s %s is ready",
+	"runtime.msg.using_system": "Using the system-installed %s %s",
+
 	// --- runtime file ---
 	"runtime.err.mkdir":    "runtimeinfo: failed to create the runtime directory: %w",
 	"runtime.err.marshal":  "runtimeinfo: failed to serialise: %w",

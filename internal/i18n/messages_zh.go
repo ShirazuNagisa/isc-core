@@ -60,6 +60,16 @@ var messagesZh = map[string]string{
 	// 业务进程托管（D25）：未实现的平台降级为引导模式。
 	"platform.processes_unsupported": "当前平台尚不支持由内核托管业务进程，请自行让服务常驻",
 
+	// --- 建站预设（v0.2.0） ---
+	"preset.note.docker_requires_desktop": "需要本机已安装 Docker Desktop；内核不会代为安装。",
+	"preset.note.custom_commands":         "安装、构建与启动命令由你提供，直接以可执行文件加参数执行，不经 shell。",
+	"preset.warn.no_stack":                "没能在这个目录里认出已知的建站技术栈；请改用自定义服务器并自行提供命令。",
+	"preset.warn.container_found":         "发现了容器配置。托管它需要 Docker Desktop，本应用不会代为安装。",
+	"preset.warn.multiple_stacks":         "识别到不止一种技术栈；推荐的是 %q，请确认它符合你打算运行的东西。",
+	"preset.warn.node_no_start_script":    "package.json 里没有 start 脚本，将直接启动 %s。若入口不是它，请改用自定义服务器。",
+	"preset.warn.python_entry_file":       "已直接启动 Python 入口文件。若项目需要 gunicorn、uvicorn 等服务器，请改用自定义服务器。",
+	"preset.warn.java_spring_boot":        "Java 预设用于以 Maven 构建并运行 Spring Boot 项目，请确认本机可用 mvn 或 Maven wrapper。",
+
 	// --- CLI ---
 	"cli.daemon_not_running":      "内核未运行。请先执行 'isc daemon run' 或安装为系统服务。",
 	"libisc.already_running":      "内核已在本进程内运行",

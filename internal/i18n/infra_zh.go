@@ -34,6 +34,12 @@ var infraMessagesZh = map[string]string{
 	"job.err.interrupted":        "内核在任务执行期间退出",
 	"job.err.interrupted_detail": "任务没有跑完：内核在这次任务执行期间停止运行。请重新执行。",
 
+	// --- 运行时供给（D28） ---
+	"runtime.msg.downloading":  "正在下载 %s %s%s",
+	"runtime.msg.extracting":   "正在解压 %s %s",
+	"runtime.msg.ready":        "%s %s 已就绪",
+	"runtime.msg.using_system": "使用系统已安装的 %s %s",
+
 	// --- 运行时文件 ---
 	"runtime.err.mkdir":    "runtimeinfo: 创建运行时目录: %w",
 	"runtime.err.marshal":  "runtimeinfo: 序列化: %w",

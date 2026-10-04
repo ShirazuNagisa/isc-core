@@ -23,8 +23,8 @@ type Plan struct {
 	Build      []Step
 	Run        Step
 	HealthPath string
-	// Warnings 是"能继续，但用户应当知道"的提示（已本地化）。
-	Warnings []string
+	// Warnings 是"能继续，但用户应当知道"的提示。
+	Warnings []Message
 }
 
 // ErrNotRunnable 表示按识别到的事实给不出可信的启动命令。
@@ -62,8 +62,7 @@ func BuildPlan(root string, preset Preset, facts Facts, port int) (Plan, error) 
 				entry = "index.js"
 			}
 			plan.Run = Step{Executable: "node", Args: []string{entry}, Env: portEnv(port)}
-			plan.Warnings = append(plan.Warnings,
-				fmt.Sprintf("package.json has no \"start\" script; starting %s directly. If your app needs a different entry point, use the custom server option.", entry))
+			plan.Warnings = append(plan.Warnings, msg("preset.warn.node_no_start_script", entry))
 		} else {
 			plan.Run.Env = portEnv(port)
 		}
@@ -89,8 +88,7 @@ func BuildPlan(root string, preset Preset, facts Facts, port int) (Plan, error) 
 			// 调用方式），因此用最保守的一条：直接跑入口文件，并把端口通过
 			// 环境变量告诉它。
 			plan.Run = Step{Executable: "python3", Args: []string{pythonEntryFile(root)}, Env: portEnv(port)}
-			plan.Warnings = append(plan.Warnings,
-				"Started the Python entry file directly. If your project needs gunicorn, uvicorn or another server, use the custom server option.")
+			plan.Warnings = append(plan.Warnings, msg("preset.warn.python_entry_file"))
 		default:
 			return Plan{}, fmt.Errorf("%w: no Python entry point (app.py, main.py or manage.py)", ErrNotRunnable)
 		}
@@ -121,8 +119,7 @@ func BuildPlan(root string, preset Preset, facts Facts, port int) (Plan, error) 
 			Executable: "mvn",
 			Args:       []string{"-B", "spring-boot:run", fmt.Sprintf("-Dspring-boot.run.arguments=--server.port=%d", port)},
 		}
-		plan.Warnings = append(plan.Warnings,
-			"The Java preset builds and runs Spring Boot projects with Maven. Make sure the Maven wrapper or mvn is available.")
+		plan.Warnings = append(plan.Warnings, msg("preset.warn.java_spring_boot"))
 
 	case "dotnet-web":
 		assembly := facts.DotNetAssembly

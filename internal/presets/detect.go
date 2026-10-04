@@ -91,7 +91,7 @@ type Inspection struct {
 	Candidates  []Preset   `json:"candidates"`
 	Recommended string     `json:"recommended_preset_id"`
 	Facts       Facts      `json:"-"`
-	Warnings    []string   `json:"warnings"`
+	Warnings    []Message  `json:"warnings"`
 }
 
 // ErrNotADirectory 表示给的路径不是一个可读目录。
@@ -135,16 +135,13 @@ func Inspect(root string) (Inspection, error) {
 		result.Recommended = candidates[0].ID
 	} else {
 		result.Recommended = CustomPresetID
-		result.Warnings = append(result.Warnings,
-			"No known website stack was recognised in this directory; use the custom server option and provide your own commands.")
+		result.Warnings = append(result.Warnings, msg("preset.warn.no_stack"))
 	}
 	if facts.HasCompose || facts.HasDockerfile {
-		result.Warnings = append(result.Warnings,
-			"Container configuration was found. Hosting it requires Docker Desktop, which this app does not install for you.")
+		result.Warnings = append(result.Warnings, msg("preset.warn.container_found"))
 	}
 	if len(candidates) > 1 {
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("More than one stack was recognised; the recommended preset is %q. Check that it matches what you intend to run.", candidates[0].ID))
+		result.Warnings = append(result.Warnings, msg("preset.warn.multiple_stacks", candidates[0].ID))
 	}
 	return result, nil
 }

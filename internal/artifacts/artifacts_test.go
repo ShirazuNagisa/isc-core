@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -17,9 +18,9 @@ import (
 	"testing"
 )
 
-func digestOf(b []byte) string {
+func digestOf(b []byte) Digest {
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	return Digest{Algorithm: "sha256", Hex: hex.EncodeToString(sum[:])}
 }
 
 // --- download ---------------------------------------------------------------
@@ -70,10 +71,10 @@ func TestDownloadRejectsWrongDigestAndRemovesTheFile(t *testing.T) {
 }
 
 func TestDownloadRejectsPlainHTTPAndBadStatus(t *testing.T) {
-	if _, err := (&Downloader{}).Download(context.Background(), "http://example.com/x.tar.gz", strings.Repeat("a", 64), filepath.Join(t.TempDir(), "x")); !errors.Is(err, ErrInsecureURL) {
+	if _, err := (&Downloader{}).Download(context.Background(), "http://example.com/x.tar.gz", Digest{Algorithm: "sha256", Hex: strings.Repeat("a", 64)}, filepath.Join(t.TempDir(), "x")); !errors.Is(err, ErrInsecureURL) {
 		t.Fatalf("plain http must be refused, got %v", err)
 	}
-	if _, err := (&Downloader{}).Download(context.Background(), "ftp://example.com/x", strings.Repeat("a", 64), filepath.Join(t.TempDir(), "x")); !errors.Is(err, ErrInsecureURL) {
+	if _, err := (&Downloader{}).Download(context.Background(), "ftp://example.com/x", Digest{Algorithm: "sha256", Hex: strings.Repeat("a", 64)}, filepath.Join(t.TempDir(), "x")); !errors.Is(err, ErrInsecureURL) {
 		t.Fatalf("non-http scheme must be refused, got %v", err)
 	}
 
@@ -81,7 +82,7 @@ func TestDownloadRejectsPlainHTTPAndBadStatus(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
-	if _, err := (&Downloader{}).Download(context.Background(), srv.URL, strings.Repeat("a", 64), filepath.Join(t.TempDir(), "x")); !errors.Is(err, ErrBadStatus) {
+	if _, err := (&Downloader{}).Download(context.Background(), srv.URL, Digest{Algorithm: "sha256", Hex: strings.Repeat("a", 64)}, filepath.Join(t.TempDir(), "x")); !errors.Is(err, ErrBadStatus) {
 		t.Fatalf("404 must surface as ErrBadStatus, got %v", err)
 	}
 }
@@ -103,16 +104,55 @@ func TestDownloadEnforcesSizeLimit(t *testing.T) {
 	}
 }
 
-func TestVerifyDetectsTampering(t *testing.T) {
+func TestDigestVerifyDetectsTampering(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f.bin")
 	if err := os.WriteFile(path, []byte("abc"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Verify(path, digestOf([]byte("abc"))); err != nil {
+	if err := digestOf([]byte("abc")).Verify(path); err != nil {
 		t.Fatalf("verify should pass: %v", err)
 	}
-	if err := Verify(path, digestOf([]byte("abd"))); !errors.Is(err, ErrChecksumMismatch) {
+	if err := digestOf([]byte("abd")).Verify(path); !errors.Is(err, ErrChecksumMismatch) {
 		t.Fatalf("want mismatch, got %v", err)
+	}
+}
+
+// .NET 官方只发布 SHA-512，而其余运行时发 SHA-256；两者都要能校验。
+func TestParseDigestAcceptsBothAlgorithms(t *testing.T) {
+	sha256Sum := sha256.Sum256([]byte("payload"))
+	value := hex.EncodeToString(sha256Sum[:])
+
+	bare, err := ParseDigest(value)
+	if err != nil || bare.Algorithm != "sha256" {
+		t.Fatalf("a bare 64-hex value should mean sha256: %#v err=%v", bare, err)
+	}
+	prefixed, err := ParseDigest("sha256:" + value)
+	if err != nil || prefixed != bare {
+		t.Fatalf("prefixed form should match the bare form: %#v err=%v", prefixed, err)
+	}
+
+	sha512Sum := sha512.Sum512([]byte("payload"))
+	long := hex.EncodeToString(sha512Sum[:])
+	parsed, err := ParseDigest("sha512:" + long)
+	if err != nil || parsed.Algorithm != "sha512" {
+		t.Fatalf("sha512 must be accepted: %#v err=%v", parsed, err)
+	}
+
+	path := filepath.Join(t.TempDir(), "f.bin")
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := parsed.Verify(path); err != nil {
+		t.Fatalf("sha512 verification should pass: %v", err)
+	}
+	if err := bare.Verify(path); err != nil {
+		t.Fatalf("sha256 verification should pass: %v", err)
+	}
+
+	for _, bad := range []string{"", "sha256:zz", "md5:abc", "sha256:" + value[:10], "sha512:" + value} {
+		if _, err := ParseDigest(bad); !errors.Is(err, ErrBadDigest) {
+			t.Fatalf("ParseDigest(%q) should fail with ErrBadDigest, got %v", bad, err)
+		}
 	}
 }
 

@@ -17,36 +17,32 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+	"github.com/ShirazuNagisa/isc-core/internal/runtime"
 )
 
 // Kind 是预设所需的运行时类型。
-type Kind string
+//
+// 它是 runtime.Kind 的别名而不是另立一套：运行时的定义只应有一处，
+// 否则两边会各自演化出不同的取值。
+type Kind = runtime.Kind
 
 const (
 	// KindNone 表示不需要外部运行时（静态站点由内核自己托管）。
-	KindNone Kind = ""
+	KindNone = runtime.KindNone
 	// KindNode / KindPython / KindPHP / KindGo / KindJava / KindDotNet 由内核
 	// 供给：优先用系统已装的解释器，缺失时下载固定版本的预编译发行版（D28）。
-	KindNode   Kind = "node"
-	KindPython Kind = "python"
-	KindPHP    Kind = "php"
-	KindGo     Kind = "go"
-	KindJava   Kind = "java"
-	KindDotNet Kind = "dotnet"
+	KindNode   = runtime.KindNode
+	KindPython = runtime.KindPython
+	KindPHP    = runtime.KindPHP
+	KindGo     = runtime.KindGo
+	KindJava   = runtime.KindJava
+	KindDotNet = runtime.KindDotNet
 	// KindDocker 不由内核供给：Docker Desktop 必须由用户自己安装
 	// （既有决定：内核不代装 Docker，只检测并引导）。
-	KindDocker Kind = "docker"
+	KindDocker = runtime.KindDocker
 )
-
-// Provisionable 报告内核是否会为该运行时下载发行版。
-func (k Kind) Provisionable() bool {
-	switch k {
-	case KindNode, KindPython, KindPHP, KindGo, KindJava, KindDotNet:
-		return true
-	default:
-		return false
-	}
-}
 
 // PortPlaceholder 会在计划阶段被替换为分配到的本地端口。
 //
@@ -56,6 +52,26 @@ const PortPlaceholder = "{port}"
 
 // ErrUnknownPreset 表示请求的预设 id 不在目录里。
 var ErrUnknownPreset = errors.New("unknown preset")
+
+// Message 是一条待本地化的用户可见消息。
+//
+// 本包只产出 key 与参数，不产出成品文案：语言由**看的人**决定，而识别与
+// 计划是纯逻辑，不该依赖某个全局语言设置（也因此可以在测试里断言 key，
+// 而不是断言某一种语言的措辞）。
+type Message struct {
+	Key  string
+	Args []any
+}
+
+// Text 在给定目录下渲染消息；没有目录时回退到默认目录。
+func (m Message) Text() string {
+	if m.Key == "" {
+		return ""
+	}
+	return i18n.T(m.Key, m.Args...)
+}
+
+func msg(key string, args ...any) Message { return Message{Key: key, Args: args} }
 
 // Step 是一次构建步骤。
 type Step struct {
@@ -99,8 +115,11 @@ type Preset struct {
 	Run Step
 	// HealthPath 是启动后用于 HTTP 健康检查的路径；空表示只做端口探测。
 	HealthPath string
-	// Notes 是给用户看的补充说明（已本地化）。
-	Notes string
+	// NoteKey 是给用户看的补充说明的 i18n key。
+	//
+	// 存 key 而不是成品文案：文案的语言取决于**看的人**，而预设目录是
+	// 包级常量，在它上面定语言会把首次调用的语言永久固化。
+	NoteKey string
 }
 
 // WebsitePresets 是 v0.2.0 支持的建站预设。
@@ -164,12 +183,12 @@ func WebsitePresets() []Preset {
 		{
 			ID: "docker-compose", Version: "1", Title: "Docker Compose", Kind: KindDocker, DockerOnly: true,
 			DefaultPort: 8080, DetectorFiles: []string{"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"},
-			Notes: "需要本机已安装 Docker Desktop；内核不会代为安装。",
+			NoteKey: "preset.note.docker_requires_desktop",
 		},
 		{
 			ID: "docker-image", Version: "1", Title: "Docker image", Kind: KindDocker, DockerOnly: true,
 			DefaultPort: 8080,
-			Notes:       "需要本机已安装 Docker Desktop；内核不会代为安装。",
+			NoteKey:     "preset.note.docker_requires_desktop",
 		},
 	}
 }
@@ -187,7 +206,7 @@ func CustomPreset() Preset {
 	return Preset{
 		ID: CustomPresetID, Version: "1", Title: "Custom server", Kind: KindNone,
 		DefaultPort: 8080,
-		Notes:       "安装、构建与启动命令由你提供，直接以可执行文件加参数执行，不经 shell。",
+		NoteKey:     "preset.note.custom_commands",
 	}
 }
 

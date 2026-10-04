@@ -18,9 +18,11 @@ package artifacts
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -47,7 +49,73 @@ var (
 	ErrTooLarge = errors.New("artifact exceeds the size limit")
 	// ErrBadStatus 表示服务端没有返回 2xx。
 	ErrBadStatus = errors.New("artifact request failed")
+	// ErrBadDigest 表示摘要本身格式不合法（而不是内容不符）。
+	ErrBadDigest = errors.New("artifact digest is malformed")
 )
+
+// Digest 是一个内容摘要：算法 + 十六进制值。
+//
+// 为什么要带算法：.NET 官方只发布 SHA-512，而 Node/Go/Python/PHP/Temurin
+// 发 SHA-256。早期版本把摘要硬编码成 SHA-256，遇到 .NET 就只能放弃校验
+// 或换源 —— 而"放弃校验"等于把整条供应链的信任建立在 HTTPS 上。
+type Digest struct {
+	Algorithm string
+	Hex       string
+}
+
+// ParseDigest 解析 "sha256:<hex>" / "sha512:<hex>"，也接受裸的 64 位
+// 十六进制（按 SHA-256 处理）。
+func ParseDigest(raw string) (Digest, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	algorithm := "sha256"
+	if prefix, rest, found := strings.Cut(value, ":"); found {
+		algorithm = prefix
+		value = rest
+	}
+	switch algorithm {
+	case "sha256":
+		if len(value) != 64 {
+			return Digest{}, fmt.Errorf("%w: sha256 needs 64 hex characters", ErrBadDigest)
+		}
+	case "sha512":
+		if len(value) != 128 {
+			return Digest{}, fmt.Errorf("%w: sha512 needs 128 hex characters", ErrBadDigest)
+		}
+	default:
+		return Digest{}, fmt.Errorf("%w: unsupported algorithm %q", ErrBadDigest, algorithm)
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return Digest{}, fmt.Errorf("%w: not hexadecimal", ErrBadDigest)
+	}
+	return Digest{Algorithm: algorithm, Hex: value}, nil
+}
+
+func (d Digest) String() string { return d.Algorithm + ":" + d.Hex }
+
+// Verify 校验一个文件的内容摘要。
+func (d Digest) Verify(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	var hasher hash.Hash
+	switch d.Algorithm {
+	case "sha512":
+		hasher = sha512.New()
+	default:
+		hasher = sha256.New()
+	}
+	if _, err := io.Copy(hasher, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(hasher.Sum(nil))
+	if got != d.Hex {
+		return fmt.Errorf("%w: expected %s, got sha256:%s", ErrChecksumMismatch, d, got)
+	}
+	return nil
+}
 
 // Downloader 下载产物。
 type Downloader struct {
@@ -91,12 +159,8 @@ func (d *Downloader) maxBytes() int64 {
 //     不做"重试时复用半个文件"这种优化（那会引入新的失败模式）。
 //
 // 返回值为写入的字节数。
-func (d *Downloader) Download(ctx context.Context, rawURL, wantSHA256, dest string) (int64, error) {
+func (d *Downloader) Download(ctx context.Context, rawURL string, want Digest, dest string) (int64, error) {
 	if err := validateURL(rawURL); err != nil {
-		return 0, err
-	}
-	want, err := normalizeDigest(wantSHA256)
-	if err != nil {
 		return 0, err
 	}
 
@@ -127,7 +191,12 @@ func (d *Downloader) Download(ctx context.Context, rawURL, wantSHA256, dest stri
 		return 0, err
 	}
 
-	hasher := sha256.New()
+	var hasher hash.Hash
+	if want.Algorithm == "sha512" {
+		hasher = sha512.New()
+	} else {
+		hasher = sha256.New()
+	}
 	var written int64
 	// copyErr 单独保存：即使拷贝失败也要先把文件关掉再返回。
 	copyErr := func() error {
@@ -166,9 +235,9 @@ func (d *Downloader) Download(ctx context.Context, rawURL, wantSHA256, dest stri
 	}
 
 	got := hex.EncodeToString(hasher.Sum(nil))
-	if got != want {
+	if got != want.Hex {
 		_ = os.Remove(partial)
-		return written, fmt.Errorf("%w: expected %s, got %s", ErrChecksumMismatch, want, got)
+		return written, fmt.Errorf("%w: expected %s, got %s:%s", ErrChecksumMismatch, want, want.Algorithm, got)
 	}
 
 	// 改名是原子的：目标路径要么不存在，要么就是校验通过的完整内容。
@@ -177,31 +246,6 @@ func (d *Downloader) Download(ctx context.Context, rawURL, wantSHA256, dest stri
 		return written, err
 	}
 	return written, nil
-}
-
-// Verify 校验一个已存在文件的 SHA-256。
-//
-// 供给流程用它做二次确认：解压前再验一次，避免"下载后被替换"这种
-// 在同一台机器上并不罕见的情况（例如用户手工往 cache/ 里放了东西）。
-func Verify(path, wantSHA256 string) error {
-	want, err := normalizeDigest(wantSHA256)
-	if err != nil {
-		return err
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, f); err != nil {
-		return err
-	}
-	got := hex.EncodeToString(hasher.Sum(nil))
-	if got != want {
-		return fmt.Errorf("%w: expected %s, got %s", ErrChecksumMismatch, want, got)
-	}
-	return nil
 }
 
 // validateURL 只放行 https。
@@ -225,15 +269,4 @@ func validateURL(raw string) error {
 	default:
 		return fmt.Errorf("%w: %s", ErrInsecureURL, raw)
 	}
-}
-
-func normalizeDigest(raw string) (string, error) {
-	digest := strings.ToLower(strings.TrimSpace(raw))
-	if len(digest) != 64 {
-		return "", fmt.Errorf("%w: digest must be 64 hex characters", ErrChecksumMismatch)
-	}
-	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("%w: digest is not hex", ErrChecksumMismatch)
-	}
-	return digest, nil
 }
