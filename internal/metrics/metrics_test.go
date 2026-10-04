@@ -342,6 +342,62 @@ func TestUnsupportedSourceReportsAnError(t *testing.T) {
 	}
 }
 
+// 磁盘与 GPU 是 HostSample 上新加的两个字段，它们必须原样穿过采样器：
+// Latest 会做一次浅拷贝，而 Disks 是切片 —— 调用方拿到的列表不该被
+// 下一次采样改写（Apps 早就是这么做的）。
+func TestSamplerPublishesDisksAndGPU(t *testing.T) {
+	utilization := 42.5
+	source := &fakeSource{host: HostSample{
+		CPUPercent: 7,
+		Disks: []DiskSample{
+			{MountPoint: "/", FSType: "apfs", TotalBytes: 100, UsedBytes: 60, FreeBytes: 40},
+		},
+		GPU: &GPUSample{Name: "Apple M4", Utilization: &utilization, Backend: "darwin-ioreg"},
+	}}
+	sampler := NewSampler(source, time.Hour, 5)
+	sampler.sampleOnce(context.Background(), nil)
+
+	first := sampler.Latest()
+	if len(first.Host.Disks) != 1 || first.Host.Disks[0].MountPoint != "/" {
+		t.Fatalf("disk samples not recorded: %#v", first.Host.Disks)
+	}
+	if first.Host.GPU == nil || first.Host.GPU.Utilization == nil {
+		t.Fatalf("gpu sample not recorded: %#v", first.Host.GPU)
+	}
+	if *first.Host.GPU.Utilization != 42.5 || first.Host.GPU.Name != "Apple M4" {
+		t.Fatalf("unexpected gpu sample: %#v", first.Host.GPU)
+	}
+	// CPU 与磁盘/GPU 在同一个结构里，但互不牵连：这里顺便钉住它们没被
+	// 新字段挤掉。
+	if first.Host.CPUPercent != 7 {
+		t.Fatalf("cpu percent = %v", first.Host.CPUPercent)
+	}
+
+	// 调用方改的是自己的副本，读第二次必须还是原值。
+	first.Host.Disks[0].MountPoint = "/tampered"
+	if second := sampler.Latest(); second.Host.Disks[0].MountPoint != "/" {
+		t.Fatalf("Latest handed out a slice it still owns: %#v", second.Host.Disks)
+	}
+}
+
+// 缺席就是缺席：Latest 的拷贝不能"顺手"把 nil 变成空切片 ——
+// 界面对 nil 与 [] 的处理不一样（前者是"没有这一项"，后者是"有这一项，
+// 但一个都没有"）。不支持的平台（source_other.go 那条路径）与读不到
+// 数据的机器走的正是 nil 这一支。
+func TestSamplerLeavesAbsentDiskAndGPUAlone(t *testing.T) {
+	source := &fakeSource{host: HostSample{CPUPercent: 3}}
+	sampler := NewSampler(source, time.Hour, 5)
+	sampler.sampleOnce(context.Background(), nil)
+
+	got := sampler.Latest().Host
+	if got.Disks != nil || got.GPU != nil {
+		t.Fatalf("absent disk/gpu must stay absent: %#v %#v", got.Disks, got.GPU)
+	}
+	if got.CPUPercent != 3 {
+		t.Fatalf("cpu percent = %v", got.CPUPercent)
+	}
+}
+
 // 下面两条用的是**这台机器上真实命令的输出**。
 //
 // 此前这两个指标各有一条基于"我以为的格式"的测试：CPU 用 kern.cp_time 的
@@ -446,3 +502,436 @@ func TestParseVMStatRejectsOutputWithoutCounters(t *testing.T) {
 		t.Fatalf("a header alone must not parse")
 	}
 }
+
+// --- 磁盘 -------------------------------------------------------------------
+
+// TestKeepMountBlocksOnlyPseudoFilesystems 钉住"过滤"这一刀切在哪。
+//
+// 两个方向都要测，而**放行**那一侧更要紧：这是一份黑名单，它唯一能做错的
+// 事就是把真文件系统误伤掉 —— 用户于是在界面上少看到一块盘，
+// 而且没有任何报错。
+func TestKeepMountBlocksOnlyPseudoFilesystems(t *testing.T) {
+	blocked := []string{
+		"devfs", "devicefs", "autofs", "proc", "procfs", "sysfs",
+		"cgroup", "cgroup2", "tmpfs", "devpts", "securityfs", "pstore",
+		"bpf", "tracefs", "debugfs", "configfs", "fusectl", "mqueue",
+		"hugetlbfs", "nsfs", "ramfs", "efivarfs", "rpc_pipefs",
+		"binfmt_misc", "squashfs", "overlay", "none",
+	}
+	for _, fsType := range blocked {
+		if keepMount(fsType) {
+			t.Errorf("伪文件系统 %s 不该出现在磁盘列表里", fsType)
+		}
+	}
+
+	// 这些全是**真**文件系统，其中多数不会出现在写这段代码的机器上 ——
+	// 黑名单的整个理由就是它们必须原样留下（换成白名单会安静地藏掉它们，
+	// 而用户看到的是"我插的 U 盘不见了"）。
+	kept := []string{
+		"apfs", "hfs", "ext4", "xfs", "btrfs", "zfs", "f2fs",
+		"nfs", "nfs4", "cifs", "smb", "sshfs", "fuse.mergerfs",
+		"exfat", "ntfs", "msdos", "vfat", "iso9660", "udf", "9p",
+	}
+	for _, fsType := range kept {
+		if !keepMount(fsType) {
+			t.Errorf("真文件系统 %s 被误伤了：用户会少看到一块盘", fsType)
+		}
+	}
+
+	// 大小写不该改变判断：FUSE 与网络文件系统会报出用户自己起的名字。
+	if !keepMount("SSHFS") {
+		t.Errorf("类型名的大小写不该影响判断")
+	}
+}
+
+// TestParseProcMountsDecodesEscapedPaths 钉住八进制转义。
+//
+// 这几列是空格分隔的，所以内核把值里的空格写成 \040 —— 不解码的话，
+// 用户会看到一个叫 "My\040Disk" 的卷，然后以为是自己当初起错了名字。
+func TestParseProcMountsDecodesEscapedPaths(t *testing.T) {
+	body := `sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+/dev/nvme0n1p2 / ext4 rw,relatime 0 0
+/dev/disk2s1 /Volumes/My\040Disk exfat rw,noatime 0 0
+//nas.local/My\040Share /mnt/nas\040share cifs rw,vers=3.1.1 0 0
+/dev/sdb1 /mnt/tab\011name vfat rw 0 0
+/dev/sdc1 /mnt/back\134slash ntfs rw 0 0
+
+this line has no columns
+`
+	entries := parseProcMounts(body)
+	if len(entries) != 7 {
+		t.Fatalf("expected 7 mount entries, got %d: %#v", len(entries), entries)
+	}
+	byMount := map[string]mountEntry{}
+	for _, entry := range entries {
+		byMount[entry.MountPoint] = entry
+	}
+
+	if got := byMount["/Volumes/My Disk"]; got.FSType != "exfat" {
+		t.Fatalf("escaped space not decoded: %#v", got)
+	}
+	// 设备名里也可能有空格（NAS 的共享名），而且它同样要能对上。
+	if got := byMount["/mnt/nas share"]; got.Device != "//nas.local/My Share" {
+		t.Fatalf("device not decoded: %#v", got)
+	}
+	if _, found := byMount["/mnt/tab\tname"]; !found {
+		t.Fatalf("escaped tab not decoded: %#v", byMount)
+	}
+	if _, found := byMount["/mnt/back\\slash"]; !found {
+		t.Fatalf("escaped backslash not decoded: %#v", byMount)
+	}
+}
+
+// TestFinalizeDisksDropsZeroSizeAndSorts 钉住三件事：
+// 黑名单、**总容量为 0 的兜底**、以及稳定的排序。
+func TestFinalizeDisksDropsZeroSizeAndSorts(t *testing.T) {
+	raw := []DiskSample{
+		// 带空格的挂载点（内核会写成 \040，见上一条转义测试）：
+		// 过滤只按类型与容量，绝不按"路径里有没有怪字符"，
+		// 因此它必须原样留着。
+		{MountPoint: "/Volumes/My Disk", FSType: "exfat", TotalBytes: 100, FreeBytes: 10},
+		{MountPoint: "/", FSType: "apfs", TotalBytes: 1000, FreeBytes: 100},
+		// 黑名单里的：容量再大也不显示（tmpfs 的大小是内存的一部分，
+		// 跟磁盘并列会让人以为多了一块盘）。
+		{MountPoint: "/run", FSType: "tmpfs", TotalBytes: 8000, FreeBytes: 8000},
+		{MountPoint: "/proc", FSType: "proc", TotalBytes: 0},
+		// 类型是**真**的，但容量为 0：兜底那一条，不需要穷举名单。
+		// 这里刻意用一个没人会列进黑名单的类型。
+		{MountPoint: "/mnt/empty", FSType: "ext4", TotalBytes: 0},
+		{MountPoint: "/mnt/nas", FSType: "cifs", TotalBytes: 5000, FreeBytes: 500},
+		// 同一个挂载点挂了两次（容器里 /etc/hosts 这类 bind mount）：
+		// 留最后一个，也就是盖在上面的那个。
+		{MountPoint: "/mnt/nas", FSType: "cifs", TotalBytes: 6000, FreeBytes: 600},
+		{MountPoint: "", FSType: "ext4", TotalBytes: 100},
+		// APFS 容器里的其他卷。它们与 `/` **报同一组数字**（同一个
+		// 容器的块计数），留着会让界面显示成"十几个一模一样、都快满了
+		// 的磁盘"。见 finalizeDisks 里的说明。
+		{MountPoint: "/System/Volumes/Data", FSType: "apfs", TotalBytes: 1000, FreeBytes: 100},
+		{MountPoint: "/System/Volumes/VM", FSType: "apfs", TotalBytes: 1000, FreeBytes: 100},
+	}
+
+	got := finalizeDisks(raw)
+	want := []string{"/", "/Volumes/My Disk", "/mnt/nas"}
+	if len(got) != len(want) {
+		t.Fatalf("kept %d mounts (%#v), want %d", len(got), got, len(want))
+	}
+	for index, mount := range want {
+		if got[index].MountPoint != mount {
+			t.Fatalf("order/content mismatch at %d: got %q, want %q (%#v)",
+				index, got[index].MountPoint, mount, got)
+		}
+	}
+	// 重复挂载点留下的是**最后**那一条。
+	if got[2].TotalBytes != 6000 {
+		t.Fatalf("the topmost mount of a repeated mount point must win: %#v", got[2])
+	}
+	// 空输入不该返回 nil 之外的东西（调用方按 len 判断）。
+	if len(finalizeDisks(nil)) != 0 {
+		t.Fatalf("no mounts must stay empty")
+	}
+}
+
+// TestDiskCapacityLeavesReservedBlocksOutOfBothSides 钉住 used/free 的口径。
+//
+// 三个数刻意**不**满足 used + free == total：ext4 默认给 root 留 5%，
+// 那部分既不算已用、也不算用户可用。把它摊进任何一边都是在编一个
+// 用户对不上的数字（Finder / df 的"可用"取的也是 Bavail）。
+func TestDiskCapacityLeavesReservedBlocksOutOfBothSides(t *testing.T) {
+	// 1000 块 / 4096 字节：100 块空闲，其中只有 50 块对普通用户可用。
+	total, used, free := diskCapacity(4096, 1000, 100, 50)
+	if total != 1000*4096 {
+		t.Fatalf("total = %d", total)
+	}
+	if used != 900*4096 {
+		t.Fatalf("used = %d, want 900 blocks", used)
+	}
+	if free != 50*4096 {
+		t.Fatalf("free = %d, want the AVAILABLE 50 blocks", free)
+	}
+	if used+free == total {
+		t.Fatalf("root-reserved blocks must not be counted on either side")
+	}
+
+	// 计数器异常：可用块比总块数还多时不能下溢成一个天文数字。
+	if _, used, free := diskCapacity(4096, 10, 20, 30); used != 0 || free != 10*4096 {
+		t.Fatalf("an impossible counter must clamp, got used=%d free=%d", used, free)
+	}
+	// 块大小为 0：宁可报 0（随后会被"容量为 0"那条滤掉），
+	// 也不要报一个 16 EB 的盘。
+	if total, used, free := diskCapacity(0, 1000, 100, 50); total != 0 || used != 0 || free != 0 {
+		t.Fatalf("zero block size must yield zeros, got %d/%d/%d", total, used, free)
+	}
+}
+
+// TestCStringStopsAtTheNUL 钉住定长字符数组的转换。
+//
+// darwin 的 Statfs_t 里挂载点是 [1024]int8：内核只写前面几个字节，
+// 后面全是 0。把整段当字符串会得到一个挂着几百个 NUL 的挂载点。
+func TestCStringStopsAtTheNUL(t *testing.T) {
+	raw := []int8{'/', 'V', 'o', 'l', 0, 'x', 'x'}
+	if got := cString(raw[:]); got != "/Vol" {
+		t.Fatalf("cString = %q, want %q", got, "/Vol")
+	}
+	if got := cString(nil); got != "" {
+		t.Fatalf("cString(nil) = %q", got)
+	}
+	if got := cString([]int8{0, 'a'}); got != "" {
+		t.Fatalf("a leading NUL means an empty string, got %q", got)
+	}
+}
+
+// --- GPU（ioreg） -----------------------------------------------------------
+
+// ioregIOAcceleratorSample 是这台机器上 `ioreg -r -d 1 -c IOAccelerator`
+// 的**真实输出**：逐字照抄，只裁掉了 "IOReportLegend" 那一行 ——
+// 它有 45 KB（几百个 IOReport 通道），与这里要验的键无关。
+//
+// 为什么必须用真输出：见本文件里 top / vm_stat 那两条注释。手写的
+// "我以为的格式"曾经让 CPU 与内存指标在 macOS 27 上恒为 0，
+// 而所有单元测试都是绿的 —— 因为喂进去的 fixture 是我编的。
+//
+// 注意同一行里还有 "Tiler Utilization %" 与 "Renderer Utilization %"，
+// 它们的值（15）与设备占用（17）**不同**：按位置取值会安静地读错一个数。
+const ioregIOAcceleratorSample = `+-o AGXAcceleratorG16G  <class AGXAcceleratorG16G, id 0x100000478, registered, matched, active, busy 0 (752 ms), retain 101>
+    {
+      "SchedulerState" = {"Stamps"=({"idx"=25,"sub"=896195072,"gpu"=896194816}),"BusyWorkQueues"=({"submit"=(104077551360),"finished"=619245,"id"=25,"submitted"=619246,"added"=619246,"aborted"=No,"state"="Idle"},{"submit"=(108270377472),"finished"=554667,"id"=26,"submitted"=554668,"added"=554668,"aborted"=No,"state"="Idle"})}
+      "IOMatchedAtBoot" = Yes
+      "vendor-id" = <6b100000>
+      "GPURawCounterBundleName" = "AGXGPURawCounterBundle"
+      "AGXParameterBufferMaxSizeEverMemless" = 574881792
+      "GPURawCounterPluginClassName" = "AGXGPURawCounterSourceGroup"
+      "MetalPluginClassName" = "AGXG16GDevice"
+      "SCMVersionNumber" = ""
+      "AGCInfo" = {"fLastSubmissionPID"=835,"fSubmissionsSinceLastCheck"=0,"fBusyCount"=0}
+      "MetalPluginName" = "AGXMetalG16G_B0"
+      "IONameMatched" = "gpu,t8132"
+      "CommandSubmissionEnabled" = Yes
+      "PerformanceStatistics" = {"In use system memory (driver)"=0,"Alloc system memory"=4597121024,"Tiler Utilization %"=15,"recoveryCount"=0,"lastRecoveryTime"=0,"Renderer Utilization %"=15,"TiledSceneBytes"=688128,"Device Utilization %"=17,"SplitSceneCount"=0,"Allocated PB Size"=82444288,"In use system memory"=430571520}
+      "IOGLBundleName" = "AppleMetalOpenGLRenderer"
+      "AGXParameterBufferMaxSizeNeverMemless" = 287440896
+      "IOGLESBundleName" = "AppleMetalGLRenderer"
+      "IOSourceVersion" = "360.34.5"
+      "IOPersonalityPublisher" = "com.apple.AGXG16G"
+      "IOPowerManagement" = {"CurrentPowerState"=1,"CapabilityFlags"=2,"MaxPowerState"=1,"DriverPowerState"=1}
+      "model" = "Apple M4"
+      "AGXTraceCodeVersion" = "3.44.12"
+      "SCMBuildTime" = ""
+      "CFBundleIdentifier" = "com.apple.AGXG16G"
+      "gpu-core-count" = 10
+      "IOProviderClass" = "AppleARMIODevice"
+      "AGXParameterBufferMaxSize" = 862322688
+      "IONameMatch" = ("gpu,t8015","gpu,t8027","gpu,t8030","gpu,t8103","gpu,t8122","gpu,t8132")
+      "IOReportLegendPublic" = Yes
+      "IOClass" = "AGXAcceleratorG16G"
+      "CFBundleIdentifierKernel" = "com.apple.AGXG16G"
+      "GPUConfigurationVariable" = {"num_gps"=4,"gpu_gen"=16,"is_sksm"=0,"usc_gen"=3,"num_cores"=10,"num_mgpus"=1,"gpu_var"="G","core_mask_list"=(1023),"num_frags"=10}
+      "IOGeneralInterest" = "IOCommand is not serializable"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOProbeScore" = 10000
+      "KDebugVersion" = 4294967296
+      "SurfaceList" = ()
+    }
+`
+
+func TestParseIOAcceleratorReadsTheRealShape(t *testing.T) {
+	sample := parseIOAccelerator(ioregIOAcceleratorSample)
+	if sample == nil {
+		t.Fatal("expected a GPU sample from the real ioreg output")
+	}
+	if sample.Backend != gpuBackendDarwin {
+		t.Fatalf("backend = %q, want %q", sample.Backend, gpuBackendDarwin)
+	}
+	// 型号名是可选的点缀，但在这台机器上它就在输出里（"model" 那一行）。
+	if sample.Name != "Apple M4" {
+		t.Fatalf("name = %q, want the accelerator model", sample.Name)
+	}
+	if sample.Utilization == nil {
+		t.Fatal("Device Utilization % was not read from the real output")
+	}
+	// 17 而不是 15：同一行里 Tiler / Renderer Utilization % 都是 15，
+	// 读错键的话会得到 15，而且不会有任何报错。
+	if *sample.Utilization != 17 {
+		t.Fatalf("utilization = %v, want 17 (Device Utilization %%, not Tiler/Renderer)", *sample.Utilization)
+	}
+}
+
+// ioreg 的空白用法在同一次输出里就不统一：外面是 `"K" = V`，
+// PerformanceStatistics 里面是 `"K"=V`。两种都必须认得。
+func TestParseIOAcceleratorToleratesFormatVariations(t *testing.T) {
+	cases := []struct {
+		name string
+		// statistics 是 PerformanceStatistics 那一行的值。
+		statistics  string
+		utilization *float64
+	}{
+		{
+			name:        "spaces around the equals sign",
+			statistics:  `{"Device Utilization %" = 4}`,
+			utilization: floatPtr(4),
+		},
+		{
+			name:        "no spaces at all",
+			statistics:  `{"Device Utilization %"=4}`,
+			utilization: floatPtr(4),
+		},
+		{
+			name:        "the value is the last entry, without a trailing comma",
+			statistics:  `{"Renderer Utilization %"=1,"Device Utilization %"=9}`,
+			utilization: floatPtr(9),
+		},
+		{
+			name:        "a quoted value",
+			statistics:  `{"Device Utilization %"="7"}`,
+			utilization: floatPtr(7),
+		},
+		{
+			// 值里的花括号不是结构：把它当括号会让配对整个错位。
+			name:        "braces inside a string value",
+			statistics:  `{"Note"="} not a closing brace","Device Utilization %"=9}`,
+			utilization: floatPtr(9),
+		},
+		{
+			name:        "a value that is not a number",
+			statistics:  `{"Device Utilization %"=n/a}`,
+			utilization: nil,
+		},
+		{
+			// 契约把这个字段限定在 0..100（openapi.yaml）：
+			// 宁可报"没读到"，也不要报一个契约不允许的数。
+			name:        "a value outside the 0..100 contract",
+			statistics:  `{"Device Utilization %"=250}`,
+			utilization: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sample := parseIOAccelerator(syntheticAcceleratorEntry(tc.statistics))
+			if sample == nil {
+				t.Fatal("a PerformanceStatistics dictionary is enough to report a sample")
+			}
+			if sample.Backend != gpuBackendDarwin {
+				t.Fatalf("backend = %q", sample.Backend)
+			}
+			switch {
+			case tc.utilization == nil && sample.Utilization != nil:
+				t.Fatalf("utilization = %v, want nil", *sample.Utilization)
+			case tc.utilization != nil && sample.Utilization == nil:
+				t.Fatalf("utilization = nil, want %v", *tc.utilization)
+			case tc.utilization != nil && *sample.Utilization != *tc.utilization:
+				t.Fatalf("utilization = %v, want %v", *sample.Utilization, *tc.utilization)
+			}
+		})
+	}
+}
+
+// syntheticAcceleratorEntry 把一行 PerformanceStatistics 包成 ioreg 的条目形状。
+//
+// 条目的第一行（`+-o …`）不是可选的装饰：解析器按它切分多 GPU 的条目，
+// 因此测试的输入必须带上它，否则测的是一种 ioreg 不会产生的输出。
+func syntheticAcceleratorEntry(statistics string) string {
+	return `+-o SomeAccelerator  <class SomeAccelerator, id 0x1, registered>
+    {
+      "PerformanceStatistics" = ` + statistics + `
+    }
+`
+}
+
+// 键缺席**不是**错误：老一些的、或非 Apple 驱动的 GPU 就是这样。
+//
+// 此时要给后端名 + nil 占用率，而不是编一个 0 —— 0% 在界面上表示
+// "显卡闲着"，与"这台设备不报占用"是两件完全不同的事。
+func TestParseIOAcceleratorWithoutTheKey(t *testing.T) {
+	entry := `+-o SomeAccelerator  <class SomeAccelerator, id 0x1, registered>
+    {
+      "PerformanceStatistics" = {"Tiler Utilization %"=3,"Renderer Utilization %"=3}
+      "model" = "Some Old GPU"
+    }
+`
+	sample := parseIOAccelerator(entry)
+	if sample == nil {
+		t.Fatal("a supported backend without the key must still report a sample")
+	}
+	if sample.Utilization != nil {
+		t.Fatalf("the key is absent, so utilization must stay nil, got %v", *sample.Utilization)
+	}
+	if sample.Backend != gpuBackendDarwin {
+		t.Fatalf("backend = %q", sample.Backend)
+	}
+	if sample.Name != "Some Old GPU" {
+		t.Fatalf("name = %q", sample.Name)
+	}
+}
+
+// 没有可采样的加速器时是 nil，而不是一个空样本。
+//
+// nil 的含义是"这个平台/这台机器没有 GPU 采样"，界面据此显示"不支持"；
+// 而一个 Utilization == nil 的样本的含义是"支持采样，但这次没读到值"。
+// 两者混起来之后，一台无头 Mac 会被说成"有 GPU，只是读不到"。
+func TestParseIOAcceleratorWithoutAnAccelerator(t *testing.T) {
+	if sample := parseIOAccelerator(""); sample != nil {
+		t.Fatalf("empty output must yield nil, got %#v", sample)
+	}
+	// 匹配到类名但没有性能统计字典的辅助对象也一样：它不是加速器。
+	entry := `+-o SomeHelper  <class IOAccelerator, id 0x2, registered>
+    {
+      "IOClass" = "IOAccelerator"
+    }
+`
+	if sample := parseIOAccelerator(entry); sample != nil {
+		t.Fatalf("an entry without PerformanceStatistics is not an accelerator, got %#v", sample)
+	}
+}
+
+// 只在 PerformanceStatistics 里找那个键。
+//
+// 全文搜索更省事，但 ioreg 的属性表里有几十个字典，只要别处出现同名的键，
+// 就会读到另一个数字 —— 而且不会有任何报错。
+func TestParseIOAcceleratorOnlyLooksInsideTheDictionary(t *testing.T) {
+	entry := `+-o SomeAccelerator  <class SomeAccelerator, id 0x3, registered>
+    {
+      "OtherStatistics" = {"Device Utilization %"=99}
+      "PerformanceStatistics" = {"Device Utilization %"=8}
+    }
+`
+	sample := parseIOAccelerator(entry)
+	if sample == nil || sample.Utilization == nil {
+		t.Fatalf("expected a utilization value, got %#v", sample)
+	}
+	if *sample.Utilization != 8 {
+		t.Fatalf("read a same-named key from outside the dictionary: %v", *sample.Utilization)
+	}
+}
+
+// 多 GPU 的机器（核显 + 独显的 MacBook Pro）上，ioreg 会打好几条，
+// 而**不是每一条都带占用值**。只看第一条会在那种机器上永远显示"没有值"，
+// 而其实独显那边是有数字的。
+func TestParseIOAcceleratorPrefersAnEntryWithAValue(t *testing.T) {
+	entry := `+-o IntelAccelerator  <class IntelAccelerator, id 0x4, registered>
+    {
+      "PerformanceStatistics" = {"Tiler Utilization %"=1}
+      "model" = "Intel Iris Plus Graphics"
+    }
++-o AMDAccelerator  <class AMDAccelerator, id 0x5, registered>
+    {
+      "PerformanceStatistics" = {"Device Utilization %"=42}
+      "model" = "AMD Radeon Pro 5500M"
+    }
+`
+	sample := parseIOAccelerator(entry)
+	if sample == nil || sample.Utilization == nil {
+		t.Fatalf("the second entry has a value; it must be used: %#v", sample)
+	}
+	if *sample.Utilization != 42 {
+		t.Fatalf("utilization = %v, want 42", *sample.Utilization)
+	}
+	// 名字必须来自同一条条目：把核显的名字配到独显的占用上是一种
+	// 很难发现的错（两个数字都"看着合理"）。
+	if sample.Name != "AMD Radeon Pro 5500M" {
+		t.Fatalf("name = %q, want the name from the same entry", sample.Name)
+	}
+}
+
+// floatPtr 返回指向 value 的指针：GPUSample.Utilization 用 nil 表示
+// "没读到值"，因此测试里必须能表达"读到了"。
+func floatPtr(value float64) *float64 { return &value }

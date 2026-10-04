@@ -33,7 +33,7 @@ func (s *Server) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	backend := s.Metrics.Describe()
 
 	out := gen.MetricsSnapshot{
-		Host: toGenHostMetrics(snapshot.Host, backend),
+		Host: toGenHostMetrics(snapshot.Host, backend, true),
 		Apps: make([]gen.AppMetrics, 0, len(snapshot.Apps)),
 	}
 	for _, item := range snapshot.Apps {
@@ -41,14 +41,23 @@ func (s *Server) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]gen.HostMetrics, 0, len(history))
 	for _, item := range history {
-		items = append(items, toGenHostMetrics(item, backend))
+		// 历史点**不带** disks / gpu。
+		//
+		// 60 个历史点各带一遍全部挂载点会让一次轮询的响应体膨胀十几倍，
+		// 而曲线只用到标量字段 —— 挂载点的容量不是曲线，是一个"现在"
+		// 的数字。这条取舍写在 openapi.yaml 的 HostMetrics.disks 上。
+		items = append(items, toGenHostMetrics(item, backend, false))
 	}
 	out.History = &items
 
 	writeJSON(w, s.Log, http.StatusOK, "application/json", out)
 }
 
-func toGenHostMetrics(sample metrics.HostSample, backend string) gen.HostMetrics {
+// toGenHostMetrics 转换一次主机采样。
+//
+// withDetail 为 false 时只填标量字段（历史点用），为 true 时再带上
+// 挂载点与 GPU（当前快照用）。
+func toGenHostMetrics(sample metrics.HostSample, backend string, withDetail bool) gen.HostMetrics {
 	out := gen.HostMetrics{
 		CpuPercent:       sample.CPUPercent,
 		MemoryUsedBytes:  int(sample.MemoryUsedBytes),
@@ -61,6 +70,35 @@ func toGenHostMetrics(sample metrics.HostSample, backend string) gen.HostMetrics
 		at := sample.At
 		out.At = &at
 	}
+	if !withDetail {
+		return out
+	}
+
+	// 挂载点始终发出去（哪怕是空数组）：客户端据此区分"这台机器没有
+	// 磁盘可报"与"这个内核版本还不报磁盘"。前者显示"没有挂载点"，
+	// 后者显示"该功能需要更新内核"，而两者的下一步动作完全不同。
+	disks := make([]gen.DiskMetrics, 0, len(sample.Disks))
+	for _, disk := range sample.Disks {
+		item := gen.DiskMetrics{
+			MountPoint: disk.MountPoint,
+			TotalBytes: int(disk.TotalBytes),
+			UsedBytes:  int(disk.UsedBytes),
+			FreeBytes:  int(disk.FreeBytes),
+		}
+		item.FsType = strPtr(disk.FSType)
+		disks = append(disks, item)
+	}
+	out.Disks = &disks
+
+	if sample.GPU != nil {
+		gpu := gen.GpuMetrics{Backend: sample.GPU.Backend}
+		gpu.Name = strPtr(sample.GPU.Name)
+		gpu.UtilizationPercent = sample.GPU.Utilization
+		out.Gpu = &gpu
+	}
+	// GPU 为 nil 时**不发**这个字段：缺省表示"这台机器没有可采样的 GPU"，
+	// 而 `backend: unsupported` 是它的一种显式写法。客户端两种都要认，
+	// 但内核这边不该把"没有"伪装成一个空对象。
 	return out
 }
 

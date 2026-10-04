@@ -130,4 +130,25 @@ var apiMessagesZh = map[string]string{
 	"api.service.needs_admin":   "需要管理员权限",
 	"api.service.needs_root":    "需要 root 权限",
 	"api.service.access_denied": "拒绝访问",
+
+	// --- 远程访问（ISC Mizar）---
+	"api.remote_unwired":           "remote: 远程访问子系统未装配",
+	"api.remote_settings_changed":  "远程访问已%s，监听端口 %d",
+	"api.remote_pairing_started":   "已开始一次配对会话（角色 %s）",
+	"api.remote_pairing_canceled":  "配对会话已取消",
+	"api.remote_pairing_failed":    "配对失败",
+	"api.remote_paired":            "已配对设备 %s（角色 %s）",
+	"api.remote_derived":           "已从 %s 派生设备 %s（角色 %s）",
+	"api.remote_revoked":           "已吊销 %d 台设备",
+	"api.remote_devices_failed":    "设备操作失败",
+	"api.remote_push_registered":   "已登记推送令牌（%s）",
+	"api.remote_push_unregistered": "已注销推送令牌",
+
+	"api.events_bus_missing":      "事件总线未装配",
+	"api.events_subscribe_failed": "订阅事件流失败",
+	"api.remote_apns_set":         "已保存 APNs 凭据",
+	"api.remote_apns_cleared":     "已删除 APNs 凭据",
+	"api.remote_push_sent":        "已发送。若手机上没有出现，请检查系统设置里的通知权限。",
+	"api.remote_push_failed":      "发送失败（HTTP %d）",
+	"api.remote_push_test":        "测试推送：%s",
 }

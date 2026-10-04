@@ -208,7 +208,28 @@ func (s *Server) auditFailure(r *http.Request, action, target string, err error)
 // 刻意不记 IP：本机管理通道下所有请求都来自回环，记一个
 // 127.0.0.1 不提供任何信息，反而会让人误以为"这是远程来的"。
 // 记录传输类型才有意义 —— 它能区分"命令行工具"与"浏览器页面"。
+//
+// **远程面的请求是例外**：那时来源是真实的、且必须记下来。
+// 审计里"谁改的这条记录"在远程访问开启之后不再只有机主一个人，
+// 而一台手机丢了的时候，这一列就是唯一的线索。
 func remoteOf(r *http.Request) string {
+	if device, ok := DeviceFromContext(r.Context()); ok {
+		ip := clientIP(r)
+		if ip == "" {
+			return device.Label
+		}
+		return device.Label + "@" + ip
+	}
+	// 来自远程监听但还没有设备：**配对请求**。
+	//
+	// 这一条最不能省：它记的是"局域网上哪台机器试图配进来"，
+	// 而在一次失败或恶意的配对尝试里，那是唯一能指向来源的东西 ——
+	// 本机 GUI 的调用记成 http-client 就够了，因为它只可能是用户自己。
+	if onRemoteFace(r.Context()) {
+		if ip := clientIP(r); ip != "" {
+			return ip
+		}
+	}
 	if r.Header.Get("Origin") != "" {
 		return "browser"
 	}

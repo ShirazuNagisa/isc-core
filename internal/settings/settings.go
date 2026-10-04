@@ -26,6 +26,11 @@ const (
 	KeyACMEEmail        = "acme_email"
 	KeyACMEDirectory    = "acme_directory"
 	KeyACMEDNSCred      = "acme_dns_credential_id"
+
+	// 远程访问（ISC Mizar）。见 docs/DECISIONS.md D38。
+	KeyRemoteEnabled       = "remote_enabled"
+	KeyRemotePort          = "remote_port"
+	KeyRemoteNotifications = "remote_notifications_enabled"
 )
 
 // 允许的取值。
@@ -48,6 +53,13 @@ const (
 	MinEventBufferSize     = 100
 	MaxEventBufferSize     = 100000
 	DefaultEventBufferSize = 1000
+
+	// DefaultRemotePort 是远程监听的默认端口。
+	//
+	// 它与 internal/remote 的 DefaultPort 必须一致：两处都定义是因为
+	// settings 不该依赖 remote（后者要读设置来决定起不起监听）。
+	// 一致性由 settings 的单测钉住。
+	DefaultRemotePort = 8788
 
 	// DefaultProxyPort 是反向代理的默认监听端口。
 	//
@@ -102,19 +114,43 @@ type Settings struct {
 	// 而 443 是浏览器默认补的那个。用非标端口意味着每个链接都要
 	// 手写端口，而用户分享出去的链接很容易忘。
 	ProxyPort int `json:"proxy_port"`
+
+	// --- 远程访问（ISC Mizar）---
+
+	// RemoteEnabled 控制是否启动远程监听。
+	//
+	// 默认**关闭**，理由与反代相同：它会在局域网上开一个口子，
+	// 而开启它是一个需要用户明确决定的动作。默认开着会让"我只是想
+	// 本地管一下 DNS"的用户莫名其妙地多出一个对外的监听端口。
+	RemoteEnabled bool `json:"remote_enabled"`
+
+	// RemotePort 是远程监听的端口。
+	//
+	// 默认 8788：高位端口不需要 root，同时离 8080/8888 这些常见占用
+	// 足够远。它与反代端口是两个独立的口子，不能相同。
+	RemotePort int `json:"remote_port"`
+
+	// RemoteNotifications 是推送总开关。
+	//
+	// 与 RemoteEnabled 分开：远程访问本身是"能看"，推送是"会主动找你"。
+	// 后者需要凭据、需要设备登记令牌，失败面也大得多，因此默认关闭。
+	RemoteNotifications bool `json:"remote_notifications_enabled"`
 }
 
 // Default 返回默认设置。
 func Default() Settings {
 	return Settings{
-		Lang:             LangZhCN,
-		LogLevel:         LevelInfo,
-		EventBufferSize:  DefaultEventBufferSize,
-		NotifyOnIPChange: true,
-		ProxyEnabled:     false,
-		ProxyPort:        DefaultProxyPort,
-		ProxyTLS:         false,
-		ACMEDirectory:    "", // 空 = 生产环境
+		Lang:                LangZhCN,
+		LogLevel:            LevelInfo,
+		EventBufferSize:     DefaultEventBufferSize,
+		NotifyOnIPChange:    true,
+		ProxyEnabled:        false,
+		ProxyPort:           DefaultProxyPort,
+		ProxyTLS:            false,
+		ACMEDirectory:       "", // 空 = 生产环境
+		RemoteEnabled:       false,
+		RemotePort:          DefaultRemotePort,
+		RemoteNotifications: false,
 	}
 }
 
@@ -139,6 +175,10 @@ type Patch struct {
 	ACMEEmail           *string `json:"acme_email,omitempty"`
 	ACMEDirectory       *string `json:"acme_directory,omitempty"`
 	ACMEDNSCredentialID *string `json:"acme_dns_credential_id,omitempty"`
+
+	RemoteEnabled       *bool `json:"remote_enabled,omitempty"`
+	RemotePort          *int  `json:"remote_port,omitempty"`
+	RemoteNotifications *bool `json:"remote_notifications_enabled,omitempty"`
 }
 
 // Service 提供设置的读写。
@@ -231,6 +271,15 @@ func (s *Service) Update(ctx context.Context, p Patch) (Settings, error) {
 	if p.ACMEDNSCredentialID != nil {
 		next.ACMEDNSCredentialID = *p.ACMEDNSCredentialID
 	}
+	if p.RemoteEnabled != nil {
+		next.RemoteEnabled = *p.RemoteEnabled
+	}
+	if p.RemotePort != nil {
+		next.RemotePort = *p.RemotePort
+	}
+	if p.RemoteNotifications != nil {
+		next.RemoteNotifications = *p.RemoteNotifications
+	}
 	if err := next.Validate(); err != nil {
 		s.mu.Unlock()
 		return s.current, err
@@ -292,6 +341,17 @@ func (s Settings) Validate() error {
 		// 开启代理却不给端口：那不是"用默认值"，而是一个明确的矛盾 ——
 		// 静默补一个默认值会让用户以为自己选了端口。
 		return errors.New(i18n.T("settings.need_port"))
+	}
+	if s.RemotePort < 0 || s.RemotePort > 65535 {
+		return fmt.Errorf(i18n.T("settings.bad_remote_port"), s.RemotePort)
+	}
+	if s.RemoteEnabled && s.RemotePort == 0 {
+		return errors.New(i18n.T("settings.need_remote_port"))
+	}
+	if s.RemoteEnabled && s.ProxyEnabled && s.RemotePort == s.ProxyPort {
+		// 两个监听抢同一个端口：后起的那个会失败，而失败现场是
+		// "远程访问莫名其妙连不上"。在这里挡住才能给出真正的理由。
+		return fmt.Errorf(i18n.T("settings.remote_port_conflict"), s.RemotePort)
 	}
 	if s.ProxyTLS {
 		// HTTPS 必须有证书来源，而签证书需要这两样。
@@ -365,6 +425,21 @@ func merge(base Settings, kv map[string]string) Settings {
 	if v, ok := kv[KeyACMEDNSCred]; ok {
 		base.ACMEDNSCredentialID = v
 	}
+	if v, ok := kv[KeyRemoteEnabled]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.RemoteEnabled = b
+		}
+	}
+	if v, ok := kv[KeyRemotePort]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 65535 {
+			base.RemotePort = n
+		}
+	}
+	if v, ok := kv[KeyRemoteNotifications]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.RemoteNotifications = b
+		}
+	}
 	return base
 }
 
@@ -381,5 +456,9 @@ func encode(s Settings) map[string]string {
 		KeyACMEEmail:        s.ACMEEmail,
 		KeyACMEDirectory:    s.ACMEDirectory,
 		KeyACMEDNSCred:      s.ACMEDNSCredentialID,
+
+		KeyRemoteEnabled:       strconv.FormatBool(s.RemoteEnabled),
+		KeyRemotePort:          strconv.Itoa(s.RemotePort),
+		KeyRemoteNotifications: strconv.FormatBool(s.RemoteNotifications),
 	}
 }

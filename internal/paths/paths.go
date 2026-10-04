@@ -94,6 +94,15 @@ func (p Paths) LogDir() string { return filepath.Join(p.root, "logs") }
 // run/ 目录一样受到收紧后的访问权限保护。
 func (p Paths) SecretsDir() string { return filepath.Join(p.root, "secrets") }
 
+// RemoteDir 返回远程管理面的私有目录。
+//
+// 里面放的是自签证书与私钥（见 internal/remote）。它**必须**与 run/
+// 分开：run/ 里的 runtime.json 装的是本地访问令牌，而远程面的凭据
+// 一旦与它混在一起，任何读到其中一份的人就同时拿到了两套权限。
+//
+// 目录本身由 EnsureDirs 创建为 0700，私钥文件另有 0600。
+func (p Paths) RemoteDir() string { return filepath.Join(p.root, "remote") }
+
 // ConfigFile 返回配置文件路径。
 func (p Paths) ConfigFile() string { return filepath.Join(p.config, "isc.yaml") }
 
@@ -123,14 +132,15 @@ func (p Paths) String() string {
 // 权限收紧失败不会导致启动失败（某些文件系统不支持），但会返回一个
 // 非致命的告警字符串供调用方记录 —— 静默降级是不可接受的。
 func (p Paths) EnsureDirs() (warnings []string, err error) {
-	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir()} {
+	for _, dir := range []string{p.root, p.config, p.RunDir(), p.LogDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir(), p.RemoteDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return warnings, fmt.Errorf(i18n.T("paths.err.mkdir"), dir, err)
 		}
 	}
 	// run/ 与 secrets/ 含机密（访问令牌、主密钥密文）；cache/ 与 runtimes/
-	// 含外部来源的字节。四者都必须与数据根目录一样收紧到显式白名单。
-	for _, dir := range []string{p.RunDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir()} {
+	// 含外部来源的字节；remote/ 含自签证书的私钥。五者都必须与数据根目录
+	// 一样收紧到显式白名单。
+	for _, dir := range []string{p.RunDir(), p.SecretsDir(), p.CacheDir(), p.RuntimesDir(), p.RemoteDir()} {
 		if w := tightenDir(dir); w != "" {
 			warnings = append(warnings, w)
 		}

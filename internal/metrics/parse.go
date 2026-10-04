@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -398,4 +399,535 @@ func (s vmStatSample) used(pageSize int64) uint64 {
 		pageSize = s.PageSize
 	}
 	return uint64(s.Active+s.Wired+s.CompressorOccupied) * uint64(pageSize)
+}
+
+// --- 磁盘 -------------------------------------------------------------------
+
+// mountEntry 是 /proc/self/mounts 里的一行：设备、挂载点、文件系统类型。
+//
+// 另外三列（挂载选项、dump、fsck pass）不解析：选项说的是"怎么挂的"
+// （只读、noexec、noatime…），与"还剩多少空间"无关，而把它塞进类型里
+// 只会让调用方以为那些字段有用。
+type mountEntry struct {
+	Device     string
+	MountPoint string
+	FSType     string
+}
+
+// parseProcMounts 解析 /proc/self/mounts。
+//
+// # 为什么要解码八进制转义
+//
+// 这几列是**空格分隔**的，因此内核把值里的空格、制表符、换行与反斜杠
+// 写成八进制转义（\040 \011 \012 \134，与 fstab 同一张表）。不解码的话，
+// 一个叫 "My Disk" 的外接盘会显示成 "My\040Disk" —— 用户会以为是自己
+// 当初起错了名字，然后去改一个本来没问题的卷标。
+//
+// 文件系统类型不解码：它不可能含空格（含空格的名字根本没法在这张表里
+// 当分隔列用）。
+func parseProcMounts(text string) []mountEntry {
+	var out []mountEntry
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		// 这张表的每一行固定是六列（设备、挂载点、类型、选项、dump、pass，
+		// 与 fstab 同一套布局），因此列数不够的就不是挂载记录 —— 是残行。
+		// 要求六列而不是"够三列就行"，是因为三列的文字行会被当成一个挂载点，
+		// 然后每次采样都拿一个不存在的路径去 statfs 一遍。
+		if len(fields) < 6 {
+			continue
+		}
+		out = append(out, mountEntry{
+			Device:     unescapeMount(fields[0]),
+			MountPoint: unescapeMount(fields[1]),
+			FSType:     fields[2],
+		})
+	}
+	return out
+}
+
+// unescapeMount 解码 /proc/self/mounts 里的 \ooo 八进制转义。
+//
+// 只认**恰好三位**的八进制：内核只会写出 fstab 那张表里的四个字符，
+// 而 "\\" 后面跟着别的东西（例如一个真的叫 a\b 的目录，内核会写成
+// a\134b）不该被误解。
+func unescapeMount(text string) string {
+	if !strings.Contains(text, `\`) {
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	for i := 0; i < len(text); i++ {
+		// 需要三位数字，因此从 i+1 起必须还有三个字节。
+		if text[i] != '\\' || i+3 >= len(text) {
+			out.WriteByte(text[i])
+			continue
+		}
+		digits := text[i+1 : i+4]
+		value := 0
+		ok := true
+		for index := 0; index < len(digits); index++ {
+			digit := digits[index]
+			if digit < '0' || digit > '7' {
+				ok = false
+				break
+			}
+			value = value*8 + int(digit-'0')
+		}
+		if !ok || value > 0xFF {
+			out.WriteByte(text[i])
+			continue
+		}
+		out.WriteByte(byte(value))
+		i += 3
+	}
+	return out.String()
+}
+
+// diskCapacity 由 statfs 的块计数算出三个字节数。
+//
+// # 口径：used + free 刻意**不**等于 total
+//
+//   - total = 总块数 × 块大小
+//   - free  = **Bavail** × 块大小：普通用户真的还能写进去的量，
+//     也就是 Finder / df 的"可用"。取 Bfree 会把 ext4 预留给 root 的
+//     那 5% 算成可用空间，而用户往那里写是写不进去的。
+//   - used  = (总块数 - Bfree) × 块大小：已经被文件占掉的量。
+//
+// 差额（Bfree - Bavail）是预留给 root 的部分。把它摊进任何一边都是在编
+// 一个用户对不上的数字；而**空着**不解释又会被当成 bug，所以接口那边
+// 应当按"已用 + 可用可以小于总量"来展示。
+//
+// 计数器异常时**收敛**而不是外推：块大小为 0 直接报 0（这样的挂载点随后
+// 会被"容量为 0"那条滤掉），空闲 / 可用块数大于总块数时按总块数截断。
+// 都是为了让结果落回 [0, total]，而不是因为一次下溢报出一个 16 EB 的盘 ——
+// 一个荒谬的大数字比没有数字更糟，它会真的画进界面里。
+func diskCapacity(blockSize, blocks, freeBlocks, availBlocks uint64) (total, used, free uint64) {
+	if blockSize == 0 {
+		return 0, 0, 0
+	}
+	total = blocks * blockSize
+	if freeBlocks > blocks {
+		freeBlocks = blocks
+	}
+	if availBlocks > blocks {
+		availBlocks = blocks
+	}
+	return total, (blocks - freeBlocks) * blockSize, availBlocks * blockSize
+}
+
+// pseudoFilesystems 是不值得展示给用户的伪文件系统。
+//
+// # 为什么是黑名单，不是白名单
+//
+// 白名单（只放行 apfs / ext4 / …）看起来更干净，但它会**静默地**藏起
+// 作者没想到的真文件系统：ZFS 池、sshfs 挂载、NAS 上的 nfs/smb、
+// exfat 的 U 盘、btrfs 的子卷。用户明明插了一块盘，界面上却什么都没有 ——
+// 而看不见的失败比一个难看的数字难查得多。
+//
+// 黑名单只藏"数字本身没有意义"的那些：它们的容量来自内存（tmpfs）、
+// 内核对象（procfs/sysfs/cgroup）、自动挂载器（autofs/devfs）或一个
+// 只读镜像（squashfs/overlay），而不是一块存储。这类数字显示出来只会
+// 让用户以为自己多了一块盘。
+//
+// # 为什么不追求穷举
+//
+// 内核里的伪文件系统有几十个，而且每次新增子系统都可能再多一个，
+// 逐一列举既列不完、也会过期。因此这里只列**常见且容易撞上**的，
+// 剩下的靠"总容量为 0 就不显示"兜底（见 finalizeDisks）：伪文件系统
+// 几乎都报不出总容量，而真盘不可能容量为 0。
+var pseudoFilesystems = map[string]bool{
+	"devfs":       true, // macOS 的 /dev
+	"devicefs":    true, // CoreDevice 的虚拟设备文件系统：1 TiB 是编出来的容量
+	"autofs":      true, // 自动挂载器的占位目录，容量为 0
+	"proc":        true,
+	"procfs":      true,
+	"sysfs":       true,
+	"cgroup":      true,
+	"cgroup2":     true,
+	"tmpfs":       true, // 容量随内存浮动，跟磁盘并列会误导
+	"devpts":      true,
+	"securityfs":  true,
+	"pstore":      true,
+	"bpf":         true,
+	"tracefs":     true,
+	"debugfs":     true,
+	"configfs":    true,
+	"fusectl":     true,
+	"mqueue":      true,
+	"hugetlbfs":   true,
+	"nsfs":        true,
+	"ramfs":       true,
+	"efivarfs":    true, // 主板变量，不是存储
+	"rpc_pipefs":  true,
+	"binfmt_misc": true,
+	"squashfs":    true, // snap 之类的只读镜像：占用恒等于镜像大小
+	"overlay":     true, // 容器/快照的叠加层，容量来自下层
+	"none":        true, // 没报出类型的挂载（老内核与某些 FUSE 会这样）
+}
+
+// keepMount 报告一个挂载点是否值得展示给用户。
+//
+// 纯函数：只看文件系统类型，既不碰系统调用也不看容量，因此这张判据
+// 可以用一张表直接测 —— 而它是这次改动里唯一"删东西"的地方
+// （判断错了，用户就会少看到一块盘）。
+func keepMount(fsType string) bool {
+	// 类型名统一按小写比较：内核给的是小写，但 FUSE 与某些网络文件系统
+	// 会报出用户自己起的名字（"SSHFS"）。
+	return !pseudoFilesystems[strings.ToLower(strings.TrimSpace(fsType))]
+}
+
+// finalizeDisks 过滤掉伪文件系统、丢掉容量为 0 的挂载点，并按挂载点排序。
+//
+// 纯函数，两个平台共用：darwin 走 getfsstat、Linux 走 /proc/self/mounts，
+// 但"哪些该显示"是同一个问题，各写一份迟早会分叉。
+//
+// # 排序是为了稳定
+//
+// 内核给出的顺序（挂载顺序 / 挂载表顺序）在不同机器上完全不同，
+// 而界面与测试都希望同一台机器的两次采样长得一样。按挂载点排序是唯一
+// 与人无关的顺序。
+func finalizeDisks(raw []DiskSample) []DiskSample {
+	byMount := make(map[string]DiskSample, len(raw))
+	for _, disk := range raw {
+		if !keepMount(disk.FSType) {
+			continue
+		}
+		// 总容量为 0 的一律不显示：伪文件系统几乎都报 0，所以这一条
+		// 兜住了上面那张名单没列到的（新子系统的、发行版特有的）。
+		// 真盘不会容量为 0，因此不会误伤。
+		if disk.TotalBytes == 0 {
+			continue
+		}
+		// 没有挂载点的记录既没法展示、也没法让用户定位，直接丢掉。
+		if disk.MountPoint == "" {
+			continue
+		}
+		// APFS 的"卷"不是用户以为的那个磁盘。
+		//
+		// macOS 会把一个容器（物理盘上的一个 APFS Container）拆成多个卷
+		// 分别挂载：`/` 是系统快照，`/System/Volumes/Data` 是数据卷，
+		// 还有 VM、Preboot、Update 等等。而 `getfsstat` 对**同一个容器里的
+		// 每个卷都报容器级的块计数** —— 于是这十几个挂载点会显示成
+		// 十几个容量完全相同的"磁盘"。
+		//
+		// 那不是数字不准，而是**同一块盘被数了十几遍**：用户看到"12 个盘
+		// 都快满了"，实际只有一块盘。留着 `/` 一个就够 —— 它报的正是
+		// 容器级的已用/可用，也正是 Finder 的"关于本机 → 储存空间"
+		// 想表达的那个数。
+		if strings.HasPrefix(disk.MountPoint, "/System/Volumes/") {
+			continue
+		}
+		// 同一个挂载点被挂多次时只留最后一个：后来的那次盖在上面，
+		// 用户在那个路径下看到的字节属于它。容器里 /etc/hosts 这类
+		// 单文件 bind mount 就会出现两遍。
+		byMount[disk.MountPoint] = disk
+	}
+	out := make([]DiskSample, 0, len(byMount))
+	for _, disk := range byMount {
+		out = append(out, disk)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].MountPoint < out[j].MountPoint })
+	return out
+}
+
+// cString 把 C 的定长字符数组（NUL 结尾）转成 Go 字符串。
+//
+// darwin 的 Statfs_t 里挂载点与类型分别是 [1024]int8 与 [16]int8：
+// 内核只在前面写有效字节、后面留着 NUL，而且是 int8（不能直接当 byte 用）。
+// 用 string(raw[:]) 会把一整串 NUL 带进结果里，于是挂载点在界面上变成
+// 一个带方块的长条。
+func cString(raw []int8) string {
+	buf := make([]byte, 0, len(raw))
+	for _, ch := range raw {
+		if ch == 0 {
+			break
+		}
+		buf = append(buf, byte(ch))
+	}
+	return string(buf)
+}
+
+// --- GPU（macOS 的 ioreg） --------------------------------------------------
+
+// gpuBackendDarwin 是 macOS 上 GPU 采样的后端名。
+//
+// 它是**契约的一部分**（api/openapi.yaml 里 GpuMetrics.backend 的 examples，
+// 界面也按它决定怎么说"不支持"），改名字要让那两处一起改。
+const gpuBackendDarwin = "darwin-ioreg"
+
+// parseIOAccelerator 从 `ioreg -r -d 1 -c IOAccelerator` 的输出里取 GPU 占用。
+//
+// # 为什么是 ioreg
+//
+// 没有 cgo（D11）就拿不到 IOKit，而 `Device Utilization %` 只存在于
+// IOAccelerator 的性能统计字典里 —— ioreg 是它唯一的命令行出口。
+// 与 CPU/内存那边不同的是：这里连"自己算"的余地都没有，
+// 那个数字是驱动自己维护的。
+//
+// # 输出是什么形状
+//
+// ioreg 打的是 plist 的**文本**形式（不是 XML）：一条属性一行、形如
+// `"键" = 值`，字典用 {}、数组用 ()，整个属性表可能几十 KB
+// （IOReportLegend 那一行实测就有 45 KB）。因此这里先按条目切开、
+// 再按**键**取值，而不是按位置或行号 —— 这个包的教训已经写过一次：
+// 解析系统输出时，位置和顺序都会变，只有键名不会。
+//
+// # 返回值
+//
+// 找不到任何带性能统计的加速器条目（无头 Mac、虚拟机）时返回 nil：
+// 那表示"这台机器没有可采样的 GPU"，与"GPU 占用是 0"是两件事。
+// 找到条目但里面没有那个键时返回 Utilization == nil 的样本：老一些的
+// 或非 Apple 驱动的 GPU 就是这样，界面该显示"此设备不报占用"，
+// 而不是一个编出来的 0%。
+func parseIOAccelerator(text string) *GPUSample {
+	// 多 GPU 的机器（核显 + 独显的 MacBook Pro）上 ioreg 会打好几条，
+	// 而且**不是每一条都带占用值**。因此逐条看：第一条真的带值的才算数，
+	// 只看第一条会在那种机器上永远显示"没有值"。
+	var fallback *GPUSample
+	for _, entry := range ioregEntries(text) {
+		sample := parseAcceleratorEntry(entry)
+		if sample == nil {
+			continue
+		}
+		if sample.Utilization != nil {
+			return sample
+		}
+		if fallback == nil {
+			fallback = sample
+		}
+	}
+	return fallback
+}
+
+// ioregEntries 按条目切分 ioreg 的输出。
+//
+// 每个条目的第一行长这样：`+-o AGXAcceleratorG16G  <class …>`，
+// 后面是缩进过的属性表。列表型输出（数组）没有这个前缀，
+// 不是我们要找的东西，正好被排除在外。
+func ioregEntries(text string) []string {
+	lines := strings.Split(text, "\n")
+	var out []string
+	start := -1
+	for index, line := range lines {
+		if !strings.HasPrefix(line, "+-o ") {
+			continue
+		}
+		if start >= 0 {
+			out = append(out, strings.Join(lines[start:index], "\n"))
+		}
+		start = index
+	}
+	if start >= 0 {
+		out = append(out, strings.Join(lines[start:], "\n"))
+	}
+	return out
+}
+
+// parseAcceleratorEntry 从一个 ioreg 条目里取占用与名字。
+//
+// 没有 PerformanceStatistics 字典的条目直接返回 nil：那不是加速器
+// （`-c IOAccelerator` 偶尔会带上匹配了同一个类名的辅助对象），
+// 把它当成"支持采样但没值"会让界面在一个根本没有 GPU 的机器上显示
+// GPU 那一栏。
+func parseAcceleratorEntry(entry string) *GPUSample {
+	stats, ok := plistDictionary(entry, "PerformanceStatistics")
+	if !ok {
+		return nil
+	}
+	sample := &GPUSample{Backend: gpuBackendDarwin}
+	// 名字是展示用的点缀：取不到就不填。它不在 PerformanceStatistics 里，
+	// 而是同级的 "model"（实测是 "Apple M4" 这样的型号名）。
+	if name, ok := plistString(entry, "model"); ok {
+		sample.Name = name
+	}
+	// 与 Renderer / Tiler Utilization % 区分：这里要的是设备整体占用，
+	// 与活动监视器显示的是同一个数。
+	if raw, ok := plistValue(stats, "Device Utilization %"); ok {
+		value, err := strconv.ParseFloat(raw, 64)
+		// 契约把这个字段限定在 0..100（openapi.yaml）。超范围的值只可能
+		// 来自解析错位或驱动抽风：宁可报"没读到"，也不要报一个契约不允许的
+		// 数字 —— 界面会把它画成一根戳出图表的柱子。
+		if err == nil && value >= 0 && value <= 100 {
+			sample.Utilization = &value
+		}
+	}
+	return sample
+}
+
+// plistDictionary 取 `"key" = { … }` 里大括号**之间**的正文。
+func plistDictionary(text, key string) (string, bool) {
+	raw, ok := plistRaw(text, key)
+	if !ok || len(raw) < 2 || raw[0] != '{' || raw[len(raw)-1] != '}' {
+		return "", false
+	}
+	return raw[1 : len(raw)-1], true
+}
+
+// plistString 取 `"key" = "值"` 里的字符串值。
+//
+// 值**必须**是引号串：`"model" = Yes` 这种裸标量不是名字，
+// 当成名字填进去会在界面上显示"GPU: Yes"。
+func plistString(text, key string) (string, bool) {
+	raw, ok := plistRaw(text, key)
+	if !ok || len(raw) < 2 || raw[0] != '"' {
+		return "", false
+	}
+	return matchQuote(raw)
+}
+
+// plistValue 取 `"key" = 值` 的值，引号与字典外壳都去掉。
+//
+// 只按**键**取值：`Device Utilization %` 旁边就挨着 `Renderer Utilization %`
+// 与 `Tiler Utilization %`，按位置取会在键顺序变化时安静地读错一个数字
+// （netstat 那条注释记的就是同一类事故）。
+func plistValue(text, key string) (string, bool) {
+	raw, ok := plistRaw(text, key)
+	if !ok {
+		return "", false
+	}
+	switch {
+	case strings.HasPrefix(raw, `"`):
+		return matchQuote(raw)
+	case strings.HasPrefix(raw, "{"):
+		if len(raw) < 2 {
+			return "", false
+		}
+		return raw[1 : len(raw)-1], true
+	default:
+		return raw, true
+	}
+}
+
+// plistRaw 在文本里找 `"key" = 值`，返回值的**原文**（含引号或大括号）。
+//
+// # 为什么要容忍空白的两种写法
+//
+// 本次实测的同一份 ioreg 输出里，两种写法**同时存在**：
+// `"MetalPluginName" = "AGXMetalG16G_B0"`（等号两边带空格）与
+// `"Tiler Utilization %"=15`（不带）。值这边也一样：字符串带引号、
+// 数字是裸的、字典是大括号。因此这里不假设任何一种，
+// 而是按值的首字符决定怎么读。
+//
+// 找不到键、或者键后面不是等号（同名的字符串值也会被 Index 命中）
+// 都返回 false —— 调用方必须显式处理"没读到"，而不是拿到一个空串。
+func plistRaw(text, key string) (string, bool) {
+	quoted := `"` + key + `"`
+	for search := 0; search < len(text); {
+		at := strings.Index(text[search:], quoted)
+		if at < 0 {
+			return "", false
+		}
+		at += search
+		search = at + len(quoted)
+
+		rest := strings.TrimLeft(text[search:], " \t\r\n")
+		value, found := strings.CutPrefix(rest, "=")
+		if !found {
+			continue
+		}
+		if raw, ok := plistToken(strings.TrimLeft(value, " \t\r\n")); ok {
+			return raw, true
+		}
+	}
+	return "", false
+}
+
+// plistToken 从值的开头读出一个完整的值，返回它的原文。
+func plistToken(text string) (string, bool) {
+	if text == "" {
+		return "", false
+	}
+	switch text[0] {
+	case '"':
+		end := 1
+		for end < len(text) {
+			if text[end] == '\\' {
+				end++
+			} else if text[end] == '"' {
+				return text[:end+1], true
+			}
+			end++
+		}
+		return "", false
+	case '{':
+		body, ok := matchBrace(text)
+		if !ok {
+			return "", false
+		}
+		return "{" + body + "}", true
+	default:
+		// 裸标量（数字、Yes/No、<data>）：到下一个分隔符为止。
+		end := strings.IndexAny(text, ",}\n")
+		if end < 0 {
+			end = len(text)
+		}
+		token := strings.TrimSpace(text[:end])
+		if token == "" {
+			return "", false
+		}
+		return token, true
+	}
+}
+
+// matchBrace 从 text 首字符的 '{' 开始配对，返回大括号**之间**的正文。
+//
+// 必须跳过引号串：属性表里有 `"IOGeneralInterest" = "IOCommand is not
+// serializable"` 这样的值，将来也可能出现带花括号的名字；把字符串里的
+// 括号当成结构，配对准会错位，而错位之后读到的就是另一段数字 ——
+// 一个安静的错误答案。
+//
+// 值里再嵌字典是常见的（`"AGCInfo" = {…}`、`"SchedulerState" = {…}`），
+// 因此用深度计数而不是找第一个 '}'。
+func matchBrace(text string) (string, bool) {
+	if text == "" || text[0] != '{' {
+		return "", false
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for index := 0; index < len(text); index++ {
+		ch := text[index]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case ch == '\\':
+				escaped = true
+			case ch == '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return text[1:index], true
+			}
+		}
+	}
+	return "", false
+}
+
+// matchQuote 从 text 首字符的 '"' 开始配对，返回去掉引号的正文。
+//
+// 反斜杠转义原样保留：这里的值只用来展示（GPU 型号名），
+// 为一个显示用的字符串实现 plist 的转义表不值得。
+func matchQuote(text string) (string, bool) {
+	if text == "" || text[0] != '"' {
+		return "", false
+	}
+	for index := 1; index < len(text); index++ {
+		switch text[index] {
+		case '\\':
+			index++ // 跳过被转义的那个字符，它是字面量
+		case '"':
+			return text[1:index], true
+		}
+	}
+	return "", false
 }

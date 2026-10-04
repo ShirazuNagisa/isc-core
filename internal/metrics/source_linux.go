@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -72,6 +73,50 @@ func (s *linuxSource) Host(ctx context.Context) (HostSample, error) {
 			s.mu.Unlock()
 		}
 	}
+
+	// 磁盘：从挂载表里拿挂载点，再逐个 statfs 要容量。
+	//
+	// # 为什么读 /proc/self/mounts 而不是 /proc/mounts
+	//
+	// 2.4.19 之后前者是后者的符号链接，两个名字读到的是同一个文件 ——
+	// 但 "self" 把我们要的东西写清楚了：**本进程所在挂载命名空间**的挂载表。
+	// 这一点在这里是硬要求，因为紧接着就要 statfs 表里的每一个路径：
+	// 容器里 /proc 可能是宿主挂进来的，那时表里会出现容器里根本不存在的
+	// 挂载点，用 /proc/mounts 这个名字读起来像是"整台机器有几块盘"，
+	// 而我们要的始终是"这个进程看得见的盘"。
+	//
+	// 失败（读不到表）就留空，不报错：与主机其它几路一样，
+	// 一次采不到磁盘不该让 CPU、内存、网络一起消失。
+	if body, err := os.ReadFile("/proc/self/mounts"); err == nil {
+		entries := parseProcMounts(string(body))
+		disks := make([]DiskSample, 0, len(entries))
+		for _, entry := range entries {
+			var stat syscall.Statfs_t
+			if err := syscall.Statfs(entry.MountPoint, &stat); err != nil {
+				// 读表与 statfs 之间挂载点被卸载是常态（自动挂载、容器里
+				// 的临时挂载），不是错误。
+				continue
+			}
+			// Linux 的 Bsize 是**有符号**的 int64：0 或负数转成 uint64
+			// 会变成一个天文数字，于是"已用"变成几十 EB。宁可跳过。
+			if stat.Bsize <= 0 {
+				continue
+			}
+			total, used, free := diskCapacity(uint64(stat.Bsize), stat.Blocks, stat.Bfree, stat.Bavail)
+			disks = append(disks, DiskSample{
+				MountPoint: entry.MountPoint,
+				FSType:     entry.FSType,
+				TotalBytes: total,
+				UsedBytes:  used,
+				FreeBytes:  free,
+			})
+		}
+		sample.Disks = finalizeDisks(disks)
+	}
+
+	// GPU 在 Linux 上留空（nil）：那要读 nvidia-smi 或 sysfs，是另一次改动。
+	// nil 的含义是"这个平台没有 GPU 采样"，界面据此显示"不支持"，
+	// 而不是显示一个假的 0%。
 
 	s.mu.Lock()
 	s.hasPrev = true

@@ -27,6 +27,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
+	"github.com/ShirazuNagisa/isc-core/internal/remote"
 	"github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
@@ -143,6 +144,12 @@ type Deps struct {
 	// 做成回调而不是直接读路由表：api 包因此不需要知道
 	// "证书需要覆盖什么"是由路由决定的。
 	CertRequests func() []acme.CertRequest
+
+	// Remote 是远程管理面（ISC Mizar）。
+	//
+	// 它可以为 nil：那时 /v1/remote/* 的配置面返回"未装配"，
+	// 远程监听根本不会起来。库的使用者只要 DNS/反代能力时就是这样。
+	Remote *remote.Service
 }
 
 type Server struct {

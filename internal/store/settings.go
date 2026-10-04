@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+	"strings"
 
 	"github.com/ShirazuNagisa/isc-core/internal/audit"
 )
@@ -107,6 +108,13 @@ func (s *Store) ListAudit(ctx context.Context, f audit.Filter) ([]audit.Record, 
 		where = append(where, "action = ?")
 		args = append(args, f.Action)
 	}
+	if f.ActionPrefix != "" {
+		// 转义 LIKE 的通配符：前缀是**用户可控**的输入，而 `%` 与 `_`
+		// 在 LIKE 里有特殊含义。不转义的话，搜 `remote.` 与搜 `remote%`
+		// 会得到同样的结果，而后者看起来像"匹配到了别的东西"。
+		where = append(where, `action LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLike(f.ActionPrefix)+"%")
+	}
 	if f.Result != "" {
 		where = append(where, "result = ?")
 		args = append(args, f.Result)
@@ -156,6 +164,15 @@ func (s *Store) ListAudit(ctx context.Context, f audit.Filter) ([]audit.Record, 
 // ---------------------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------------------
+
+// escapeLike 转义 LIKE 模式里的通配符。
+//
+// 反斜杠必须**先**转义，否则后面加进去的转义符会被自己再转一遍。
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	return strings.ReplaceAll(s, "_", `\_`)
+}
 
 func nullIfEmpty(s string) any {
 	if s == "" {

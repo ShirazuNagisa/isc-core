@@ -8,9 +8,14 @@ info:
 
     ## 设计约束
 
-    - **仅本机可达**：内核只监听命名管道 / Unix socket / 回环，绝不对外暴露。
-      所有请求（含回环）都必须携带 `Authorization: Bearer <token>`，
+    - **本地面仅本机可达**：内核的管理面只监听命名管道 / Unix socket / 回环，
+      绝不对外暴露。所有请求（含回环）都必须携带 `Authorization: Bearer <token>`，
       token 从数据目录下的 `runtime.json` 读取。见 docs/DECISIONS.md D09。
+    - **远程面是另一条监听**：手机端（ISC Mizar）走的是独立的 TLS 监听 +
+      独立的设备令牌链，只暴露本文件里标注的 `/v1/remote/*` 与一份**只读
+      优先**的路径白名单。本文件里的其余路径在远程面上不存在（403）。
+      见 docs/DECISIONS.md D38。
+    - **`/v1/remote/pair` 只在远程面上存在**，且是那里唯一免鉴权的路径。
     - **快同步 + 慢异步**：列表与详情查询同步返回；所有可能耗时的操作
       （证书签发、凭据校验、防火墙应用、外部可达性验证）返回 `202` 与
       `job_id`，进度通过 `GET /v1/jobs/{id}` 或 WebSocket 事件流获取。
@@ -63,6 +68,8 @@ tags:
     description: 审计日志
   - name: Config
     description: 配置导入导出与迁移
+  - name: Remote
+    description: 远程访问（ISC Mizar）—— 独立监听、配对与设备管理
   - name: Debug
     description: 仅用于管线自检的调试端点，不属于产品接口
 
@@ -861,7 +868,15 @@ paths:
         - name: action
           in: query
           required: false
-          description: 按动作过滤。
+          description: 按动作过滤（精确匹配）。
+          schema:
+            type: string
+        - name: action_prefix
+          in: query
+          required: false
+          description: |
+            按动作前缀过滤，例如 `remote.` 取全部远程访问相关记录。
+            与 `action` 同时给出时两者都要满足。
           schema:
             type: string
         - name: result
@@ -2024,6 +2039,462 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  # ---------------------------------------------------------------------------
+  # 远程访问（ISC Mizar）—— 配置面
+  #
+  # 这些接口跑在**本地面**上：只有本机的 Phecda / CLI 能调。它们负责开关
+  # 远程监听、开配对会话、管已配对设备。真正的远程请求走的是另一条
+  # 独立监听 + 独立认证链（见 docs/DECISIONS.md D38）。
+  # ---------------------------------------------------------------------------
+
+  /v1/remote/status:
+
+    get:
+      tags: [Remote]
+      operationId: getRemoteStatus
+      summary: 远程访问的当前状态
+      description: |
+        界面（Phecda 的「远程访问」页）只需要这一个接口就能把整页画出来：
+        开关、监听状态、候选地址、证书指纹、设备数、进行中的配对会话、
+        APNs 是否已配置。
+      responses:
+        "200":
+          description: 状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/settings:
+
+    patch:
+      tags: [Remote]
+      operationId: updateRemoteSettings
+      summary: 开关远程访问、改监听端口
+      description: |
+        开关与端口变化会**立即重启监听**。
+
+        改端口失败（被占用、权限不足）时仍返回 200，失败原因放在
+        `last_error` 里：调用方需要的是一份可以显示的状态，而不是一个
+        没有上下文的错误码。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoteSettingsPatch"
+      responses:
+        "200":
+          description: 更新后的状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteStatus"
+        "400":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/pairing:
+
+    post:
+      tags: [Remote]
+      operationId: startRemotePairing
+      summary: 开一个配对会话（生成二维码与六位手输码）
+      description: |
+        会话五分钟后过期，且**一次性**：成功配对即销毁。
+
+        二维码里的 `secret` 是 256 位随机值；手输码是六位、字母表去掉了
+        `I/L/O/U` 与 `0/1`（读错是这类码最常见的失败）。两者指向同一个
+        会话，走哪条路由用户选。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingRequest"
+      responses:
+        "201":
+          description: 配对会话
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingSession"
+        "409":
+          description: 已经有一个未过期的会话，请先取消或等它过期
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/pairing/{id}:
+
+    delete:
+      tags: [Remote]
+      operationId: cancelRemotePairing
+      summary: 取消配对会话
+      parameters:
+        - $ref: "#/components/parameters/PairingId"
+      responses:
+        "204":
+          description: 已取消
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/devices:
+
+    get:
+      tags: [Remote]
+      operationId: listRemoteDevices
+      summary: 已配对的设备
+      responses:
+        "200":
+          description: 设备列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDeviceList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/devices/{id}:
+
+    patch:
+      tags: [Remote]
+      operationId: updateRemoteDevice
+      summary: 改设备的名称、角色或通知开关
+      parameters:
+        - $ref: "#/components/parameters/RemoteDeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoteDevicePatch"
+      responses:
+        "200":
+          description: 更新后的设备
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDevice"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Remote]
+      operationId: revokeRemoteDevice
+      summary: 吊销一台设备（级联吊销它派生的设备）
+      description: |
+        级联是必要的：手表的令牌来自手机。只吊销手机而留下手表，会让
+        "我丢的手机已经断开了"这句话不成立。
+      parameters:
+        - $ref: "#/components/parameters/RemoteDeviceId"
+      responses:
+        "204":
+          description: 已吊销
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/devices/{id}/test-push:
+
+    post:
+      tags: [Remote]
+      operationId: testRemotePush
+      summary: 给一台设备发一条测试推送
+      description: |
+        推送是本项目里最难自查的一环：凭据错、topic 错、令牌过期、环境
+        搞混（sandbox / production），失败现场都在 Apple 那一侧。因此
+        必须有一个"现在给我发一条"的按钮。
+      parameters:
+        - $ref: "#/components/parameters/RemoteDeviceId"
+      responses:
+        "200":
+          $ref: "#/components/responses/ServiceOK"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/apns:
+
+    put:
+      tags: [Remote]
+      operationId: setRemoteApns
+      summary: 保存 APNs 凭据（.p8 鉴权密钥）
+      description: |
+        凭据走既有的加密凭据存储（provider key `apns`），**只写不读**：
+        查询只返回是否已配置与 key_id 的末四位，私钥永不回显 ——
+        它出现在任何响应或日志里都是缺陷。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApnsCredentials"
+      responses:
+        "200":
+          description: 保存后的状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Remote]
+      operationId: deleteRemoteApns
+      summary: 删除 APNs 凭据
+      responses:
+        "204":
+          description: 已删除
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 远程面独有：配对与设备自述
+  #
+  # 下面几条**只在远程监听上存在**。在本地面上调用没有意义（本机已经有
+  # token 了，不需要配对），因此本地面不为它们注册路由。
+  # ---------------------------------------------------------------------------
+
+  /v1/remote/pair:
+
+    post:
+      tags: [Remote]
+      operationId: completeRemotePairing
+      summary: 用配对密钥或六位手输码换取设备令牌
+      description: |
+        远程面上**唯一**免鉴权的路径，因此它是限流的重点：每源 IP 10 次/分、
+        单会话 5 次失败即销毁、跨会话连续失败锁 15 分钟。
+
+        `secret` 来自二维码（256 位随机），`code` 是手输的六位码，两者指向
+        同一个会话，成功后会话立即销毁（一次性）。
+
+        手输路径下客户端拿不到证书指纹，因此返回体里带 `spki_sha256`：
+        客户端**必须**把它显示给用户与另一端的短码核对，核对通过才落库。
+        没有这一步，一次中间人就足以长期冒名这台服务器。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemotePairRequest"
+      responses:
+        "200":
+          description: 配对成功。`token` 只在这一个响应里出现。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemotePairResult"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          description: 配对码错误、已过期，或尝试次数已用尽
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          description: 触发限流或锁定，请稍后再试
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/self:
+
+    get:
+      tags: [Remote]
+      operationId: getRemoteSelf
+      summary: 当前设备自己的身份与角色
+      description: |
+        客户端据此决定界面里哪些操作可用 —— **而不是自己猜**。
+        服务端是权限的判定者，界面只把它的结论画出来。
+      responses:
+        "200":
+          description: 自身信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSelf"
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Remote]
+      operationId: unpairRemoteSelf
+      summary: 设备自我解绑
+      responses:
+        "204":
+          description: 已解绑
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/self/derive:
+
+    post:
+      tags: [Remote]
+      operationId: deriveRemoteDevice
+      summary: 派生一台新设备（给 Apple Watch）
+      description: |
+        手表既没有摄像头也没有键盘，无法自己扫码。让它复用手机的令牌会
+        绕开"手表只读"这条约束 —— 而约束必须在**服务端**成立，不能靠
+        客户端自律。
+
+        因此派生出的设备角色必须**不高于**父设备；它在设备列表里是一台
+        独立设备，可以单独吊销；吊销父设备会级联吊销它。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoteDeriveRequest"
+      responses:
+        "200":
+          description: 派生出的设备与它的令牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemotePairResult"
+        "403":
+          description: 请求的角色高于父设备
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/remote/self/push-token:
+
+    post:
+      tags: [Remote]
+      operationId: registerRemotePushToken
+      summary: 登记这台设备的 APNs 令牌
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemotePushTokenRequest"
+      responses:
+        "204":
+          description: 已登记
+        default:
+          $ref: "#/components/responses/Problem"
+
+    delete:
+      tags: [Remote]
+      operationId: unregisterRemotePushToken
+      summary: 注销这台设备的 APNs 令牌
+      responses:
+        "204":
+          description: 已注销
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/events/poll:
+
+    get:
+      tags: [Events]
+      operationId: pollEvents
+      summary: 订阅事件流（游标长轮询）
+      description: |
+        与 `GET /v1/events`（WebSocket）语义一致，但走普通 HTTP。
+
+        移动端刻意用长轮询而不是 WebSocket：进程被系统挂起、网络切换、
+        经过中间代理之后，长轮询只需要重新发一个请求，而 WebSocket 要重建
+        握手并重新对齐游标。
+
+        参数与 `isc_events_json` 逐字对齐：`since <= 0` 表示"从现在开始"；
+        `timeout_ms` 内没有新事件就空返回；游标跌出环形缓冲时 `gap` 为
+        true，此时**必须全量重拉**，不要试图补齐。
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: 客户端已收到的最后一个事件序号；0 或省略表示从现在开始。
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: timeout_ms
+          in: query
+          required: false
+          description: 没有新事件时最多阻塞多久。上限 55 秒：再长会被中间代理掐断。
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 55000
+            default: 25000
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        "200":
+          description: 一批事件
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPoll"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  # ---------------------------------------------------------------------------
+  # 动态解析：启停
+  #
+  # 远程面刻意**不允许** `PATCH /v1/ddns-tasks/{id}`：那个接口能改域名与
+  # 取址来源，权限面远大于"启停"。手机要的只是开关，因此把开关拆成两个
+  # 窄接口 —— 权限的粒度由服务端决定，不能指望客户端"只发它想发的字段"。
+  # ---------------------------------------------------------------------------
+
+  /v1/ddns-tasks/{id}/enable:
+
+    post:
+      tags: [DdnsTasks]
+      operationId: enableDdnsTask
+      summary: 启用一个动态解析任务
+      parameters:
+        - $ref: "#/components/parameters/DdnsTaskId"
+      responses:
+        "200":
+          description: 更新后的任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DdnsTask"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/ddns-tasks/{id}/disable:
+
+    post:
+      tags: [DdnsTasks]
+      operationId: disableDdnsTask
+      summary: 停用一个动态解析任务
+      parameters:
+        - $ref: "#/components/parameters/DdnsTaskId"
+      responses:
+        "200":
+          description: 更新后的任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DdnsTask"
+        default:
+          $ref: "#/components/responses/Problem"
+
 components:
   securitySchemes:
 
@@ -2104,6 +2575,24 @@ components:
       in: path
       required: true
       description: 外部验证会话 ID
+      schema:
+        type: string
+        minLength: 1
+
+    PairingId:
+      name: id
+      in: path
+      required: true
+      description: 配对会话 ID
+      schema:
+        type: string
+        minLength: 1
+
+    RemoteDeviceId:
+      name: id
+      in: path
+      required: true
+      description: 远程设备 ID
       schema:
         type: string
         minLength: 1
@@ -2247,6 +2736,13 @@ components:
           $ref: "#/components/schemas/ImplState"
         low_port_binder:
           $ref: "#/components/schemas/ImplState"
+        # 远程面（ISC Mizar）。它是纯 Go 标准库实现（TLS + HTTP），
+        # 因此各平台都可用；但客户端仍要据此判断"这台服务器有没有这个能力"
+        # —— 老版本内核不会返回这个字段。
+        remote:
+          $ref: "#/components/schemas/ImplState"
+        metrics_gpu:
+          $ref: "#/components/schemas/ImplState"
 
     ImplState:
       type: object
@@ -2339,6 +2835,50 @@ components:
         backend:
           type: string
           description: 采样后端名；`unsupported` 表示此平台没有实现采样。
+        # 挂载点只在**当前快照**里出现，`history` 条目里没有：
+        # 60 个历史点各带一遍全部挂载点，会让一次轮询的响应体膨胀十几倍，
+        # 而曲线只用到标量。这条取舍是刻意的，不是遗漏。
+        disks:
+          type: array
+          description: 主机的真实挂载点（已排除伪文件系统）。仅当前快照有。
+          items:
+            $ref: "#/components/schemas/DiskMetrics"
+        gpu:
+          $ref: "#/components/schemas/GpuMetrics"
+
+    DiskMetrics:
+      type: object
+      required: [mount_point, total_bytes, used_bytes, free_bytes]
+      properties:
+        mount_point:
+          type: string
+          description: 挂载点路径。
+          examples: ["/", "/Volumes/Data"]
+        fs_type:
+          type: string
+          description: 文件系统类型。
+          examples: ["apfs", "ext4"]
+        total_bytes: {type: integer}
+        used_bytes: {type: integer}
+        free_bytes: {type: integer}
+
+    GpuMetrics:
+      type: object
+      required: [backend]
+      properties:
+        backend:
+          type: string
+          description: |
+            采样后端名；`unsupported` 表示此平台没有实现 GPU 采样。
+            与主机指标同一个约定：不支持时**仍然返回 200**，界面据此
+            显示"此平台不支持"，而不是显示一个假的 0%。
+          examples: ["darwin-ioreg", "unsupported"]
+        name: {type: string}
+        utilization_percent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
 
     AppMetrics:
       type: object
@@ -3919,3 +4459,315 @@ components:
         at:
           type: string
           format: date-time
+
+    # ------------------------------------------------------------------
+    # 远程访问（ISC Mizar）
+    # ------------------------------------------------------------------
+
+    RemoteState:
+      type: string
+      enum: [disabled, starting, running, failed]
+      description: |
+        disabled  总开关关闭
+        starting  正在启动监听
+        running   正在监听
+        failed    启动失败（原因见 `last_error`）
+
+    RemoteRole:
+      type: string
+      enum: [viewer, operator]
+      description: |
+        权限只有两级，刻意不做细粒度 scope：
+
+        viewer   只读监控 —— 所有 GET
+        operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+                 证书手动续期
+
+        两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+        多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+        多出来的表达力在三五个接口上换不回等价的可理解性。
+
+    PairingSession:
+      type: object
+      required: [id, role, manual_code, fingerprint_short, spki_sha256, addresses, expires_at, qr_payload]
+      properties:
+        id: {type: string}
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        label:
+          type: string
+          description: 给将要配对的设备预留的名字；留空表示由设备自称。
+        manual_code:
+          type: string
+          description: |
+            六位手输配对码。字母表去掉了 `I/L/O/U` 与 `0/1` ——
+            这几个字符靠读音与字形都分不开，是这类码最常见的失败。
+        fingerprint_short:
+          type: string
+          description: 证书公钥指纹的短形式，形如 `A1B2-C3D4`，供两端人工核对。
+        spki_sha256:
+          type: string
+          description: 自签证书公钥（SubjectPublicKeyInfo）的 SHA-256，base64url。
+        addresses:
+          type: array
+          description: 候选地址（含端口）。IPv4 在前，IPv6 与主机名在后。
+          items: {type: string}
+        expires_at:
+          type: string
+          format: date-time
+        qr_payload:
+          type: string
+          description: |
+            二维码里要编码的原文。**由内核生成** —— payload 是契约的一部分，
+            GUI 只负责把它渲染成像素。两个实现意味着两处会漂移。
+
+    PairingRequest:
+      type: object
+      properties:
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        label:
+          type: string
+          description: 设备名；留空由内核给一个默认名。
+
+    RemoteDevice:
+      type: object
+      required: [id, label, role, notifications_enabled]
+      properties:
+        id: {type: string}
+        label: {type: string}
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        parent_device_id:
+          type: string
+          description: 派生令牌的来源设备；空串表示直接配对而来。
+        platform: {type: string}
+        model: {type: string}
+        os_version: {type: string}
+        app_version: {type: string}
+        notifications_enabled:
+          type: boolean
+          description: 是否接收推送。默认关闭 —— 推送需要设备侧显式开启。
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        last_seen_at:
+          type: string
+          format: date-time
+          description: 最后一次通过鉴权的请求时间。
+        last_seen_ip: {type: string}
+        revoked_at:
+          type: string
+          format: date-time
+          description: 吊销时间；已吊销的设备保留在列表里以便追溯。
+
+    RemoteDeviceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteDevice"
+
+    RemoteDevicePatch:
+      type: object
+      properties:
+        label: {type: string}
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        notifications_enabled: {type: boolean}
+
+    RemoteServerInfo:
+      type: object
+      required: [name, version, api_version]
+      properties:
+        name:
+          type: string
+          description: 服务器显示名。默认取主机名。
+        version: {type: string}
+        api_version: {type: string}
+        platform: {type: string}
+        spki_sha256: {type: string}
+        fingerprint_short: {type: string}
+        apns_topic:
+          type: string
+          description: 若已配置 APNs，这里给出通知该登记的 topic。
+        notifications_enabled: {type: boolean}
+
+    RemoteSelf:
+      type: object
+      required: [device, role, server]
+      properties:
+        device:
+          $ref: "#/components/schemas/RemoteDevice"
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        server:
+          $ref: "#/components/schemas/RemoteServerInfo"
+
+    RemoteDeviceInfo:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        platform: {type: string}
+        model: {type: string}
+        os_version: {type: string}
+        app_version: {type: string}
+
+    RemotePairRequest:
+      type: object
+      required: [device]
+      properties:
+        secret:
+          type: string
+          description: 二维码里的高熵配对密钥。与 `code` 二选一。
+        code:
+          type: string
+          description: 六位手输配对码。与 `secret` 二选一。
+        device:
+          $ref: "#/components/schemas/RemoteDeviceInfo"
+
+    RemotePairResult:
+      type: object
+      required: [device_id, token, role, server]
+      properties:
+        device_id: {type: string}
+        token:
+          type: string
+          description: |
+            设备令牌。**只在这一个响应里出现**：服务端只存它的 SHA-256。
+            丢了这个响应只能重新配对，这是刻意的。
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        server:
+          $ref: "#/components/schemas/RemoteServerInfo"
+
+    RemoteDeriveRequest:
+      type: object
+      required: [role]
+      properties:
+        # 派生设备的角色；必须不高于父设备（服务端强制，见 D38）。
+        role:
+          $ref: "#/components/schemas/RemoteRole"
+        label: {type: string}
+        device:
+          $ref: "#/components/schemas/RemoteDeviceInfo"
+
+    RemotePushTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: APNs 设备令牌（十六进制）。
+        environment:
+          type: string
+          enum: [sandbox, production]
+        topic: {type: string}
+
+    ApnsCredentials:
+      type: object
+      required: [team_id, key_id, bundle_id, private_key]
+      properties:
+        team_id: {type: string}
+        key_id: {type: string}
+        bundle_id:
+          type: string
+          description: 同时用作 `apns-topic`。
+        private_key:
+          type: string
+          description: "`.p8` 鉴权密钥的文本内容。只写不读：它出现在任何响应或日志里都是缺陷。"
+
+    ApnsStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured: {type: boolean}
+        team_id: {type: string}
+        key_id: {type: string}
+        bundle_id: {type: string}
+
+    RemoteStatus:
+      type: object
+      required: [state, enabled, port, device_count, notifications_enabled]
+      properties:
+        state:
+          $ref: "#/components/schemas/RemoteState"
+        enabled: {type: boolean}
+        port: {type: integer}
+        listening:
+          type: boolean
+          description: 监听是否真的起来了（`state == running` 时才是 true）。
+        addresses:
+          type: array
+          description: |
+            可供客户端尝试的候选地址（含端口）。顺序即建议的尝试顺序：
+            IPv4 私有地址在前，IPv6 与 `<hostname>.local` 在后。
+          items: {type: string}
+        hostname: {type: string}
+        spki_sha256: {type: string}
+        fingerprint_short: {type: string}
+        tls_not_after:
+          type: string
+          format: date-time
+        device_count: {type: integer}
+        pairing:
+          $ref: "#/components/schemas/PairingSession"
+        apns_configured: {type: boolean}
+        apns_status:
+          $ref: "#/components/schemas/ApnsStatus"
+        notifications_enabled: {type: boolean}
+        last_error:
+          type: string
+          description: 最近一次监听失败的原因（本地化）。空串表示正常。
+
+    RemoteSettingsPatch:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: 总开关。默认关闭 —— 对外监听是需要用户明确决定的动作。
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        notifications_enabled:
+          type: boolean
+          description: 推送总开关。默认关闭。
+
+    KernelEvent:
+      type: object
+      required: [seq, ts, type]
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: 单调递增的事件序号，用作游标。
+        ts:
+          type: string
+          format: date-time
+        type:
+          type: string
+          examples: ["app.state_changed", "cert.issued", "dns.updated"]
+        payload:
+          type: object
+          additionalProperties: true
+
+    EventPoll:
+      type: object
+      required: [events, next, gap]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/KernelEvent"
+        next:
+          type: integer
+          format: int64
+          description: 下次请求应当携带的游标。
+        gap:
+          type: boolean
+          description: |
+            为 true 表示游标已跌出环形缓冲（或内核重启过），中间的事件
+            已经丢失。此时**不要试图补齐** —— 全量重拉一次状态即可。

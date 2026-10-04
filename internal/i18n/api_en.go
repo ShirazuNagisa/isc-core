@@ -125,4 +125,25 @@ var apiMessagesEn = map[string]string{
 	"api.service.needs_admin":   "administrator rights required",
 	"api.service.needs_root":    "root rights required",
 	"api.service.access_denied": "access denied",
+
+	// --- remote access (ISC Mizar) ---
+	"api.remote_unwired":           "remote: the remote access subsystem is not wired up",
+	"api.remote_settings_changed":  "remote access %s; listening on port %d",
+	"api.remote_pairing_started":   "pairing session started (role %s)",
+	"api.remote_pairing_canceled":  "pairing session cancelled",
+	"api.remote_pairing_failed":    "pairing failed",
+	"api.remote_paired":            "paired device %s (role %s)",
+	"api.remote_derived":           "derived device %s (role %s) from %s",
+	"api.remote_revoked":           "revoked %d device(s)",
+	"api.remote_devices_failed":    "device operation failed",
+	"api.remote_push_registered":   "push token registered (%s)",
+	"api.remote_push_unregistered": "push token unregistered",
+
+	"api.events_bus_missing":      "the event bus is not wired up",
+	"api.events_subscribe_failed": "failed to subscribe to the event stream",
+	"api.remote_apns_set":         "APNs credentials saved",
+	"api.remote_apns_cleared":     "APNs credentials deleted",
+	"api.remote_push_sent":        "Sent. If nothing appears on the phone, check notification permission in system settings.",
+	"api.remote_push_failed":      "Send failed (HTTP %d)",
+	"api.remote_push_test":        "Test push: %s",
 }

@@ -148,6 +148,9 @@ func (s *Server) ListAudit(w http.ResponseWriter, r *http.Request, params gen.Li
 	if params.Action != nil {
 		f.Action = *params.Action
 	}
+	if params.ActionPrefix != nil {
+		f.ActionPrefix = *params.ActionPrefix
+	}
 	if params.Result != nil {
 		f.Result = string(*params.Result)
 	}

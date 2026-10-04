@@ -100,4 +100,14 @@ var storeMessagesZh = map[string]string{
 	// --- 打开 ---
 	"store.err.open": "store: 打开数据库失败: %w",
 	"store.err.ping": "store: 连接数据库失败: %w",
+
+	// --- 远程设备 ---
+	"store.err.insert_remote_device": "store: 写入远程设备失败: %w",
+	"store.err.list_remote_devices":  "store: 查询远程设备列表失败: %w",
+	"store.err.iter_remote_devices":  "store: 遍历远程设备失败: %w",
+	"store.err.get_remote_device":    "store: 查询远程设备失败: %w",
+	"store.err.update_remote_device": "store: 更新远程设备失败: %w",
+	"store.err.revoke_remote_device": "store: 吊销远程设备失败: %w",
+	"store.err.touch_remote_device":  "store: 记录远程设备访问时间失败: %w",
+	"store.err.push_delivery":        "store: 记录推送投递失败: %w",
 }

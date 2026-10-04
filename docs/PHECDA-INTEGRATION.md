@@ -178,10 +178,22 @@ that fails afterwards; the custom-server path covers it with an explicit command
 
 ## Product boundaries
 
-ISC Mizar is a future remote monitoring client and requires a separate authenticated
-remote-management service. ISC Dubhe is a future cluster control plane and requires agents,
-node identity, scheduling and multi-node state. Neither product is enabled by this local API
-boundary.
+**ISC Mizar is enabled as of D38.** It is a remote monitoring and limited
+configuration client (iOS / iPadOS / watchOS). It does **not** use the local API
+boundary: it connects to a second, independent listener that the kernel opens
+only when the user turns remote access on. That listener has its own TLS
+configuration (self-signed, pinned by public key), its own auth chain
+(per-device tokens, two roles) and its own route allowlist — see
+[`REMOTE-ACCESS.md`](./REMOTE-ACCESS.md) and
+[D38](./DECISIONS.md#d38-远程管理面isc-mizar的安全模型).
+
+The local boundary is unchanged: loopback/pipe only, one process-wide token,
+console and bootstrap endpoints reachable from the local machine only. Nothing
+in the remote face reuses it.
+
+**ISC Dubhe is still not enabled.** A cluster control plane requires agents,
+node identity, scheduling, placement, multi-node logs and failure handling.
+No remote listener or cluster protocol for it exists.
 
 The kernel also does not install Docker Desktop, does not manage container internals beyond
 invoking the `docker` CLI, and (per [D26](./DECISIONS.md#d26-进程模型与引擎的可分离性)) does not

@@ -509,6 +509,66 @@ func (e ReachCheckStatus) Valid() bool {
 	}
 }
 
+// Defines values for RemotePushTokenRequestEnvironment.
+const (
+	Production RemotePushTokenRequestEnvironment = "production"
+	Sandbox    RemotePushTokenRequestEnvironment = "sandbox"
+)
+
+// Valid indicates whether the value is a known member of the RemotePushTokenRequestEnvironment enum.
+func (e RemotePushTokenRequestEnvironment) Valid() bool {
+	switch e {
+	case Production:
+		return true
+	case Sandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemoteRole.
+const (
+	Operator RemoteRole = "operator"
+	Viewer   RemoteRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the RemoteRole enum.
+func (e RemoteRole) Valid() bool {
+	switch e {
+	case Operator:
+		return true
+	case Viewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemoteState.
+const (
+	RemoteStateDisabled RemoteState = "disabled"
+	RemoteStateFailed   RemoteState = "failed"
+	RemoteStateRunning  RemoteState = "running"
+	RemoteStateStarting RemoteState = "starting"
+)
+
+// Valid indicates whether the value is a known member of the RemoteState enum.
+func (e RemoteState) Valid() bool {
+	switch e {
+	case RemoteStateDisabled:
+		return true
+	case RemoteStateFailed:
+		return true
+	case RemoteStateRunning:
+		return true
+	case RemoteStateStarting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RuntimeInfoSource.
 const (
 	Managed RuntimeInfoSource = "managed"
@@ -722,6 +782,25 @@ type AdvisoryList struct {
 	Items []Advisory `json:"items"`
 }
 
+// ApnsCredentials defines model for ApnsCredentials.
+type ApnsCredentials struct {
+	// BundleId 同时用作 `apns-topic`。
+	BundleId string `json:"bundle_id"`
+	KeyId    string `json:"key_id"`
+
+	// PrivateKey `.p8` 鉴权密钥的文本内容。只写不读：它出现在任何响应或日志里都是缺陷。
+	PrivateKey string `json:"private_key"`
+	TeamId     string `json:"team_id"`
+}
+
+// ApnsStatus defines model for ApnsStatus.
+type ApnsStatus struct {
+	BundleId   *string `json:"bundle_id,omitempty"`
+	Configured bool    `json:"configured"`
+	KeyId      *string `json:"key_id,omitempty"`
+	TeamId     *string `json:"team_id,omitempty"`
+}
+
 // App defines model for App.
 type App struct {
 	AutoStart    *bool        `json:"auto_start,omitempty"`
@@ -835,12 +914,14 @@ type AuditResult string
 
 // Capabilities 各平台后端的实现状态。不可用的后端意味着对应功能降级为引导模式。
 type Capabilities struct {
-	Firewall       ImplState `json:"firewall"`
-	IpMonitor      ImplState `json:"ip_monitor"`
-	LowPortBinder  ImplState `json:"low_port_binder"`
-	SecretStore    ImplState `json:"secret_store"`
-	ServiceManager ImplState `json:"service_manager"`
-	Transport      ImplState `json:"transport"`
+	Firewall       ImplState  `json:"firewall"`
+	IpMonitor      ImplState  `json:"ip_monitor"`
+	LowPortBinder  ImplState  `json:"low_port_binder"`
+	MetricsGpu     *ImplState `json:"metrics_gpu,omitempty"`
+	Remote         *ImplState `json:"remote,omitempty"`
+	SecretStore    ImplState  `json:"secret_store"`
+	ServiceManager ImplState  `json:"service_manager"`
+	Transport      ImplState  `json:"transport"`
 }
 
 // CertList defines model for CertList.
@@ -1110,6 +1191,35 @@ type DdnsTaskList struct {
 	Items []DdnsTask `json:"items"`
 }
 
+// DiskMetrics defines model for DiskMetrics.
+type DiskMetrics struct {
+	FreeBytes int `json:"free_bytes"`
+
+	// FsType 文件系统类型。
+	//
+	// Examples: apfs, ext4
+	FsType *string `json:"fs_type,omitempty"`
+
+	// MountPoint 挂载点路径。
+	//
+	// Examples: /, /Volumes/Data
+	MountPoint string `json:"mount_point"`
+	TotalBytes int    `json:"total_bytes"`
+	UsedBytes  int    `json:"used_bytes"`
+}
+
+// EventPoll defines model for EventPoll.
+type EventPoll struct {
+	Events []KernelEvent `json:"events"`
+
+	// Gap 为 true 表示游标已跌出环形缓冲（或内核重启过），中间的事件
+	// 已经丢失。此时**不要试图补齐** —— 全量重拉一次状态即可。
+	Gap bool `json:"gap"`
+
+	// Next 下次请求应当携带的游标。
+	Next int64 `json:"next"`
+}
+
 // ExposeRequest defines model for ExposeRequest.
 type ExposeRequest struct {
 	// Label 规则的可读名称，例如服务名。它会出现在系统防火墙界面里，
@@ -1125,6 +1235,19 @@ type ExposeRequest struct {
 
 // ExposeRequestProtocol defines model for ExposeRequest.Protocol.
 type ExposeRequestProtocol string
+
+// GpuMetrics defines model for GpuMetrics.
+type GpuMetrics struct {
+	// Backend 采样后端名；`unsupported` 表示此平台没有实现 GPU 采样。
+	// 与主机指标同一个约定：不支持时**仍然返回 200**，界面据此
+	// 显示"此平台不支持"，而不是显示一个假的 0%。
+	//
+	//
+	// Examples: darwin-ioreg, unsupported
+	Backend            string   `json:"backend"`
+	Name               *string  `json:"name,omitempty"`
+	UtilizationPercent *float64 `json:"utilization_percent,omitempty"`
+}
 
 // Health defines model for Health.
 type Health struct {
@@ -1142,12 +1265,16 @@ type HostMetrics struct {
 	At *time.Time `json:"at,omitempty"`
 
 	// Backend 采样后端名；`unsupported` 表示此平台没有实现采样。
-	Backend          *string `json:"backend,omitempty"`
-	CpuPercent       float64 `json:"cpu_percent"`
-	MemoryTotalBytes int     `json:"memory_total_bytes"`
-	MemoryUsedBytes  int     `json:"memory_used_bytes"`
-	NetRxBytesPerSec float64 `json:"net_rx_bytes_per_sec"`
-	NetTxBytesPerSec float64 `json:"net_tx_bytes_per_sec"`
+	Backend    *string `json:"backend,omitempty"`
+	CpuPercent float64 `json:"cpu_percent"`
+
+	// Disks 主机的真实挂载点（已排除伪文件系统）。仅当前快照有。
+	Disks            *[]DiskMetrics `json:"disks,omitempty"`
+	Gpu              *GpuMetrics    `json:"gpu,omitempty"`
+	MemoryTotalBytes int            `json:"memory_total_bytes"`
+	MemoryUsedBytes  int            `json:"memory_used_bytes"`
+	NetRxBytesPerSec float64        `json:"net_rx_bytes_per_sec"`
+	NetTxBytesPerSec float64        `json:"net_tx_bytes_per_sec"`
 }
 
 // IPStatus defines model for IPStatus.
@@ -1266,6 +1393,18 @@ type JobList struct {
 // canceled 被取消
 type JobStatus string
 
+// KernelEvent defines model for KernelEvent.
+type KernelEvent struct {
+	Payload *map[string]interface{} `json:"payload,omitempty"`
+
+	// Seq 单调递增的事件序号，用作游标。
+	Seq int64     `json:"seq"`
+	Ts  time.Time `json:"ts"`
+
+	// Type Examples: app.state_changed, cert.issued, dns.updated
+	Type string `json:"type"`
+}
+
 // Meta defines model for Meta.
 type Meta struct {
 	// ApiVersion 本接口的版本，当前为 v1。
@@ -1374,6 +1513,59 @@ type NotifyDelivery struct {
 // NotifyDeliveryList defines model for NotifyDeliveryList.
 type NotifyDeliveryList struct {
 	Items []NotifyDelivery `json:"items"`
+}
+
+// PairingRequest defines model for PairingRequest.
+type PairingRequest struct {
+	// Label 设备名；留空由内核给一个默认名。
+	Label *string `json:"label,omitempty"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role *RemoteRole `json:"role,omitempty"`
+}
+
+// PairingSession defines model for PairingSession.
+type PairingSession struct {
+	// Addresses 候选地址（含端口）。IPv4 在前，IPv6 与主机名在后。
+	Addresses []string  `json:"addresses"`
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// FingerprintShort 证书公钥指纹的短形式，形如 `A1B2-C3D4`，供两端人工核对。
+	FingerprintShort string `json:"fingerprint_short"`
+	Id               string `json:"id"`
+
+	// Label 给将要配对的设备预留的名字；留空表示由设备自称。
+	Label *string `json:"label,omitempty"`
+
+	// ManualCode 六位手输配对码。字母表去掉了 `I/L/O/U` 与 `0/1` ——
+	// 这几个字符靠读音与字形都分不开，是这类码最常见的失败。
+	ManualCode string `json:"manual_code"`
+
+	// QrPayload 二维码里要编码的原文。**由内核生成** —— payload 是契约的一部分，
+	// GUI 只负责把它渲染成像素。两个实现意味着两处会漂移。
+	QrPayload string `json:"qr_payload"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role RemoteRole `json:"role"`
+
+	// SpkiSha256 自签证书公钥（SubjectPublicKeyInfo）的 SHA-256，base64url。
+	SpkiSha256 string `json:"spki_sha256"`
 }
 
 // Preset defines model for Preset.
@@ -1703,6 +1895,224 @@ type RecordList struct {
 	Items []Record `json:"items"`
 }
 
+// RemoteDeriveRequest defines model for RemoteDeriveRequest.
+type RemoteDeriveRequest struct {
+	Device *RemoteDeviceInfo `json:"device,omitempty"`
+	Label  *string           `json:"label,omitempty"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role RemoteRole `json:"role"`
+}
+
+// RemoteDevice defines model for RemoteDevice.
+type RemoteDevice struct {
+	AppVersion *string    `json:"app_version,omitempty"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+	Id         string     `json:"id"`
+	Label      string     `json:"label"`
+
+	// LastSeenAt 最后一次通过鉴权的请求时间。
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	LastSeenIp *string    `json:"last_seen_ip,omitempty"`
+	Model      *string    `json:"model,omitempty"`
+
+	// NotificationsEnabled 是否接收推送。默认关闭 —— 推送需要设备侧显式开启。
+	NotificationsEnabled bool    `json:"notifications_enabled"`
+	OsVersion            *string `json:"os_version,omitempty"`
+
+	// ParentDeviceId 派生令牌的来源设备；空串表示直接配对而来。
+	ParentDeviceId *string `json:"parent_device_id,omitempty"`
+	Platform       *string `json:"platform,omitempty"`
+
+	// RevokedAt 吊销时间；已吊销的设备保留在列表里以便追溯。
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role      RemoteRole `json:"role"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// RemoteDeviceInfo defines model for RemoteDeviceInfo.
+type RemoteDeviceInfo struct {
+	AppVersion *string `json:"app_version,omitempty"`
+	Model      *string `json:"model,omitempty"`
+	Name       string  `json:"name"`
+	OsVersion  *string `json:"os_version,omitempty"`
+	Platform   *string `json:"platform,omitempty"`
+}
+
+// RemoteDeviceList defines model for RemoteDeviceList.
+type RemoteDeviceList struct {
+	Items []RemoteDevice `json:"items"`
+}
+
+// RemoteDevicePatch defines model for RemoteDevicePatch.
+type RemoteDevicePatch struct {
+	Label                *string `json:"label,omitempty"`
+	NotificationsEnabled *bool   `json:"notifications_enabled,omitempty"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role *RemoteRole `json:"role,omitempty"`
+}
+
+// RemotePairRequest defines model for RemotePairRequest.
+type RemotePairRequest struct {
+	// Code 六位手输配对码。与 `secret` 二选一。
+	Code   *string          `json:"code,omitempty"`
+	Device RemoteDeviceInfo `json:"device"`
+
+	// Secret 二维码里的高熵配对密钥。与 `code` 二选一。
+	Secret *string `json:"secret,omitempty"`
+}
+
+// RemotePairResult defines model for RemotePairResult.
+type RemotePairResult struct {
+	DeviceId string `json:"device_id"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role   RemoteRole       `json:"role"`
+	Server RemoteServerInfo `json:"server"`
+
+	// Token 设备令牌。**只在这一个响应里出现**：服务端只存它的 SHA-256。
+	// 丢了这个响应只能重新配对，这是刻意的。
+	Token string `json:"token"`
+}
+
+// RemotePushTokenRequest defines model for RemotePushTokenRequest.
+type RemotePushTokenRequest struct {
+	Environment *RemotePushTokenRequestEnvironment `json:"environment,omitempty"`
+
+	// Token APNs 设备令牌（十六进制）。
+	Token string  `json:"token"`
+	Topic *string `json:"topic,omitempty"`
+}
+
+// RemotePushTokenRequestEnvironment defines model for RemotePushTokenRequest.Environment.
+type RemotePushTokenRequestEnvironment string
+
+// RemoteRole 权限只有两级，刻意不做细粒度 scope：
+//
+// viewer   只读监控 —— 所有 GET
+// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+//
+//	证书手动续期
+//
+// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+// 多出来的表达力在三五个接口上换不回等价的可理解性。
+type RemoteRole string
+
+// RemoteSelf defines model for RemoteSelf.
+type RemoteSelf struct {
+	Device RemoteDevice `json:"device"`
+
+	// Role 权限只有两级，刻意不做细粒度 scope：
+	//
+	// viewer   只读监控 —— 所有 GET
+	// operator 只读 + DNS 记录增删改、DDNS 任务启停、站点启停重启、
+	//          证书手动续期
+	//
+	// 两级的判据是"这台设备能不能改到用户的东西"，而不是按接口分类：
+	// 多一级就要在契约、存储、中间件与授权界面四处都引入能力位，而
+	// 多出来的表达力在三五个接口上换不回等价的可理解性。
+	Role   RemoteRole       `json:"role"`
+	Server RemoteServerInfo `json:"server"`
+}
+
+// RemoteServerInfo defines model for RemoteServerInfo.
+type RemoteServerInfo struct {
+	ApiVersion string `json:"api_version"`
+
+	// ApnsTopic 若已配置 APNs，这里给出通知该登记的 topic。
+	ApnsTopic        *string `json:"apns_topic,omitempty"`
+	FingerprintShort *string `json:"fingerprint_short,omitempty"`
+
+	// Name 服务器显示名。默认取主机名。
+	Name                 string  `json:"name"`
+	NotificationsEnabled *bool   `json:"notifications_enabled,omitempty"`
+	Platform             *string `json:"platform,omitempty"`
+	SpkiSha256           *string `json:"spki_sha256,omitempty"`
+	Version              string  `json:"version"`
+}
+
+// RemoteSettingsPatch defines model for RemoteSettingsPatch.
+type RemoteSettingsPatch struct {
+	// Enabled 总开关。默认关闭 —— 对外监听是需要用户明确决定的动作。
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// NotificationsEnabled 推送总开关。默认关闭。
+	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
+	Port                 *int  `json:"port,omitempty"`
+}
+
+// RemoteState disabled  总开关关闭
+// starting  正在启动监听
+// running   正在监听
+// failed    启动失败（原因见 `last_error`）
+type RemoteState string
+
+// RemoteStatus defines model for RemoteStatus.
+type RemoteStatus struct {
+	// Addresses 可供客户端尝试的候选地址（含端口）。顺序即建议的尝试顺序：
+	// IPv4 私有地址在前，IPv6 与 `<hostname>.local` 在后。
+	Addresses        *[]string   `json:"addresses,omitempty"`
+	ApnsConfigured   *bool       `json:"apns_configured,omitempty"`
+	ApnsStatus       *ApnsStatus `json:"apns_status,omitempty"`
+	DeviceCount      int         `json:"device_count"`
+	Enabled          bool        `json:"enabled"`
+	FingerprintShort *string     `json:"fingerprint_short,omitempty"`
+	Hostname         *string     `json:"hostname,omitempty"`
+
+	// LastError 最近一次监听失败的原因（本地化）。空串表示正常。
+	LastError *string `json:"last_error,omitempty"`
+
+	// Listening 监听是否真的起来了（`state == running` 时才是 true）。
+	Listening            *bool           `json:"listening,omitempty"`
+	NotificationsEnabled bool            `json:"notifications_enabled"`
+	Pairing              *PairingSession `json:"pairing,omitempty"`
+	Port                 int             `json:"port"`
+	SpkiSha256           *string         `json:"spki_sha256,omitempty"`
+
+	// State disabled  总开关关闭
+	// starting  正在启动监听
+	// running   正在监听
+	// failed    启动失败（原因见 `last_error`）
+	State       RemoteState `json:"state"`
+	TlsNotAfter *time.Time  `json:"tls_not_after,omitempty"`
+}
+
 // RuntimeInfo defines model for RuntimeInfo.
 type RuntimeInfo struct {
 	Executable *string           `json:"executable,omitempty"`
@@ -1965,6 +2375,9 @@ type JobId = string
 // Limit defines model for Limit.
 type Limit = int
 
+// PairingId defines model for PairingId.
+type PairingId = string
+
 // PlanId defines model for PlanId.
 type PlanId = string
 
@@ -1973,6 +2386,9 @@ type ReachProviderName = string
 
 // RecordId defines model for RecordId.
 type RecordId = string
+
+// RemoteDeviceId defines model for RemoteDeviceId.
+type RemoteDeviceId = string
 
 // VerifySessionId defines model for VerifySessionId.
 type VerifySessionId = string
@@ -1996,9 +2412,13 @@ type ListAuditParams struct {
 	// Limit 单页条数。
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Action 按动作过滤。
-	Action *string      `form:"action,omitempty" json:"action,omitempty"`
-	Result *AuditResult `form:"result,omitempty" json:"result,omitempty"`
+	// Action 按动作过滤（精确匹配）。
+	Action *string `form:"action,omitempty" json:"action,omitempty"`
+
+	// ActionPrefix 按动作前缀过滤，例如 `remote.` 取全部远程访问相关记录。
+	// 与 `action` 同时给出时两者都要满足。
+	ActionPrefix *string      `form:"action_prefix,omitempty" json:"action_prefix,omitempty"`
+	Result       *AuditResult `form:"result,omitempty" json:"result,omitempty"`
 }
 
 // ListChangesParams defines parameters for ListChanges.
@@ -2047,6 +2467,16 @@ type ListRecordsParams struct {
 type SubscribeEventsParams struct {
 	// LastEventId 客户端已收到的最后一个事件序号，用于断线补发。
 	LastEventId *int64 `form:"lastEventId,omitempty" json:"lastEventId,omitempty"`
+}
+
+// PollEventsParams defines parameters for PollEvents.
+type PollEventsParams struct {
+	// Since 客户端已收到的最后一个事件序号；0 或省略表示从现在开始。
+	Since *int64 `form:"since,omitempty" json:"since,omitempty"`
+
+	// TimeoutMs 没有新事件时最多阻塞多久。上限 55 秒：再长会被中间代理掐断。
+	TimeoutMs *int `form:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+	Limit     *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListJobsParams defines parameters for ListJobs.
@@ -2099,6 +2529,27 @@ type ReplaceProxyRoutesJSONRequestBody = ProxyRouteList
 
 // PlanReachExposeJSONRequestBody defines body for PlanReachExpose for application/json ContentType.
 type PlanReachExposeJSONRequestBody = ExposeRequest
+
+// SetRemoteApnsJSONRequestBody defines body for SetRemoteApns for application/json ContentType.
+type SetRemoteApnsJSONRequestBody = ApnsCredentials
+
+// UpdateRemoteDeviceJSONRequestBody defines body for UpdateRemoteDevice for application/json ContentType.
+type UpdateRemoteDeviceJSONRequestBody = RemoteDevicePatch
+
+// CompleteRemotePairingJSONRequestBody defines body for CompleteRemotePairing for application/json ContentType.
+type CompleteRemotePairingJSONRequestBody = RemotePairRequest
+
+// StartRemotePairingJSONRequestBody defines body for StartRemotePairing for application/json ContentType.
+type StartRemotePairingJSONRequestBody = PairingRequest
+
+// DeriveRemoteDeviceJSONRequestBody defines body for DeriveRemoteDevice for application/json ContentType.
+type DeriveRemoteDeviceJSONRequestBody = RemoteDeriveRequest
+
+// RegisterRemotePushTokenJSONRequestBody defines body for RegisterRemotePushToken for application/json ContentType.
+type RegisterRemotePushTokenJSONRequestBody = RemotePushTokenRequest
+
+// UpdateRemoteSettingsJSONRequestBody defines body for UpdateRemoteSettings for application/json ContentType.
+type UpdateRemoteSettingsJSONRequestBody = RemoteSettingsPatch
 
 // ProvisionRuntimesJSONRequestBody defines body for ProvisionRuntimes for application/json ContentType.
 type ProvisionRuntimesJSONRequestBody = RuntimeProvisionRequest
@@ -2237,6 +2688,12 @@ type ServerInterface interface {
 	// UpdateDdnsTask 修改任务
 	// (PATCH /v1/ddns-tasks/{id})
 	UpdateDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
+	// DisableDdnsTask 停用一个动态解析任务
+	// (POST /v1/ddns-tasks/{id}/disable)
+	DisableDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
+	// EnableDdnsTask 启用一个动态解析任务
+	// (POST /v1/ddns-tasks/{id}/enable)
+	EnableDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
 	// RunDdnsTask 立即执行一次任务
 	// (POST /v1/ddns-tasks/{id}/run)
 	RunDdnsTask(w http.ResponseWriter, r *http.Request, id DdnsTaskId)
@@ -2246,6 +2703,9 @@ type ServerInterface interface {
 	// SubscribeEvents 订阅事件流（WebSocket）
 	// (GET /v1/events)
 	SubscribeEvents(w http.ResponseWriter, r *http.Request, params SubscribeEventsParams)
+	// PollEvents 订阅事件流（游标长轮询）
+	// (GET /v1/events/poll)
+	PollEvents(w http.ResponseWriter, r *http.Request, params PollEventsParams)
 	// GetHealth 存活检查
 	// (GET /v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -2303,6 +2763,54 @@ type ServerInterface interface {
 	// ProbeReachProvider 探测某种可达方式当前是否可用
 	// (GET /v1/reach/providers/{name}/probe)
 	ProbeReachProvider(w http.ResponseWriter, r *http.Request, name ReachProviderName)
+	// DeleteRemoteApns 删除 APNs 凭据
+	// (DELETE /v1/remote/apns)
+	DeleteRemoteApns(w http.ResponseWriter, r *http.Request)
+	// SetRemoteApns 保存 APNs 凭据（.p8 鉴权密钥）
+	// (PUT /v1/remote/apns)
+	SetRemoteApns(w http.ResponseWriter, r *http.Request)
+	// ListRemoteDevices 已配对的设备
+	// (GET /v1/remote/devices)
+	ListRemoteDevices(w http.ResponseWriter, r *http.Request)
+	// RevokeRemoteDevice 吊销一台设备（级联吊销它派生的设备）
+	// (DELETE /v1/remote/devices/{id})
+	RevokeRemoteDevice(w http.ResponseWriter, r *http.Request, id RemoteDeviceId)
+	// UpdateRemoteDevice 改设备的名称、角色或通知开关
+	// (PATCH /v1/remote/devices/{id})
+	UpdateRemoteDevice(w http.ResponseWriter, r *http.Request, id RemoteDeviceId)
+	// TestRemotePush 给一台设备发一条测试推送
+	// (POST /v1/remote/devices/{id}/test-push)
+	TestRemotePush(w http.ResponseWriter, r *http.Request, id RemoteDeviceId)
+	// CompleteRemotePairing 用配对密钥或六位手输码换取设备令牌
+	// (POST /v1/remote/pair)
+	CompleteRemotePairing(w http.ResponseWriter, r *http.Request)
+	// StartRemotePairing 开一个配对会话（生成二维码与六位手输码）
+	// (POST /v1/remote/pairing)
+	StartRemotePairing(w http.ResponseWriter, r *http.Request)
+	// CancelRemotePairing 取消配对会话
+	// (DELETE /v1/remote/pairing/{id})
+	CancelRemotePairing(w http.ResponseWriter, r *http.Request, id PairingId)
+	// UnpairRemoteSelf 设备自我解绑
+	// (DELETE /v1/remote/self)
+	UnpairRemoteSelf(w http.ResponseWriter, r *http.Request)
+	// GetRemoteSelf 当前设备自己的身份与角色
+	// (GET /v1/remote/self)
+	GetRemoteSelf(w http.ResponseWriter, r *http.Request)
+	// DeriveRemoteDevice 派生一台新设备（给 Apple Watch）
+	// (POST /v1/remote/self/derive)
+	DeriveRemoteDevice(w http.ResponseWriter, r *http.Request)
+	// UnregisterRemotePushToken 注销这台设备的 APNs 令牌
+	// (DELETE /v1/remote/self/push-token)
+	UnregisterRemotePushToken(w http.ResponseWriter, r *http.Request)
+	// RegisterRemotePushToken 登记这台设备的 APNs 令牌
+	// (POST /v1/remote/self/push-token)
+	RegisterRemotePushToken(w http.ResponseWriter, r *http.Request)
+	// UpdateRemoteSettings 开关远程访问、改监听端口
+	// (PATCH /v1/remote/settings)
+	UpdateRemoteSettings(w http.ResponseWriter, r *http.Request)
+	// GetRemoteStatus 远程访问的当前状态
+	// (GET /v1/remote/status)
+	GetRemoteStatus(w http.ResponseWriter, r *http.Request)
 	// ListRuntimes 列出可用的运行时
 	// (GET /v1/runtimes)
 	ListRuntimes(w http.ResponseWriter, r *http.Request)
@@ -2643,6 +3151,19 @@ func (siw *ServerInterfaceWrapper) ListAudit(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action_prefix" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action_prefix", r.URL.Query(), &params.ActionPrefix, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action_prefix"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action_prefix", Err: err})
 		}
 		return
 	}
@@ -3478,6 +3999,58 @@ func (siw *ServerInterfaceWrapper) UpdateDdnsTask(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DisableDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) DisableDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id DdnsTaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisableDdnsTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EnableDdnsTask operation middleware
+func (siw *ServerInterfaceWrapper) EnableDdnsTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id DdnsTaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EnableDdnsTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RunDdnsTask operation middleware
 func (siw *ServerInterfaceWrapper) RunDdnsTask(w http.ResponseWriter, r *http.Request) {
 
@@ -3542,6 +4115,65 @@ func (siw *ServerInterfaceWrapper) SubscribeEvents(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SubscribeEvents(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PollEvents operation middleware
+func (siw *ServerInterfaceWrapper) PollEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PollEventsParams
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "timeout_ms" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "timeout_ms", r.URL.Query(), &params.TimeoutMs, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "timeout_ms"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "timeout_ms", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PollEvents(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3914,6 +4546,278 @@ func (siw *ServerInterfaceWrapper) ProbeReachProvider(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ProbeReachProvider(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRemoteApns operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRemoteApns(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRemoteApns(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRemoteApns operation middleware
+func (siw *ServerInterfaceWrapper) SetRemoteApns(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRemoteApns(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRemoteDevices operation middleware
+func (siw *ServerInterfaceWrapper) ListRemoteDevices(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRemoteDevices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeRemoteDevice operation middleware
+func (siw *ServerInterfaceWrapper) RevokeRemoteDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id RemoteDeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeRemoteDevice(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRemoteDevice operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRemoteDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id RemoteDeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRemoteDevice(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TestRemotePush operation middleware
+func (siw *ServerInterfaceWrapper) TestRemotePush(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id RemoteDeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TestRemotePush(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteRemotePairing operation middleware
+func (siw *ServerInterfaceWrapper) CompleteRemotePairing(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteRemotePairing(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartRemotePairing operation middleware
+func (siw *ServerInterfaceWrapper) StartRemotePairing(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartRemotePairing(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelRemotePairing operation middleware
+func (siw *ServerInterfaceWrapper) CancelRemotePairing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id PairingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelRemotePairing(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnpairRemoteSelf operation middleware
+func (siw *ServerInterfaceWrapper) UnpairRemoteSelf(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnpairRemoteSelf(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRemoteSelf operation middleware
+func (siw *ServerInterfaceWrapper) GetRemoteSelf(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRemoteSelf(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeriveRemoteDevice operation middleware
+func (siw *ServerInterfaceWrapper) DeriveRemoteDevice(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeriveRemoteDevice(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnregisterRemotePushToken operation middleware
+func (siw *ServerInterfaceWrapper) UnregisterRemotePushToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnregisterRemotePushToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegisterRemotePushToken operation middleware
+func (siw *ServerInterfaceWrapper) RegisterRemotePushToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegisterRemotePushToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRemoteSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRemoteSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRemoteSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRemoteStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetRemoteStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRemoteStatus(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4366,6 +5270,25 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/uninstall", wrapper.UninstallService)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/start", wrapper.StartService)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/service/stop", wrapper.StopService)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/remote/status", wrapper.GetRemoteStatus)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/remote/settings", wrapper.UpdateRemoteSettings)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/pairing", wrapper.StartRemotePairing)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/pairing/{id}", wrapper.CancelRemotePairing)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/remote/devices", wrapper.ListRemoteDevices)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/devices/{id}", wrapper.RevokeRemoteDevice)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/remote/devices/{id}", wrapper.UpdateRemoteDevice)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/devices/{id}/test-push", wrapper.TestRemotePush)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/apns", wrapper.DeleteRemoteApns)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/remote/apns", wrapper.SetRemoteApns)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/pair", wrapper.CompleteRemotePairing)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/self", wrapper.UnpairRemoteSelf)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/remote/self", wrapper.GetRemoteSelf)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/self/derive", wrapper.DeriveRemoteDevice)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/remote/self/push-token", wrapper.UnregisterRemotePushToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/remote/self/push-token", wrapper.RegisterRemotePushToken)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/events/poll", wrapper.PollEvents)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/ddns-tasks/{id}/enable", wrapper.EnableDdnsTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/ddns-tasks/{id}/disable", wrapper.DisableDdnsTask)
 
 	return m
 }

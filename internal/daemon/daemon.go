@@ -39,6 +39,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
+	"github.com/ShirazuNagisa/isc-core/internal/remote"
 	hosting "github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
 	"github.com/ShirazuNagisa/isc-core/internal/secret"
@@ -134,6 +135,16 @@ type Daemon struct {
 	runtimes     *hosting.Manager
 	apps         *appsvc.Manager
 	metrics      *metrics.Sampler
+
+	// remote 是远程管理面（ISC Mizar）。它为 nil 表示这一块没起来 ——
+	// 那时本地接口的 /v1/remote/* 会返回"未装配"，而不是伪装成功。
+	remote *remote.Service
+	// pushNotifier 把内核事件翻译成手机推送通知。
+	//
+	// 与 `notifier`（notify.Manager，内核往外发消息的通道）是两件事：
+	// 那个是用户配置的 webhook 之类，这个是发给已配对的手机。
+	pushNotifier *remote.Notifier
+
 	certMgr      *acme.Manager
 	certProvider *acme.StoreProvider
 	acmeResolver *acme.Resolver
@@ -476,6 +487,37 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 
+	// 9.5 远程管理面（ISC Mizar）。
+	//
+	// 构造放在 API 之前：接口层要用它做鉴权与设备管理。证书在这里就绪 ——
+	// 状态页要显示公钥指纹，而指纹在总开关还没打开时也必须能显示，
+	// 否则用户点开页面看到的是一片空白，无法判断它准备好没有。
+	//
+	// 构造失败**不让内核起不来**：远程访问是附加能力，而一个写不进去的
+	// 证书目录不该让本机的 DNS 管理也用不了。失败时留下 nil，
+	// 接口层会据此返回"未装配"。
+	//
+	// APNs 的私钥用主密钥加密之后落在 remote/ 目录里 —— 数据目录里
+	// 已经有一把主密钥，没有理由让一把能给所有用户发推送的钥匙明文躺着。
+	if svc, err := remote.New(remote.Options{
+		Dir:        d.opts.Paths.RemoteDir(),
+		Port:       d.settings.Get().RemotePort,
+		Store:      st,
+		Log:        d.log,
+		Name:       "",
+		Version:    version.Version,
+		APIVersion: version.APIVersion,
+		APNSStore:  remote.NewCredentialStore(d.opts.Paths.RemoteDir(), secrets),
+		APNSHost:   os.Getenv("ISC_APNS_HOST"),
+	}); err != nil {
+		d.log.Error(i18n.T("daemon.remote_init_failed"), "err", err)
+	} else {
+		d.remote = svc
+		d.pushNotifier = remote.NewNotifier(svc,
+			remote.NewCredentialStore(d.opts.Paths.RemoteDir(), secrets),
+			os.Getenv("ISC_APNS_HOST"))
+	}
+
 	// 10. API 服务
 	d.api = api.New(api.Deps{
 		Bus:            d.bus,
@@ -507,10 +549,19 @@ func (d *Daemon) Run(ctx context.Context) error {
 		CertInvalidate: d.certProvider.Invalidate,
 		Certs:          d.certMgr,
 		CertRequests:   d.certRequests,
+		Remote:         d.remote,
 	})
 
 	// 10.5 缓存接口处理器：库会在进程内直接用它，不必每次重建路由表。
 	d.handler = d.api.Routes()
+
+	// 10.6 把远程面的处理器交给监听。
+	//
+	// 分两步是因为两边互相依赖：接口层需要本服务做鉴权，而本服务需要
+	// 接口层构造出来的路由。先构造、后注入，避免把两个包耦成一个环。
+	if d.remote != nil {
+		d.remote.SetHandler(d.api.RemoteRoutes())
+	}
 
 	// 11. 建立传输通道
 	if err := d.listen(ctx); err != nil {
@@ -525,6 +576,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// 13. 起服务
 	d.serve(cancelRun)
+
+	// 13.5 远程监听（若设置里开着）。
+	//
+	// 放在本地通道之后：本地通道是内核的**基本可用性**，而远程面是附加的。
+	// 顺序反过来的话，一个被占用的远程端口会让用户连本地界面都打不开。
+	d.startRemote(runCtx)
 
 	// 14. 后台：网卡监控 + 动态解析调度
 	d.startBackground(runCtx)
@@ -551,7 +608,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return refs
 	})
 
-	// 17. 归位托管站点。
+	// 17.5 推送转发。
+	//
+	// 放在后台：它订阅事件总线并一直等到 ctx 结束，不该拖慢内核就绪。
+	if d.pushNotifier != nil {
+		go d.pushNotifier.Run(runCtx, d.bus)
+	}
+
+	// 18. 归位托管站点。
 	//
 	// 放在后台：拉起一个站点要等健康检查（最长 60 秒），而"内核是否可用"
 	// 不该被某个用户站点拖住 —— 用户要能立刻打开界面看它卡在哪。
@@ -570,6 +634,25 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.log.Info(i18n.T("daemon.stopping"))
 
 	return d.shutdown()
+}
+
+// startRemote 按设置启动远程监听。
+//
+// 与反向代理同一套取舍：失败只记日志、不影响内核启动。用户在界面上
+// 看到的是"远程访问未运行 + 原因"，而不是"内核起不来"。
+func (d *Daemon) startRemote(ctx context.Context) {
+	if d.remote == nil || d.settings == nil {
+		return
+	}
+	s := d.settings.Get()
+	d.remote.SetNotificationsEnabled(s.RemoteNotifications)
+	if !s.RemoteEnabled {
+		d.log.Info(i18n.T("daemon.remote_disabled"))
+		return
+	}
+	if err := d.remote.Apply(ctx, true, s.RemotePort); err != nil {
+		d.log.Error(i18n.T("daemon.remote_start_failed"), "err", err)
+	}
 }
 
 // startProxy 按设置启动反向代理。
@@ -1057,6 +1140,12 @@ func (d *Daemon) shutdown() error {
 	if d.monitorCancel != nil {
 		d.monitorCancel()
 		d.monitorCancel = nil
+	}
+
+	// 停掉远程监听。它同样要等在途请求结束 —— 手机上可能正挂着一条
+	// 25 秒的长轮询，而"内核已关闭"与"内核卡住了"在用户那里长得一样。
+	if d.remote != nil {
+		_ = d.remote.Stop(context.Background())
 	}
 
 	// 停掉反向代理：它会等待在途请求结束（可能有正在传输的大文件），

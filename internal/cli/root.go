@@ -117,6 +117,7 @@ func newWithApp(app *App) *cobra.Command {
 		newNotifyCmd(app),
 		newInitCmd(app),
 		newServiceCmd(app),
+		newRemoteCmd(app),
 		newChangesCmd(app),
 		newRollbackCmd(app),
 		newDoctorCmd(app),

@@ -89,4 +89,14 @@ var storeMessagesEn = map[string]string{
 	// --- opening ---
 	"store.err.open": "store: failed to open the database: %w",
 	"store.err.ping": "store: failed to connect to the database: %w",
+
+	// --- remote devices ---
+	"store.err.insert_remote_device": "store: failed to write the remote device: %w",
+	"store.err.list_remote_devices":  "store: failed to list the remote devices: %w",
+	"store.err.iter_remote_devices":  "store: failed to iterate the remote devices: %w",
+	"store.err.get_remote_device":    "store: failed to read the remote device: %w",
+	"store.err.update_remote_device": "store: failed to update the remote device: %w",
+	"store.err.revoke_remote_device": "store: failed to revoke the remote device: %w",
+	"store.err.touch_remote_device":  "store: failed to record the remote device's last-seen time: %w",
+	"store.err.push_delivery":        "store: failed to record the push delivery: %w",
 }

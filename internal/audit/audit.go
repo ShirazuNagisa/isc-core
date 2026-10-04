@@ -88,6 +88,20 @@ const (
 	ActionConfigImport       = "config.import"
 	ActionConfigImportDdnsGo = "config.import.ddnsgo"
 	ActionConfigExport       = "config.export"
+
+	// --- 远程访问（ISC Mizar）---
+	//
+	// 这一组的动作名都以 `remote.` 开头，因为 Phecda 的「远程访问」页
+	// 就是按这个前缀过滤审计日志来当访问日志用的（`?action_prefix=remote.`）。
+	// 前缀因此是**接口的一部分**，不是命名习惯。
+	ActionRemoteSettings     = "remote.settings"
+	ActionRemotePair         = "remote.pair"
+	ActionRemotePairFailed   = "remote.pair_failed"
+	ActionRemoteDerive       = "remote.derive"
+	ActionRemoteUnpair       = "remote.unpair"
+	ActionRemoteRevoke       = "remote.revoke"
+	ActionRemoteDeviceUpdate = "remote.device_update"
+	ActionRemoteApns         = "remote.apns"
 )
 
 // Record 是一条审计记录。
@@ -113,9 +127,14 @@ type Record struct {
 // Filter 是审计查询条件。
 type Filter struct {
 	Action string
-	Result string
-	Cursor string
-	Limit  int
+	// ActionPrefix 按前缀过滤，例如 `remote.` 取全部远程访问相关记录。
+	//
+	// 与 Action（精确匹配）并存而不是取代它：精确匹配是"我就要这一条"，
+	// 而前缀是"这一整块"。两者同时给出时都要满足。
+	ActionPrefix string
+	Result       string
+	Cursor       string
+	Limit        int
 }
 
 // Writer 是审计记录的持久化接口。
