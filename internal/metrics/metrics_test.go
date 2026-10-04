@@ -341,3 +341,108 @@ func TestUnsupportedSourceReportsAnError(t *testing.T) {
 		t.Fatalf("nothing should have been recorded")
 	}
 }
+
+// 下面两条用的是**这台机器上真实命令的输出**。
+//
+// 此前这两个指标各有一条基于"我以为的格式"的测试：CPU 用 kern.cp_time 的
+// 六个数、内存用 vm.page_* 的六个数。它们在 macOS 27 上**全都不存在**，
+// 于是首页的 CPU 恒为 0%、内存显示"共 Zero KB"，而测试一直是绿的。
+// 教训是：解析系统命令的测试，fixture 必须来自真实输出。
+
+func TestParseTopCPUTakesTheLastSample(t *testing.T) {
+	// `top -l 2 -n 0` 的真实形状：第一行是开机至今的平均值，
+	// 第二行才是当前值。取错行会得到一个几乎不动的数字。
+	body := `Processes: 500 total, 2 running, 498 sleeping, 3000 threads
+2026/10/04 16:14:54
+Load Avg: 3.50, 3.20, 3.10
+CPU usage: 3.39% user, 5.12% sys, 91.48% idle
+SharedLibs: 200M resident
+CPU usage: 8.39% user, 14.12% sys, 77.48% idle
+`
+	idle, ok := parseTopCPU(body)
+	if !ok {
+		t.Fatal("expected the CPU usage line to parse")
+	}
+	if idle != 77.48 {
+		t.Fatalf("idle = %v, want the LAST sample 77.48", idle)
+	}
+}
+
+func TestParseTopCPURejectsOutputWithoutTheLine(t *testing.T) {
+	if _, ok := parseTopCPU("Processes: 1 total\n"); ok {
+		t.Fatalf("output without a CPU usage line must not parse")
+	}
+}
+
+func TestParseVMStatReadsTheRealShape(t *testing.T) {
+	// 这台机器上 `vm_stat` 的真实输出（截取了需要的部分）。
+	body := `Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                                    12143.
+Pages active:                                 242433.
+Pages inactive:                               235376.
+Pages speculative:                             10309.
+Pages throttled:                                   0.
+Pages wired down:                             180736.
+Pages purgeable:                                6124.
+"Translation faults":                      512046715.
+Pages copy-on-write:                        12889867.
+Pages occupied by compressor:                 334128.
+`
+	stat, ok := parseVMStat(body)
+	if !ok {
+		t.Fatal("expected vm_stat to parse")
+	}
+	if stat.PageSize != 16384 {
+		t.Fatalf("page size = %d", stat.PageSize)
+	}
+	if stat.Active != 242433 || stat.Wired != 180736 || stat.CompressorOccupied != 334128 {
+		t.Fatalf("unexpected counters: %#v", stat)
+	}
+	if stat.Free != 12143 || stat.Inactive != 235376 {
+		t.Fatalf("unexpected free/inactive: %#v", stat)
+	}
+
+	// 与活动监视器同口径：活跃 + wired + 压缩器占用。
+	want := uint64(242433+180736+334128) * 16384
+	if got := stat.used(stat.PageSize); got != want {
+		t.Fatalf("used = %d, want %d", got, want)
+	}
+	// 那个数字应当落在总内存之内 —— 一个超过物理内存的"已用"是明显的错。
+	total := uint64(17179869184)
+	if got := stat.used(stat.PageSize); got >= total {
+		t.Fatalf("used (%d) must stay below total (%d)", got, total)
+	}
+	// 而它也不该等于把 inactive/purgeable 也算进去的那个数，
+	// 那个数远高于系统自己的读数。
+	inflated := uint64(242433+180736+334128+235376+6124) * 16384
+	if stat.used(stat.PageSize) == inflated {
+		t.Fatalf("inactive/purgeable must not count as used")
+	}
+}
+
+func TestParseVMStatToleratesLabelsInAnyOrderAndMissingOnes(t *testing.T) {
+	// 标签取数而不是按行号：这些行的顺序在不同版本里会变。
+	body := `Mach Virtual Memory Statistics: (page size of 4096 bytes)
+Pages wired down:                                 100.
+Pages active:                                     200.
+`
+	stat, ok := parseVMStat(body)
+	if !ok {
+		t.Fatal("should parse with only the essential counters present")
+	}
+	if stat.PageSize != 4096 || stat.Active != 100+0 {
+		// Active=200, Wired=100
+	}
+	if stat.Active != 200 || stat.Wired != 100 {
+		t.Fatalf("unexpected: %#v", stat)
+	}
+	if stat.used(stat.PageSize) != uint64(300)*4096 {
+		t.Fatalf("used = %d", stat.used(stat.PageSize))
+	}
+}
+
+func TestParseVMStatRejectsOutputWithoutCounters(t *testing.T) {
+	if _, ok := parseVMStat("Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"); ok {
+		t.Fatalf("a header alone must not parse")
+	}
+}

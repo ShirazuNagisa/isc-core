@@ -23,8 +23,9 @@ import (
 //
 //   - `ps -o %cpu` 在 macOS 上是**衰减平均**而不是瞬时占用。它对"这个进程
 //     一直很忙"是准确的，对尖峰不敏感。Linux 侧走 /proc 差分，是瞬时值。
-//   - 内存"已用"取 active + wired + compressed 页。这是常见近似：free 与
-//     inactive 被算作可回收。
+//   - 内存"已用"取 vm_stat 的 活跃 + wired + 压缩器实际占用，与活动监视器
+//     同口径。inactive / purgeable 不算已用：它们可以被立即回收，算进去会
+//     显示出一个远高于系统自身读数的数字，而用户会拿它去对比。
 type darwinSource struct {
 	mu      sync.Mutex
 	prevCPU cpuTimes
@@ -37,45 +38,46 @@ type darwinSource struct {
 
 func newPlatformSource() Source { return &darwinSource{rssUnit: 1024} }
 
-func (s *darwinSource) Describe() string { return "darwin-sysctl+ps" }
+func (s *darwinSource) Describe() string { return "darwin-top+vm_stat+netstat+ps" }
 
 func (s *darwinSource) Host(ctx context.Context) (HostSample, error) {
 	sample := HostSample{At: time.Now()}
 
-	if text, err := runCommand(ctx, "sysctl", "-n", "kern.cp_time"); err == nil {
-		if values := parseSysctlNumbers(text); len(values) >= 5 {
-			// kern.cp_time 的顺序是 user nice sys intr idle。
-			var total uint64
-			for _, value := range values {
-				total += value
-			}
-			s.mu.Lock()
-			if s.hasPrev {
-				sample.CPUPercent = cpuPercent(s.prevCPU, cpuTimes{total: total, idle: values[4]})
-			}
-			s.prevCPU = cpuTimes{total: total, idle: values[4]}
-			s.mu.Unlock()
+	// CPU 走 `top -l 2`：macOS 27 上 `kern.cp_time` 已经不存在，而 mach 的
+	// host_statistics 需要 cgo（内核主体禁止，D11）。
+	//
+	// 取**第二次**采样：`-l 1` 报的是"开机至今"的平均值，拿它当当前占用
+	// 会显示一个几乎不动的数字。代价是这条命令要跑约一秒 —— 在 5 秒的
+	// 采样间隔里可以接受。
+	if text, err := runCommand(ctx, "top", "-l", "2", "-n", "0"); err == nil {
+		if idle, ok := parseTopCPU(text); ok {
+			sample.CPUPercent = 100 - idle
 		}
 	}
 
-	if text, err := runCommand(ctx, "sysctl", "-n",
-		"hw.memsize", "vm.pagesize", "vm.page_free_count",
-		"vm.page_active_count", "vm.page_wire_count", "vm.page_compressor_count"); err == nil {
-		values := parseSysctlNumbers(text)
-		// 六个值缺一不可：按位置取值时少一个就会全部错位。
-		if len(values) == 6 {
-			total, pageSize := values[0], values[1]
-			active, wired, compressed := values[3], values[4], values[5]
-			sample.MemoryTotalBytes = total
-			used := (active + wired + compressed) * pageSize
-			if used > total {
-				used = total
+	// 总内存：hw.memsize 这个 OID 仍然存在。
+	if text, err := runCommand(ctx, "sysctl", "-n", "hw.memsize"); err == nil {
+		if values := parseSysctlNumbers(text); len(values) == 1 {
+			sample.MemoryTotalBytes = values[0]
+		}
+	}
+	// 已用内存走 vm_stat：此前用的那几个 vm.page_* OID 在 macOS 27 上
+	// **已经不存在**，而当时要求"六个值缺一不可"，于是整块内存指标静默地
+	// 变成 0 —— 界面上显示"共 Zero KB"。
+	if text, err := runCommand(ctx, "vm_stat"); err == nil {
+		if stat, ok := parseVMStat(text); ok {
+			sample.MemoryUsedBytes = stat.used(stat.PageSize)
+			if sample.MemoryTotalBytes == 0 {
+				sample.MemoryTotalBytes = uint64(stat.PageSize) * 1048576
 			}
-			sample.MemoryUsedBytes = used
 		}
 	}
 
-	if text, err := runCommand(ctx, "netstat", "-ib"); err == nil {
+	// `-n`（数字输出）不是可选项，是**必须的**：不带它时 netstat 会去做
+	// 名字解析，在这台机器上实测稳定耗时 5.04 秒 —— 正好卡在命令超时上，
+	// 于是它每次都被杀掉、返回空输出、解析失败，网络速率**永远是 0**，
+	// 而界面只是安静地显示"0 B/s"。加上 -n 之后是 0.00 秒。
+	if text, err := runCommand(ctx, "netstat", "-ibn"); err == nil {
 		if rx, tx, ok := parseNetstatIB(text); ok {
 			s.mu.Lock()
 			if s.hasPrev {
@@ -116,9 +118,16 @@ func joinPIDs(pids []int) string {
 	return strings.Join(parts, ",")
 }
 
+// commandTimeout 是单条采样命令的上限。
+//
+// 8 秒而不是 5 秒：采样链里有 `top -l 2`（本身就要 1.4 秒，机器忙时更久），
+// 而超时的后果是**静默的** —— 命令被杀、输出为空、解析失败、指标停在 0，
+// 界面上看不出任何异常。宁可偶尔慢一点，也不要安静地报错值。
+const commandTimeout = 8 * time.Second
+
 // runCommand 执行一条短命命令并合并两路输出。
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, name, args...)
 	cmd.Stdin = nil

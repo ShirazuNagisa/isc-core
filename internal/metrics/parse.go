@@ -271,3 +271,131 @@ func rate(current, previous uint64, elapsedSeconds float64) float64 {
 	}
 	return float64(current-previous) / elapsedSeconds
 }
+
+// parseTopCPU 从 `top -l N -n 0` 的输出里取出空闲百分比。
+//
+// # 为什么用 top 而不是 sysctl
+//
+// macOS 27 上 `kern.cp_time` 已经**不存在**了（此前用它算 CPU 时间片差分），
+// 而走 mach 的 host_statistics 需要 cgo，本项目的内核主体禁止 cgo（D11）。
+// `top` 是系统自带、格式稳定，且与活动监视器同源。
+//
+// 多个采样时取**最后一行**：`top -l 1` 的第一个采样是"开机至今"的平均值，
+// 拿它当"当前占用"会显示一个几乎不动的数字。调用方因此应当用 `-l 2`。
+func parseTopCPU(text string) (idlePercent float64, ok bool) {
+	best := ""
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "CPU usage:") {
+			best = trimmed
+		}
+	}
+	if best == "" {
+		return 0, false
+	}
+	// 形如：CPU usage: 8.39% user, 14.12% sys, 77.48% idle
+	parts := strings.Split(best, ",")
+	for _, part := range parts {
+		if !strings.Contains(part, "idle") {
+			continue
+		}
+		fields := strings.Fields(part)
+		for _, field := range fields {
+			value := strings.TrimSuffix(field, "%")
+			if value == field {
+				continue
+			}
+			parsed, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				continue
+			}
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+// vmStatSample 是 vm_stat 里我们关心的那几个计数。
+type vmStatSample struct {
+	// PageSize 来自输出的首行。
+	PageSize int64
+	Active   int64
+	Inactive int64
+	Free     int64
+	// Wired 是"Pages wired down"。
+	Wired int64
+	// Purgeable 是可被回收的页。
+	Purgeable int64
+	// CompressorOccupied 是压缩器**实际占用**的页（不是被压缩的原始页数）。
+	CompressorOccupied int64
+}
+
+// parseVMStat 解析 `vm_stat` 的输出。
+//
+// # 为什么是 vm_stat
+//
+// macOS 27 上 `vm.page_active_count` / `vm.page_wire_count` /
+// `vm.page_compressor_count` 这些 OID 已经不存在了（此前用的就是它们），
+// 于是内存指标整块取不到值。vm_stat 与活动监视器同源，格式也稳定。
+//
+// 按**标签**取数而不是按行号：这些行在不同版本里顺序会变，而标签不会。
+func parseVMStat(text string) (vmStatSample, bool) {
+	var sample vmStatSample
+	// 首行：Mach Virtual Memory Statistics: (page size of 16384 bytes)
+	if start := strings.Index(text, "page size of "); start >= 0 {
+		rest := text[start+len("page size of "):]
+		if end := strings.Index(rest, " "); end > 0 {
+			if value, err := strconv.ParseInt(rest[:end], 10, 64); err == nil {
+				sample.PageSize = value
+			}
+		}
+	}
+
+	labels := map[string]*int64{
+		"Pages free":                   &sample.Free,
+		"Pages active":                 &sample.Active,
+		"Pages inactive":               &sample.Inactive,
+		"Pages wired down":             &sample.Wired,
+		"Pages purgeable":              &sample.Purgeable,
+		"Pages occupied by compressor": &sample.CompressorOccupied,
+	}
+	for _, line := range strings.Split(text, "\n") {
+		label, value, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		target, wanted := labels[strings.TrimSpace(label)]
+		if !wanted {
+			continue
+		}
+		// 值形如 "248262."（带尾点）。
+		cleaned := strings.TrimSuffix(strings.TrimSpace(value), ".")
+		if cleaned == "" {
+			continue
+		}
+		parsed, err := strconv.ParseInt(cleaned, 10, 64)
+		if err != nil {
+			continue
+		}
+		*target = parsed
+	}
+
+	// 页大小与几个关键计数都得有，否则算出来的"已用内存"没有意义。
+	if sample.PageSize <= 0 || sample.Active == 0 {
+		return vmStatSample{}, false
+	}
+	return sample, true
+}
+
+// used 返回"已用内存"的估计，采用与活动监视器一致的口径：
+// 活跃页 + 常驻（wired）页 + 压缩器实际占用的页。
+//
+// 刻意**不**把 inactive / purgeable 算成已用：那些页可以被立即回收，
+// 把它们算进去会显示出一个远高于系统自身读数的数字，而用户会拿它跟
+// 活动监视器对比 —— 对不上就会认为这个应用在乱报。
+func (s vmStatSample) used(pageSize int64) uint64 {
+	if pageSize <= 0 {
+		pageSize = s.PageSize
+	}
+	return uint64(s.Active+s.Wired+s.CompressorOccupied) * uint64(pageSize)
+}
