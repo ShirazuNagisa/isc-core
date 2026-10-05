@@ -286,10 +286,24 @@ func currentCertificateNames() certificateNames {
 //
 // 这个缺陷是端到端冒烟测试抓到的，单元测试抓不到：它需要**真实的**
 // 主机名才能显形，而测试机上那个名字恰好不带点。
+// hostname 返回本机在局域网里**叫得应**的那个名字。
+//
+// # 为什么不能用 os.Hostname()
+//
+// `os.Hostname()` 给的是 Unix 主机名（`Mac`），而 Bonjour/mDNS 在局域网里
+// 注册的是 `<LocalHostName>.local`（`Shirazus-Mac-mini.local`）。两者
+// 可以完全无关 —— 改了"本地主机名"不会改 Unix 主机名。
+//
+// 于是 `Mac.local` 这个候选**在同一局域网里永远解析不了**，而它的代价
+// 是每次连接都要白等一个 mDNS 超时。真机上实测过：用户日志里
+// `请求超时 https://mac.local:8788/v1/remote/self` 就是它。
+//
+// 平台差异放在 localHostName 里：darwin 问系统要 LocalHostName，
+// 其它平台退回 os.Hostname()。
 func hostname() string {
-	name, err := os.Hostname()
-	if err != nil || name == "" {
-		return "isc"
+	name := localHostName()
+	if name == "" {
+		name = "isc"
 	}
 	if short, _, found := strings.Cut(name, "."); found && short != "" {
 		return short
@@ -297,23 +311,42 @@ func hostname() string {
 	return name
 }
 
-// localIPs 返回本机的非回环单播地址。
+// localIPs 返回本机**同一局域网内可达**的非回环单播地址。
+//
+// # 为什么要按接口过滤，而不只是看地址本身
+//
+// 上一版只用 `net.InterfaceAddrs()` 拿地址，于是 **VPN 隧道的地址也被
+// 当成局域网候选报了出去**。实测用户的记录里有 `fdc0:7a75:a688::2`
+// （utun9）与 `fd81:ab12:10dd::2`（utun8）—— 手机在同一个 Wi-Fi 下
+// 永远够不到它们，而它们在每一场竞速里都是纯粹的陪跑。
+//
+// 判据是"另一个设备在同一个局域网里能不能到"：点对点接口（隧道）与
+// AWDL 都不行，而广播型局域网接口（en0/en1/bridge）可以。
 func localIPs() []net.IP {
-	addrs, err := net.InterfaceAddrs()
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil
 	}
-	out := make([]net.IP, 0, len(addrs))
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
+	var out []net.IP
+	for _, iface := range ifaces {
+		if !advertisableInterface(iface) {
 			continue
 		}
-		ip := ipNet.IP
-		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+		addrs, err := iface.Addrs()
+		if err != nil {
 			continue
 		}
-		out = append(out, ip)
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipNet.IP
+			if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+				continue
+			}
+			out = append(out, ip)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
 	return out
@@ -349,6 +382,30 @@ func LocalAddresses() []string {
 	out = append(out, v6...)
 	out = append(out, hostname()+".local")
 	return out
+}
+
+// tunnelPrefixes 是永远不该被当成局域网候选的接口名前缀。
+//
+// utun/gif/stf 是隧道，awdl/llw 是 Apple 的点对点无线（AirDrop/接力），
+// ipsec/ppp/tun/tap 是别的 VPN 实现。它们在**同一个局域网里都到不了**，
+// 而报出去只会让每一次连接多等一轮超时。
+var tunnelPrefixes = []string{"utun", "gif", "stf", "awdl", "llw", "ipsec", "ppp", "tun", "tap"}
+
+// advertisableInterface 判断一个接口上的地址值不值得给手机。
+func advertisableInterface(iface net.Interface) bool {
+	if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+		return false
+	}
+	// 点对点接口没有"局域网"可言 —— 隧道就属于这一类。
+	if iface.Flags&net.FlagPointToPoint != 0 {
+		return false
+	}
+	for _, prefix := range tunnelPrefixes {
+		if strings.HasPrefix(iface.Name, prefix) {
+			return false
+		}
+	}
+	return true
 }
 
 // Candidates 返回带端口的候选地址。
