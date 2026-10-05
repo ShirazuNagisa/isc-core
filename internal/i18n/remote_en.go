@@ -54,7 +54,11 @@ var remoteMessagesEn = map[string]string{
 	"remote.api.disabled_hint":      "Remote access is currently off.",
 	"remote.api.poll_limit":         "limit must be between 1 and 500.",
 	"remote.api.poll_timeout":       "timeout_ms must be between 0 and 55000.",
-	"remote.api.push_not_wired":     "The APNs push channel is not wired up yet; stored credentials do not take effect.",
+	// Must not mention APNs any more: this is the fallback for every
+	// /v1/remote/* endpoint, and the only thing that triggers it is the
+	// remote face failing to come up at kernel start (usually the
+	// certificate). See remoteUnavailable in internal/api/remote.go.
+	"remote.api.remote_unavailable": "The remote access face is unavailable: the kernel could not initialise it at startup (usually because the certificate could not be created). Check the first screen of the kernel log.",
 
 	"remote.word.enabled":  "enabled",
 	"remote.word.disabled": "disabled",

@@ -84,10 +84,17 @@ type Options struct {
 	// PublicZones 按域名反查凭据与区域。为 nil 表示不支持公网访问
 	// （那时 SyncPublic 会明确报错，而不是静默什么都不做）。
 	PublicZones PublicZoneResolver
-	// APNSHost 是 APNs 的接入点；空串表示生产环境。
+	// APNSHost **强制覆盖**所有的 APNs 接入点；空串表示按每台设备登记的
+	// 环境自动选（沙箱 / 生产）。
 	//
-	// 由调用方给而不是写死：测试要指向一个假服务器，而用户可能
-	// 在用沙箱环境 —— 把它写死会让这两件事都做不到。
+	// 它是"覆盖"而不是"默认值"，因为它的实际用途只有一个：验收脚本
+	// 用一个本地的假 APNs 替换真实端点。那种场景下**所有**设备都必须
+	// 走那个假服务器 —— 按环境分流会把一半设备发到 Apple 的真实接入点。
+	//
+	// 真实环境的选择在 pusherCache.hostFor：它读的是设备登记令牌时自报的
+	// 环境（`Device.APNSEnvironment`），而那正是决定令牌属于哪个环境的
+	// 东西。把它写死会让"Debug 版装到真机上"这条最常见的路径永远收不到
+	// 推送 —— 而 Apple 回的错误看起来像"令牌不对"。
 	APNSHost string
 }
 
@@ -292,7 +299,9 @@ func (s *Service) TestPush(ctx context.Context, deviceID string) (Delivery, erro
 	if err != nil {
 		return Delivery{}, err
 	}
-	pusher, err := s.apns.get()
+	// 与真实推送走**同一个**接入点判据：测试推送的全部价值就在于它复现
+	// 真实那条路。两处各写一份的话，"测试通了、真推不通"会变成常态。
+	pusher, err := s.apns.get(device)
 	if err != nil {
 		return Delivery{}, err
 	}

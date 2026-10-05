@@ -117,7 +117,10 @@ func (n *Notifier) handle(ctx context.Context, ev event.Event) {
 
 // deliver 把一条通知发给一台设备，并记录结果。
 func (n *Notifier) deliver(ctx context.Context, device Device, notification Notification, key string) {
-	pusher, err := n.pushers.get()
+	// 接入点按**这台设备**登记的环境选：开发者用 Debug 装到真机上时，
+	// 它的令牌只对沙箱有效，而发到生产会被 Apple 回一个 BadDeviceToken
+	// —— 那个错误在这里被理解成"令牌失效"，于是令牌会被清掉。
+	pusher, err := n.pushers.get(device)
 	if err != nil || pusher == nil {
 		// 没配凭据：记一条"跳过"，让"为什么没收到推送"有一个可查的答案。
 		n.service.RecordPushDelivery(ctx, PushDelivery{

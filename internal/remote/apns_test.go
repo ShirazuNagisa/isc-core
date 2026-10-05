@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -19,6 +20,72 @@ import (
 	"testing"
 	"time"
 )
+
+// APNs **只**接受 HTTP/2。
+//
+// # 为什么这一条要真的连一次，而不是断言那个布尔
+//
+// `Transport.ForceAttemptHTTP2` 是这条路径上唯一一处"少了它就会坏、而坏了
+// 看不出来"的配置：用 HTTP/1.1 打过去时 Apple 回一个含糊的 400，错误信息
+// 里完全看不出"你用的协议版本不对"，于是下一个人会去查令牌、topic、凭据。
+//
+// 断言那个字段本身等于把测试写成实现的复述（把它删掉的同时把断言也删掉，
+// 测试照样绿）。这里改成**真的握一次手**并读出对端看到的协议版本：
+// 传输层的配置是从生产那个 `http.Transport` `Clone()` 出来的，因此
+// 生产里删掉那一行，这条测试就会红。
+//
+// 唯一被替换掉的是信任根 —— 测试服务器用的是自签证书，而"要不要信任
+// 一个自签的 APNs"不是这条测试要问的问题（真实端点的证书校验由系统
+// 信任链负责）。
+func TestAPNSPusherReallySpeaksHTTP2(t *testing.T) {
+	t.Parallel()
+
+	_, pemText := testKey(t)
+
+	var mu sync.Mutex
+	seenProto := ""
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seenProto = r.Proto
+		mu.Unlock()
+		w.Header().Set("apns-id", "h2-1")
+		w.WriteHeader(http.StatusOK)
+	}))
+	// 必须在 StartTLS **之前**打开：之后再设不会生效，
+	// 而症状是服务器只肯谈 HTTP/1.1。
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	pusher, err := NewAPNSPusher(Credentials{
+		TeamID: "T", KeyID: "K", BundleID: "app.isc.mizar", PrivateKey: pemText,
+	}, server.URL)
+	if err != nil {
+		t.Fatalf("构造失败: %v", err)
+	}
+
+	transport, ok := pusher.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("传输层不是 *http.Transport：%T", pusher.client.Transport)
+	}
+	patched := transport.Clone()
+	roots := x509.NewCertPool()
+	roots.AddCert(server.Certificate())
+	patched.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	pusher.client.Transport = patched
+
+	result := pusher.Push(context.Background(), testDevice(), Notification{Title: "站点挂了"})
+	if result.Status != PushStatusSent {
+		t.Fatalf("发送失败：%+v", result)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if seenProto != "HTTP/2.0" {
+		t.Fatalf("对端看到的协议是 %q，期望 HTTP/2.0 —— "+
+			"APNs 只接受 HTTP/2，而它的报错完全看不出这一点", seenProto)
+	}
+}
 
 // APNs 的失败现场全在 Apple 那一侧，而这里能验证的只有"我们发出去的东西
 // 长什么样"。因此这些测试的重点是**形状**：JWT 的签名格式、请求头、

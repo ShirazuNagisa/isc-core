@@ -1088,10 +1088,17 @@ func (s *Server) DeleteRemotePublic(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// remoteUnavailable 表示远程面的某一部分尚未接入。
+// remoteUnavailable 表示远程面没有就绪。
+//
+// 文案不能提 APNs：这个函数是**所有** `/v1/remote/*` 的兜底，而它实际
+// 触发的原因只有一个 —— 内核启动时 `remote.New` 失败（多半是证书建不
+// 出来），于是 `s.Remote` 是 nil。以前这里说的是"APNs 推送通道尚未接入"，
+// 那是推送还没实现时留下的句子：照着它排查的用户会去翻 APNs 凭据，
+// 而真正的原因在内核日志的第一屏。
 func (s *Server) remoteUnavailable(w http.ResponseWriter, r *http.Request) {
 	writeProblem(w, r, s.Log, http.StatusNotImplemented,
-		CodeUnsupported, "error.not_implemented", i18n.FromContext(r.Context()).T("remote.api.push_not_wired"))
+		CodeUnsupported, "error.not_implemented",
+		i18n.FromContext(r.Context()).T("remote.api.remote_unavailable"))
 }
 
 // ---------------------------------------------------------------------------

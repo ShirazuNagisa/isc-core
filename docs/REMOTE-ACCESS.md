@@ -128,6 +128,14 @@ Phecda / CLI                     内核                        手机
   公网地址变化。**其余一律不推** —— 全推的后果不是"信息多"，而是用户
   关掉通知权限，而那之后真正重要的那条也一起没了。
 - 每设备每事件 5 分钟去重；投递流水落在 `remote_push_deliveries`。
+- 接入点按**每台设备登记时自报的环境**选：`sandbox` → 
+  `https://api.sandbox.push.apple.com`，其余（含空串与认不出的值）→
+  `https://api.push.apple.com`。发错的代价不是"这条丢了" —— Apple 回
+  `400 BadDeviceToken`，而上面那条规则会把这台设备**完全有效**的令牌
+  清掉，症状是"通知一直收不到，而且每次都要重新登记"。最容易走错的
+  一步是"用 Debug 配置把应用装到真机上"：它的令牌只对沙箱有效。
+  环境变量 `ISC_APNS_HOST` 会**覆盖所有设备**的接入点，它只有一个用途：
+  验收脚本用本地假服务器替换真实端点（见 §10）。
 - `410 Unregistered` 与 `400 BadDeviceToken` 会**清掉**那个令牌：
   继续给一个失效的令牌发通知不会有任何效果，而设备端也不会知道。
 - **前提**：APNs 需要付费 Apple Developer 账号。没有账号时整条链路
@@ -179,6 +187,7 @@ scripts/acceptance-remote.sh
 |---|---|
 | `internal/remote/remote_test.go` | 证书与指纹稳定性、角色序、令牌哈希、配对会话与锁定、限流 |
 | `internal/remote/apns_test.go` | JWT 形状（含 raw R\|\|S 与缓存）、请求头、410/429/400 的处理、凭据存储与打码 |
+| `internal/remote/apnsstore_test.go` | 接入点按设备环境选择、假服务器覆盖的优先级、按接入点缓存 JWT、凭据轮换后重建 |
 | `internal/remote/push_test.go` | 事件→通知的白名单与翻译、去重、失效令牌清理、总开关、端到端投递 |
 | `internal/api/remote_test.go` | 路由白名单矩阵（放行 + 拒绝 + viewer/operator + 未鉴权 + 吊销） |
 | `internal/api/remote_tls_test.go` | 真实 TLS 监听、指纹固定、控制台引导端点不可达、状态端口一致 |

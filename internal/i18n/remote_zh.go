@@ -61,7 +61,10 @@ var remoteMessagesZh = map[string]string{
 	"remote.api.disabled_hint":      "远程访问当前未开启。",
 	"remote.api.poll_limit":         "limit 必须在 1-500 之间。",
 	"remote.api.poll_timeout":       "timeout_ms 必须在 0-55000 之间。",
-	"remote.api.push_not_wired":     "APNs 推送通道尚未接入，填写的凭据暂不会生效。",
+	// 这一条**不能**再提 APNs：它是所有 /v1/remote/* 的兜底，而唯一会
+	// 触发它的事是内核启动时远程面没建起来（多半是证书）。见
+	// internal/api/remote.go 的 remoteUnavailable。
+	"remote.api.remote_unavailable": "远程访问面不可用：内核启动时没能初始化它（多半是证书建不出来）。请查看内核日志的第一屏。",
 
 	"remote.word.enabled":  "开启",
 	"remote.word.disabled": "关闭",
