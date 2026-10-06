@@ -54,7 +54,23 @@ if [ "$(uname -s)" = "Darwin" ]; then
   extldflags="-extldflags=-Wl,-install_name,@rpath/$(basename "$lib")"
 fi
 
+# ISC_BUILD_TAGS 用来出上架版本的内核库。
+#
+#   ISC_BUILD_TAGS=appstore scripts/build-libisc.sh
+#
+# appstore 标签会把**取回逻辑整个文件**排除在编译之外（见
+# internal/artifacts/download.go）。这不是可选项：App Review 2.5.2 禁止
+# 应用下载并执行代码，而内核原本的工作方式正是按需取回 php/python/java/
+# dotnet 再执行。出上架包时必须带这个标签，否则那份二进制里仍然有下载器。
+#
+# 留成环境变量而不是写死：内核库同时供给命令行与图形界面，而只有图形
+# 界面的上架版本需要这个约束。
+build_tags="${ISC_BUILD_TAGS:-}"
+tag_args=()
+[ -n "$build_tags" ] && tag_args=(-tags "$build_tags")
+
 CGO_ENABLED=1 go build \
+  "${tag_args[@]}" \
   -buildmode=c-shared \
   -ldflags "-X github.com/ShirazuNagisa/isc-core/internal/version.Version=$version \
             -X github.com/ShirazuNagisa/isc-core/internal/version.Commit=$commit \
