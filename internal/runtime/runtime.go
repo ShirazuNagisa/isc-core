@@ -363,7 +363,17 @@ func (m *Manager) Provision(ctx context.Context, kind Kind, minVersion string, p
 	case ok:
 		archivePath = bundled
 		report(progress, 0.5, i18n.T("runtime.msg.using_bundled", string(kind), artifact.Version))
-	case m.downloader == nil:
+	case !m.CanDownload():
+		// 两种情况都落到这里，而它们的**下一步动作相同**：这份部署取不到
+		// 这个运行时，得换一种方式提供（内置它，或者换个构建）。
+		//
+		//   - 宿主显式关掉了下载（SetDownloader(nil)）；
+		//   - 这份构建本身没有下载能力（appstore 标签）。
+		//
+		// 用 CanDownload 而不是"downloader 是不是 nil"：appstore 构建里
+		// downloader 是个**非 nil 的替身**，判 nil 会漏掉它，于是报出来的是
+		// "这份构建不能下载"（听着像能力问题），而不是"这个运行时没被打进
+		// 包里"（这才是用户要去改的构建配置问题）。
 		return Installed{}, fmt.Errorf("%w: %s %s", ErrNotBundled, kind, artifact.Version)
 	default:
 		report(progress, 0, i18n.T("runtime.msg.downloading", string(kind), artifact.Version, humanBytes(artifact.SizeBytes)))
