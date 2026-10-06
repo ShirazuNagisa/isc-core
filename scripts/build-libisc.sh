@@ -65,12 +65,16 @@ fi
 #
 # 留成环境变量而不是写死：内核库同时供给命令行与图形界面，而只有图形
 # 界面的上架版本需要这个约束。
+# 空数组的展开要写成 ${arr[@]+"${arr[@]}"}：macOS 自带的是 bash 3.2，
+# 而它在 set -u 下对 "${arr[@]}"（空数组）会报 unbound variable —— 症状是
+# **不带标签的构建静默失败**，产物还是上一次带标签的那份。踩过一次：
+# 重建后 dist/ 里仍是 appstore 版本，而日志被重定向了没看见。
 build_tags="${ISC_BUILD_TAGS:-}"
 tag_args=()
 [ -n "$build_tags" ] && tag_args=(-tags "$build_tags")
 
 CGO_ENABLED=1 go build \
-  "${tag_args[@]}" \
+  ${tag_args[@]+"${tag_args[@]}"} \
   -buildmode=c-shared \
   -ldflags "-X github.com/ShirazuNagisa/isc-core/internal/version.Version=$version \
             -X github.com/ShirazuNagisa/isc-core/internal/version.Commit=$commit \
