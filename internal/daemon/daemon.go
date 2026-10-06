@@ -479,7 +479,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 				return d.settings.Get().ACMEDNSCredentialID
 			}
 			return ""
-		}, d.log),
+		}, d.tunnelMgr, d.zoneFinder, d.dnsService, d.log),
 		Runtimes:  d.runtimes,
 		Processes: d.bundle.Processes,
 		Logs:      appsvc.NewLogStore(filepath.Join(d.opts.Paths.LogDir(), "apps")),
