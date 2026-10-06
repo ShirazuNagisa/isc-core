@@ -1,18 +1,14 @@
-// Package artifacts 负责把外部产物安全地搬到本机：下载、校验、解压。
+//go:build !appstore
+
+// 下载器。
 //
-// # 为什么单独成包
+// # 为什么整个文件被 appstore 标签排除
 //
-// 这三件事在内核里此前**完全不存在**（SHA-256 只用于迁移校验和、ACME
-// DNS-01 值与云厂商签名）。而 v0.2.0 要用它们供给语言运行时 —— 也就是
-// 把网络上的整份解释器装到用户机器上并执行。因此：
+// App Review 2.5.2 禁止应用下载并执行代码。打上 appstore 标签构建时，
+// 这个文件**根本不参与编译** —— 不是"关掉一个开关"，而是那份二进制里
+// 没有这段代码。取回逻辑（HTTP 客户端、断点续传、重试退避）一行都不在。
 //
-//   - 校验不是可选项：每个产物都带固定摘要，边写边算，不符即整份丢弃；
-//   - 解压视为处理**不可信输入**：拒绝路径穿越、拒绝逃逸的符号链接，
-//     并在创建每一项之前重新确认落点仍在目标目录内；
-//   - 失败不留残骸：全部先写临时路径，成功才改名到位。
-//
-// 错误信息用英文：它们属于内部诊断，用户可见的文案在 API 层经 i18n 目录
-// 生成（见 docs/DECISIONS.md D21 的棘轮规则）。
+// 校验与解压保留：包内预置的运行时走的是同一条校验 → 解压 → 落位链路。
 package artifacts
 
 import (
@@ -28,7 +24,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
@@ -45,79 +40,9 @@ const DefaultMaxBytes = int64(2) << 30
 var (
 	// ErrInsecureURL 表示产物地址不是 https。
 	ErrInsecureURL = errors.New("artifact URL must use https")
-	// ErrChecksumMismatch 表示下载内容的 SHA-256 与固定摘要不符。
-	ErrChecksumMismatch = errors.New("artifact checksum mismatch")
-	// ErrTooLarge 表示产物超过体积上限。
-	ErrTooLarge = errors.New("artifact exceeds the size limit")
 	// ErrBadStatus 表示服务端没有返回 2xx。
 	ErrBadStatus = errors.New("artifact request failed")
-	// ErrBadDigest 表示摘要本身格式不合法（而不是内容不符）。
-	ErrBadDigest = errors.New("artifact digest is malformed")
 )
-
-// Digest 是一个内容摘要：算法 + 十六进制值。
-//
-// 为什么要带算法：.NET 官方只发布 SHA-512，而 Node/Go/Python/PHP/Temurin
-// 发 SHA-256。早期版本把摘要硬编码成 SHA-256，遇到 .NET 就只能放弃校验
-// 或换源 —— 而"放弃校验"等于把整条供应链的信任建立在 HTTPS 上。
-type Digest struct {
-	Algorithm string
-	Hex       string
-}
-
-// ParseDigest 解析 "sha256:<hex>" / "sha512:<hex>"，也接受裸的 64 位
-// 十六进制（按 SHA-256 处理）。
-func ParseDigest(raw string) (Digest, error) {
-	value := strings.ToLower(strings.TrimSpace(raw))
-	algorithm := "sha256"
-	if prefix, rest, found := strings.Cut(value, ":"); found {
-		algorithm = prefix
-		value = rest
-	}
-	switch algorithm {
-	case "sha256":
-		if len(value) != 64 {
-			return Digest{}, fmt.Errorf("%w: sha256 needs 64 hex characters", ErrBadDigest)
-		}
-	case "sha512":
-		if len(value) != 128 {
-			return Digest{}, fmt.Errorf("%w: sha512 needs 128 hex characters", ErrBadDigest)
-		}
-	default:
-		return Digest{}, fmt.Errorf("%w: unsupported algorithm %q", ErrBadDigest, algorithm)
-	}
-	if _, err := hex.DecodeString(value); err != nil {
-		return Digest{}, fmt.Errorf("%w: not hexadecimal", ErrBadDigest)
-	}
-	return Digest{Algorithm: algorithm, Hex: value}, nil
-}
-
-func (d Digest) String() string { return d.Algorithm + ":" + d.Hex }
-
-// Verify 校验一个文件的内容摘要。
-func (d Digest) Verify(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	var hasher hash.Hash
-	switch d.Algorithm {
-	case "sha512":
-		hasher = sha512.New()
-	default:
-		hasher = sha256.New()
-	}
-	if _, err := io.Copy(hasher, f); err != nil {
-		return err
-	}
-	got := hex.EncodeToString(hasher.Sum(nil))
-	if got != d.Hex {
-		return fmt.Errorf("%w: expected %s, got sha256:%s", ErrChecksumMismatch, d, got)
-	}
-	return nil
-}
 
 // Downloader 下载产物。
 type Downloader struct {
