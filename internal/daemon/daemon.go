@@ -482,6 +482,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 运行时供给：在数据目录下落 cache/ 与 runtimes/（D28）。
 	d.runtimes = hosting.NewManager(d.opts.Paths.Root(), goruntime.GOOS, goruntime.GOARCH)
 
+	// 宿主可以把内置运行时的位置经环境变量告诉内核（见 runtime.EnvBundledRuntimes）。
+	//
+	// 这件事**必须说出来**：运行时从哪来是排查问题时第一个要回答的问题，
+	// 而"包里有"和"要去下载"在用户那边长得一模一样 —— 直到下载失败，
+	// 或者直到上架审核因为 2.5.2 打回来。
+	if dir, ok := d.runtimes.UseBundleFromHost(); ok {
+		d.log.Info("运行时来源：应用包内置", "dir", dir, "can_download", d.runtimes.CanDownload())
+	} else if d.runtimes.CanDownload() {
+		d.log.Info("运行时来源：按需下载（没有内置目录）")
+	} else {
+		// 这份构建没有取回能力又没有内置目录：缺哪个运行时就会直接失败。
+		// 说清楚，免得用户对着"装不上"反复重试。
+		d.log.Warn("这份构建没有下载能力，也没有内置运行时目录；缺运行时将直接失败",
+			"env", hosting.EnvBundledRuntimes)
+	}
+
 	// 托管站点（D25）：静态站点由内核自己托管，其余走平台进程控制。
 	d.apps = appsvc.NewManager(appsvc.Deps{
 		Store: st.Apps(),

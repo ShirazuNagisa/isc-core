@@ -29,6 +29,9 @@ type Downloader struct {
 	Progress func(received, total int64)
 }
 
+// Available 在这份构建里是 false。
+func (d *Downloader) Available() bool { return false }
+
 // Download 在上架版本里永远失败。
 func (d *Downloader) Download(_ context.Context, rawURL string, _ Digest, _ string) (int64, error) {
 	return 0, fmt.Errorf("%w: %s", ErrNoDownloader, rawURL)

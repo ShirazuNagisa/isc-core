@@ -107,6 +107,85 @@ func NewManager(dataRoot, goos, goarch string) *Manager {
 	}
 }
 
+// EnvBundledRuntimes 是宿主告诉内核"内置运行时在哪"的环境变量。
+//
+// # 为什么是环境变量
+//
+// 内核与图形界面之间只有版本化的 C ABI（D24），而**界面与内核跑在同一个
+// 进程里**（内核以 libisc 的形式嵌入）。环境变量因此是这里唯一既能传递
+// 配置、又不用动 ABI 的方式 —— 与 internal/paths 接收数据目录的做法一致。
+//
+// 没设它表示"这份部署没有内置运行时"，内核照常按需取回（除非构建本身
+// 没有取回能力，见 SetDownloader）。
+const EnvBundledRuntimes = "ISC_BUNDLED_RUNTIMES"
+
+// UseBundleFromHost 找出内置运行时目录并声明它。找不到就返回 false。
+//
+// 先看环境变量（宿主可以显式指定），再按 .app 的布局自己推。两条路都要，
+// 因为环境变量这条路**有一个真实的坑**，见下面。
+func (m *Manager) UseBundleFromHost() (string, bool) {
+	if dir := strings.TrimSpace(os.Getenv(EnvBundledRuntimes)); dir != "" {
+		m.UseBundle(dir)
+		return dir, true
+	}
+	if dir, ok := defaultBundleDir(); ok {
+		m.UseBundle(dir)
+		return dir, true
+	}
+	return "", false
+}
+
+// defaultBundleDir 从可执行文件的位置推出内置运行时目录。
+//
+// # 为什么是"推"而不是"传"
+//
+// 内核以 dylib 的形式嵌在 .app 里，而 .app 的布局是固定的：
+//
+//	<App>.app/Contents/MacOS/<exe>
+//	<App>.app/Contents/Resources/runtimes/
+//
+// 从 os.Executable() 往上两级就是 Contents/，再进 Resources/runtimes 即可，
+// 不需要宿主传任何东西。
+//
+// # 环境变量那条路为什么不作为主力
+//
+// 因为**它不生效**。宿主（Swift）在启动内核前 setenv，而 Go 运行时早已把
+// C 环境快照进自己的缓存 —— os.Getenv 读的是那份快照，后设的变量它看不见。
+// 实测过：宿主确实 setenv 了、二进制里也确实有那个字符串，而内核读到的
+// 仍然是空。
+//
+// 所以环境变量只作为**显式覆盖**保留（由启动器在载入本库之前设好时有效），
+// 自动发现走上面这条路径。
+func defaultBundleDir() (string, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	return bundleDirFromExecutable(exe)
+}
+
+// bundleDirFromExecutable 是上面那段的纯函数形式 —— 路径推导值得单独测，
+// 而 os.Executable() 在测试里指向的是测试二进制、不是 .app 布局。
+func bundleDirFromExecutable(exe string) (string, bool) {
+	contents := filepath.Dir(filepath.Dir(exe))
+	if filepath.Base(contents) != "Contents" {
+		return "", false
+	}
+	dir := filepath.Join(contents, "Resources", "runtimes")
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return dir, true
+	}
+	return "", false
+}
+
+// CanDownload 报告这份构建能不能自己取回运行时。
+//
+// 给日志与界面用：运行时从哪来是排查问题时最先要问的，而"没内置就下载"
+// 与"只能内置"在调用处长得一模一样。
+func (m *Manager) CanDownload() bool {
+	return m.downloader != nil && m.downloader.Available()
+}
+
 // UseBundle 声明内置运行时的位置。
 //
 // 设了它之后 Provision 会**先从应用包里取**，取不到才考虑下载（见

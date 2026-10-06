@@ -392,3 +392,52 @@ func TestWithoutABundleNoBundledArchiveIsConsidered(t *testing.T) {
 		t.Fatal("没有声明内置目录时不该认为包内有归档")
 	}
 }
+
+// --- 内置运行时的位置 -------------------------------------------------------
+
+// .app 的布局是固定的，因此这个位置可以从可执行文件推出来，不需要宿主传。
+func TestBundleDirIsDerivedFromTheExecutableLocation(t *testing.T) {
+	app := t.TempDir()
+	exe := filepath.Join(app, "ISC Phecda.app", "Contents", "MacOS", "ISC Phecda")
+	want := filepath.Join(app, "ISC Phecda.app", "Contents", "Resources", "runtimes")
+	if err := os.MkdirAll(want, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(exe), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := bundleDirFromExecutable(exe)
+	if !ok {
+		t.Fatal("标准的 .app 布局应当能推出内置目录")
+	}
+	if got != want {
+		t.Fatalf("推出的是 %q，期望 %q", got, want)
+	}
+}
+
+// 不是 .app 布局（命令行跑内核、跑测试）时不该硬凑一个目录出来。
+func TestBundleDirIsNotInventedOutsideAnAppBundle(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "bin", "isc")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// 连 Contents/Resources/runtimes 都不建：这条守的是"宁可报没有，
+	// 也不要推一个不存在的路径出去"。
+	if got, ok := bundleDirFromExecutable(exe); ok {
+		t.Fatalf("不该推出 %q", got)
+	}
+}
+
+// 布局对但目录不存在时同样报"没有" —— 那表示这份部署没内置运行时。
+func TestBundleDirRequiresTheDirectoryToExist(t *testing.T) {
+	app := t.TempDir()
+	exe := filepath.Join(app, "X.app", "Contents", "MacOS", "X")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bundleDirFromExecutable(exe); ok {
+		t.Fatal("目录不存在时不该认为有内置运行时")
+	}
+}

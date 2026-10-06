@@ -44,6 +44,13 @@ var (
 	ErrBadStatus = errors.New("artifact request failed")
 )
 
+// Available 报告这份构建能不能自己取回产物。
+//
+// 上架版本里它是 false（对应文件被 appstore 标签排除）。存在的理由是让
+// **界面与日志能如实说明运行时从哪来** —— "没内置就下载"和"只能内置"是
+// 两种不同的产品状态，而它们在调用处长得一模一样。
+func (d *Downloader) Available() bool { return true }
+
 // Downloader 下载产物。
 type Downloader struct {
 	// Client 为空时使用默认客户端。
