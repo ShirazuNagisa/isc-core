@@ -26,6 +26,13 @@ var (
 	ErrExecutableMissing = errors.New("the runtime archive did not contain the expected executable")
 	// ErrNotProvisionable 表示该运行时不由内核供给（例如 Docker）。
 	ErrNotProvisionable = errors.New("this runtime is not provisioned by the kernel")
+
+	// ErrNotBundled 表示这份构建只能从应用包内取运行时，而包内没有它。
+	//
+	// 与"下载失败"分开是有意的：下载失败可以重试，而"这个运行时没被
+	// 打进包里"是构建配置问题，重试多少次都一样 —— 用户该换一种部署方式，
+	// 而不是反复点重试。
+	ErrNotBundled = errors.New("this runtime is not bundled with the app")
 )
 
 // markerName 是运行时目录里的标记文件。
@@ -67,6 +74,9 @@ type Manager struct {
 
 	downloader *artifacts.Downloader
 
+	// bundleDir 是应用包内预置运行时的位置；为空表示这份构建不带内置运行时。
+	bundleDir string
+
 	// artifacts 覆盖内置清单，**仅供测试注入**。
 	//
 	// 生产路径永远是内置清单（它是代码常量，理由见 manifest.go）。留这个口子
@@ -95,6 +105,38 @@ func NewManager(dataRoot, goos, goarch string) *Manager {
 		runVersion: probeVersion,
 		now:        time.Now,
 	}
+}
+
+// UseBundle 声明内置运行时的位置。
+//
+// 设了它之后 Provision 会**先从应用包里取**，取不到才考虑下载（见
+// SetDownloader）。内置的那份同样会走摘要校验 —— 包内的东西也可能被
+// 换掉，而"它在包里"不是跳过校验的理由。
+func (m *Manager) UseBundle(dir string) { m.bundleDir = dir }
+
+// SetDownloader 换掉下载器；传 nil 表示**这份构建没有下载能力**。
+//
+// # 为什么 App Store 版本必须传 nil
+//
+// App Review 2.5.2 禁止应用下载并执行代码。产品原本的工作方式正是如此
+// （内核按需取回 php/python/java/dotnet 再执行），所以上架版本要改成
+// "运行时随包内置"。
+//
+// 传 nil 之后，内置缺失时 Provision 直接返回 ErrNotBundled，而**不是**
+// 悄悄去下载。悄悄下载是最坏的结果：本机上一切正常，而审核时那份二进制
+// 的行为与本地测的完全不是一回事。
+func (m *Manager) SetDownloader(d *artifacts.Downloader) { m.downloader = d }
+
+// bundleArchive 返回内置归档的路径。
+func (m *Manager) bundleArchive(a Artifact) (string, bool) {
+	if m.bundleDir == "" {
+		return "", false
+	}
+	candidate := filepath.Join(m.bundleDir, a.Archive)
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate, true
+	}
+	return "", false
 }
 
 // Root 返回托管运行时目录。
@@ -234,23 +276,34 @@ func (m *Manager) Provision(ctx context.Context, kind Kind, minVersion string, p
 		return Installed{}, err
 	}
 
+	// 内置优先。从这里往下整条链路（校验 → 解压 → 落位）对两个来源是
+	// **同一份代码** —— 包内那份同样要过摘要校验，"它在包里"不是跳过
+	// 校验的理由。
 	archivePath := filepath.Join(m.cache, artifact.Archive)
-	report(progress, 0, i18n.T("runtime.msg.downloading", string(kind), artifact.Version, humanBytes(artifact.SizeBytes)))
-	downloader := *m.downloader
-	downloader.Progress = func(received, total int64) {
-		if total <= 0 {
-			total = artifact.SizeBytes
+	switch bundled, ok := m.bundleArchive(artifact); {
+	case ok:
+		archivePath = bundled
+		report(progress, 0.5, i18n.T("runtime.msg.using_bundled", string(kind), artifact.Version))
+	case m.downloader == nil:
+		return Installed{}, fmt.Errorf("%w: %s %s", ErrNotBundled, kind, artifact.Version)
+	default:
+		report(progress, 0, i18n.T("runtime.msg.downloading", string(kind), artifact.Version, humanBytes(artifact.SizeBytes)))
+		downloader := *m.downloader
+		downloader.Progress = func(received, total int64) {
+			if total <= 0 {
+				total = artifact.SizeBytes
+			}
+			if total <= 0 {
+				return
+			}
+			// 下载占前 80% 的进度；剩下的是解压与落位。
+			report(progress, float64(received)/float64(total)*0.8, "")
 		}
-		if total <= 0 {
-			return
+		if _, err := downloader.Download(ctx, artifact.URL, digest, archivePath); err != nil {
+			return Installed{}, err
 		}
-		// 下载占前 80% 的进度；剩下的是解压与落位。
-		report(progress, float64(received)/float64(total)*0.8, "")
 	}
-	if _, err := downloader.Download(ctx, artifact.URL, digest, archivePath); err != nil {
-		return Installed{}, err
-	}
-	// 下载阶段已校验过；这里再验一次，挡住"下载后被替换"。
+	// 取回来之后都要再验一次：挡住"下载后被替换"，也挡住包内那份被换掉。
 	if err := digest.Verify(archivePath); err != nil {
 		return Installed{}, err
 	}

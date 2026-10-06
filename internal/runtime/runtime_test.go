@@ -334,3 +334,61 @@ func TestCurrentPlatformUsesGoosAndGoarch(t *testing.T) {
 		t.Fatalf("platform key should be GOOS/GOARCH, got %q", got)
 	}
 }
+
+// --- 内置运行时（App Store 形态）-----------------------------------------
+
+// 包内的归档必须被**真的读走**，而且照样过摘要校验。
+//
+// 这里故意放一个内容不对的同名文件：能走到"校验失败"就证明它读的是包内
+// 那一份 —— 因为这份 Manager 没有下载能力，包里没有的话会直接返回
+// ErrNotBundled，根本走不到校验。
+func TestProvisionReadsTheBundledArchiveAndStillVerifiesIt(t *testing.T) {
+	m, _ := testManager(t, nil)
+	artifact, ok := ArtifactFor(KindNode, m.platform)
+	if !ok {
+		t.Skipf("%s 上没有 node 的固定发行版", m.platform)
+	}
+
+	bundle := t.TempDir()
+	body := []byte("this is not the archive the digest was computed over")
+	if err := os.WriteFile(filepath.Join(bundle, artifact.Archive), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.UseBundle(bundle)
+	m.SetDownloader(nil)
+
+	_, err := m.Provision(context.Background(), KindNode, "", nil)
+	if err == nil {
+		t.Fatal("内容与摘要不符的归档不该通过校验")
+	}
+	if errors.Is(err, ErrNotBundled) {
+		t.Fatalf("应当读到了包内那份；报 ErrNotBundled 说明它没去找：%v", err)
+	}
+}
+
+// 这份构建没有下载能力、包里也没有 → 明确失败。
+//
+// 最坏的结果不是失败，而是**悄悄去下载**：本机上一切正常，而审核时那份
+// 二进制的行为与本地测的完全不是一回事。
+func TestOfflineBuildRefusesToDownload(t *testing.T) {
+	m, _ := testManager(t, nil)
+	m.UseBundle(t.TempDir()) // 空的
+	m.SetDownloader(nil)
+
+	_, err := m.Provision(context.Background(), KindNode, "", nil)
+	if !errors.Is(err, ErrNotBundled) {
+		t.Fatalf("期望 ErrNotBundled（构建配置问题，重试无用），得到 %v", err)
+	}
+}
+
+// 没声明内置目录时不该去翻包 —— 否则普通构建会拿一个无关目录当运行时来源。
+func TestWithoutABundleNoBundledArchiveIsConsidered(t *testing.T) {
+	m, _ := testManager(t, nil)
+	artifact, ok := ArtifactFor(KindNode, m.platform)
+	if !ok {
+		t.Skipf("%s 上没有 node 的固定发行版", m.platform)
+	}
+	if _, found := m.bundleArchive(artifact); found {
+		t.Fatal("没有声明内置目录时不该认为包内有归档")
+	}
+}

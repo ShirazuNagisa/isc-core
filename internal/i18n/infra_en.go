@@ -35,10 +35,11 @@ var infraMessagesEn = map[string]string{
 	"apps.error.docker_required": "This deployment method needs Docker Desktop, but none was found on this machine. Install and start Docker Desktop, or choose another method.",
 
 	// --- runtime provisioning (D28) ---
-	"runtime.msg.downloading":  "Downloading %s %s%s",
-	"runtime.msg.extracting":   "Extracting %s %s",
-	"runtime.msg.ready":        "%s %s is ready",
-	"runtime.msg.using_system": "Using the system-installed %s %s",
+	"runtime.msg.using_bundled": "Installing the bundled %s %s",
+	"runtime.msg.downloading":   "Downloading %s %s%s",
+	"runtime.msg.extracting":    "Extracting %s %s",
+	"runtime.msg.ready":         "%s %s is ready",
+	"runtime.msg.using_system":  "Using the system-installed %s %s",
 
 	// --- runtime file ---
 	"runtime.err.mkdir":    "runtimeinfo: failed to create the runtime directory: %w",

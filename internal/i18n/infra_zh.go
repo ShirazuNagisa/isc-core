@@ -39,10 +39,11 @@ var infraMessagesZh = map[string]string{
 	"apps.error.docker_required": "这个部署方式需要 Docker Desktop，但本机没有检测到。请先安装并启动 Docker Desktop，或改用其他方式。",
 
 	// --- 运行时供给（D28） ---
-	"runtime.msg.downloading":  "正在下载 %s %s%s",
-	"runtime.msg.extracting":   "正在解压 %s %s",
-	"runtime.msg.ready":        "%s %s 已就绪",
-	"runtime.msg.using_system": "使用系统已安装的 %s %s",
+	"runtime.msg.using_bundled": "正在安装内置的 %s %s",
+	"runtime.msg.downloading":   "正在下载 %s %s%s",
+	"runtime.msg.extracting":    "正在解压 %s %s",
+	"runtime.msg.ready":         "%s %s 已就绪",
+	"runtime.msg.using_system":  "使用系统已安装的 %s %s",
 
 	// --- 运行时文件 ---
 	"runtime.err.mkdir":    "runtimeinfo: 创建运行时目录: %w",
