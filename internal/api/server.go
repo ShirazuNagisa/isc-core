@@ -30,6 +30,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/remote"
 	"github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
+	"github.com/ShirazuNagisa/isc-core/internal/tunnel"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
@@ -100,6 +101,12 @@ type Deps struct {
 
 	// Proxy 是反向代理的管理器。
 	Proxy *proxy.Manager
+
+	// Tunnel 是 Cloudflare 隧道的管理器。
+	//
+	// 与 Proxy 是**叠加**关系：隧道把流量送到反代上，站点到域名的映射
+	// 仍然归反代管。因此"开了隧道"不等于"可以关掉反代"。
+	Tunnel *tunnel.Manager
 
 	// ProxyRoutes 是代理路由的持久化仓储。
 	ProxyRoutes proxy.RouteStore

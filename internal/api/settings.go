@@ -123,6 +123,8 @@ func toGenSettings(s settings.Settings) gen.Settings {
 		ProxyEnabled:        &s.ProxyEnabled,
 		ProxyPort:           &s.ProxyPort,
 		ProxyTls:            &s.ProxyTLS,
+		TunnelEnabled:       &s.TunnelEnabled,
+		TunnelBinary:        &s.TunnelBinary,
 		AcmeEmail:           &s.ACMEEmail,
 		AcmeDirectory:       &s.ACMEDirectory,
 		AcmeDnsCredentialId: &s.ACMEDNSCredentialID,

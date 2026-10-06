@@ -734,6 +734,36 @@ func (e SettingsPatchLogLevel) Valid() bool {
 	}
 }
 
+// Defines values for TunnelStatusState.
+const (
+	TunnelStatusStateDisabled  TunnelStatusState = "disabled"
+	TunnelStatusStateFailed    TunnelStatusState = "failed"
+	TunnelStatusStateNoAccount TunnelStatusState = "no_account"
+	TunnelStatusStateNoBinary  TunnelStatusState = "no_binary"
+	TunnelStatusStateRunning   TunnelStatusState = "running"
+	TunnelStatusStateStarting  TunnelStatusState = "starting"
+)
+
+// Valid indicates whether the value is a known member of the TunnelStatusState enum.
+func (e TunnelStatusState) Valid() bool {
+	switch e {
+	case TunnelStatusStateDisabled:
+		return true
+	case TunnelStatusStateFailed:
+		return true
+	case TunnelStatusStateNoAccount:
+		return true
+	case TunnelStatusStateNoBinary:
+		return true
+	case TunnelStatusStateRunning:
+		return true
+	case TunnelStatusStateStarting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VerifyHitKind.
 const (
 	LinkLocal VerifyHitKind = "link_local"
@@ -2470,6 +2500,23 @@ type Settings struct {
 	// **代价**不同：局域网监听只在局域网内可见，而公网访问会把
 	// 内核暴露在互联网上。
 	RemotePublicEnabled *bool `json:"remote_public_enabled,omitempty"`
+
+	// TunnelBinary cloudflared 的路径；留空则按常见位置自动寻找。
+	//
+	// 留这个入口是因为"找不到 cloudflared"是这条链路上最常见的
+	// 一步卡住，而用户装在一个非常规位置时，直接指过去比去猜快。
+	TunnelBinary *string `json:"tunnel_binary,omitempty"`
+
+	// TunnelEnabled 是否用 Cloudflare 隧道发布站点。
+	//
+	// 它解决的是直连模型解决不了的那类网络：大内网（CGNAT）后的
+	// 家宽、校园网、公司网 —— 入站连接在网关上就被丢掉了，本机
+	// 怎么配都没用。隧道换方向：本机主动向 Cloudflare 建一条长
+	// 连接，外面来的请求顺着它进来。
+	//
+	// 与 proxy_enabled 是**叠加**关系：隧道把流量送到本机反代上，
+	// 因此两个要一起开。
+	TunnelEnabled *bool `json:"tunnel_enabled,omitempty"`
 }
 
 // SettingsLang defines model for Settings.Lang.
@@ -2518,6 +2565,37 @@ type SourceInspection struct {
 	Root                string           `json:"root"`
 	Warnings            *[]string        `json:"warnings,omitempty"`
 }
+
+// TunnelStatus defines model for TunnelStatus.
+type TunnelStatus struct {
+	// Binary 实际会用到的 cloudflared 路径；找不到时缺省。
+	Binary *string `json:"binary,omitempty"`
+
+	// Connections 最近一次看到的到 Cloudflare 边缘的连接数。
+	Connections int  `json:"connections"`
+	Enabled     bool `json:"enabled"`
+
+	// Hostname DNS 上 CNAME 应该指向的目标（`<id>.cfargotunnel.com`）。
+	// 域名绑定用它；没有隧道时缺省。
+	Hostname *string `json:"hostname,omitempty"`
+
+	// Id 隧道 id；没有隧道时缺省。
+	Id *string `json:"id,omitempty"`
+
+	// LastError 最近一次失败的原因。
+	LastError *string `json:"last_error,omitempty"`
+
+	// LogTail 隧道进程最近几行输出，供排查。
+	LogTail *[]string `json:"log_tail,omitempty"`
+
+	// Name 隧道名。内核固定用同一个名字，便于识别与复用。
+	Name      string            `json:"name"`
+	ProxyPort int               `json:"proxy_port"`
+	State     TunnelStatusState `json:"state"`
+}
+
+// TunnelStatusState defines model for TunnelStatus.State.
+type TunnelStatusState string
 
 // VerifyHit defines model for VerifyHit.
 type VerifyHit struct {
@@ -3115,6 +3193,15 @@ type ServerInterface interface {
 	// InspectSource 只读识别一份源码目录
 	// (POST /v1/sources/inspect)
 	InspectSource(w http.ResponseWriter, r *http.Request)
+	// GetTunnelStatus 读取 Cloudflare 隧道的状态
+	// (GET /v1/tunnel)
+	GetTunnelStatus(w http.ResponseWriter, r *http.Request)
+	// DisableTunnel 关闭隧道
+	// (POST /v1/tunnel/disable)
+	DisableTunnel(w http.ResponseWriter, r *http.Request)
+	// EnableTunnel 开启隧道
+	// (POST /v1/tunnel/enable)
+	EnableTunnel(w http.ResponseWriter, r *http.Request)
 	// ListVerifySessions 列出外部验证会话
 	// (GET /v1/verify/sessions)
 	ListVerifySessions(w http.ResponseWriter, r *http.Request)
@@ -5334,6 +5421,48 @@ func (siw *ServerInterfaceWrapper) InspectSource(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetTunnelStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetTunnelStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTunnelStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisableTunnel operation middleware
+func (siw *ServerInterfaceWrapper) DisableTunnel(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisableTunnel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EnableTunnel operation middleware
+func (siw *ServerInterfaceWrapper) EnableTunnel(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EnableTunnel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListVerifySessions operation middleware
 func (siw *ServerInterfaceWrapper) ListVerifySessions(w http.ResponseWriter, r *http.Request) {
 
@@ -5597,6 +5726,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/changes/pending", wrapper.ListPendingChanges)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/changes/{planId}/apply", wrapper.ApplyChange)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/changes/{planId}/rollback", wrapper.RollbackChange)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/tunnel", wrapper.GetTunnelStatus)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/tunnel/enable", wrapper.EnableTunnel)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/tunnel/disable", wrapper.DisableTunnel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/proxy/status", wrapper.GetProxyStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ListProxyRoutes)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/proxy/routes", wrapper.ReplaceProxyRoutes)

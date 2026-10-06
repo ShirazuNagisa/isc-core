@@ -48,6 +48,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
 	"github.com/ShirazuNagisa/isc-core/internal/store"
 	"github.com/ShirazuNagisa/isc-core/internal/sysproxy"
+	"github.com/ShirazuNagisa/isc-core/internal/tunnel"
 	"github.com/ShirazuNagisa/isc-core/internal/verify"
 	"github.com/ShirazuNagisa/isc-core/internal/version"
 )
@@ -130,6 +131,7 @@ type Daemon struct {
 	reach        *reach.Registry
 	verifyMgr    *verify.Manager
 	proxyMgr     *proxy.Manager
+	tunnelMgr    *tunnel.Manager
 
 	notifier     *notify.Manager
 	notifyConfig *notify.ConfigManager
@@ -365,6 +367,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 多出一个对外的监听端口。
 	d.proxyMgr = proxy.NewManager(st.ProxyRoutes(), d.log)
 
+	// Cloudflare 隧道。与反向代理是**叠加**关系：隧道把流量送到反代上，
+	// 因此它要知道反代端口，而那个端口在设置里、会变 —— 所以这里传一个
+	// 取值函数而不是当下这一份。
+	d.tunnelMgr = tunnel.New(tunnel.Config{
+		DataDir:   d.opts.Paths.Root(),
+		ProxyPort: d.currentProxyPort(),
+		Binary:    d.currentTunnelBinary(),
+		Processes: d.bundle.Processes,
+		Log:       d.log,
+	})
+
 	// 通知中心。
 	//
 	// 日志通道**始终登记**：用户还没配任何外部通道时，通知至少会
@@ -563,6 +576,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Changes:        d.changeRunner,
 		Verify:         d.verifyMgr,
 		Proxy:          d.proxyMgr,
+		Tunnel:         d.tunnelMgr,
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
 		Notify:         d.notifier,
 		NotifyConfig:   d.notifyConfig,
@@ -994,6 +1008,7 @@ func (d *Daemon) startBackground(parent context.Context) {
 	// 默认关闭是刻意的 —— 反代监听在公网上，开启它是一个需要用户
 	// 明确决定的动作。
 	d.startProxy(ctx)
+	d.startTunnel(ctx)
 
 	// 启动后立刻跑一轮。
 	//
@@ -1226,6 +1241,12 @@ func (d *Daemon) shutdown() error {
 		d.apps.Shutdown(appCtx)
 		cancelApps()
 	}
+	// 隧道**先**停：它只是把流量送到反代上。反过来停的话，反代已经没了
+	// 而隧道还在，Cloudflare 边缘会继续把请求送进一个已经在关闭的内核，
+	// 用户看到的是自己站点报 502，而不是"正在停止"。
+	if d.tunnelMgr != nil {
+		d.tunnelMgr.Stop()
+	}
 	if d.proxyMgr != nil {
 		_ = d.proxyMgr.Stop(context.Background())
 	}
@@ -1448,5 +1469,55 @@ func (d *Daemon) syncPublicOnce(ctx context.Context) {
 		if _, _, err := d.certMgr.Ensure(ctx, acme.CertRequest{Domains: []string{host}}); err != nil {
 			d.log.Warn("公网子域名的证书签发失败", "host", host, "err", err)
 		}
+	}
+}
+
+// currentProxyPort 返回设置里的反代端口，取不到时给一个安全的默认值。
+//
+// 每次读设置而不是启动时读一次：端口是用户可以改的，而"改了之后隧道
+// 还指向旧端口"会表现为一条连得上、但什么都打不开的隧道。
+func (d *Daemon) currentProxyPort() int {
+	if d.settings == nil {
+		return settings.DefaultProxyPort
+	}
+	if port := d.settings.Get().ProxyPort; port > 0 {
+		return port
+	}
+	return settings.DefaultProxyPort
+}
+
+// currentTunnelBinary 返回用户指定的 cloudflared 路径（可能为空）。
+func (d *Daemon) currentTunnelBinary() string {
+	if d.settings == nil {
+		return ""
+	}
+	return d.settings.Get().TunnelBinary
+}
+
+// startTunnel 按设置启动 Cloudflare 隧道。
+//
+// # 与反向代理的关系
+//
+// 隧道把流量送到本机的反向代理上，因此**反代没开时开隧道是没有意义的**：
+// 隧道会连上边缘，然后每一个请求都撞在一个没有监听的端口上。这里明说
+// 这一点，而不是让用户对着一堆 502 猜。
+func (d *Daemon) startTunnel(ctx context.Context) {
+	if d.tunnelMgr == nil || d.settings == nil {
+		return
+	}
+	s := d.settings.Get()
+	if !s.TunnelEnabled {
+		return
+	}
+	if !s.ProxyEnabled {
+		d.log.Warn("隧道已开启但反向代理未启动 —— 流量到了本机也没有去处",
+			"tunnel_proxy_port", s.ProxyPort)
+	}
+	if err := d.tunnelMgr.Start(ctx); err != nil {
+		// 与反代同理：失败**不阻断内核**。缺 cloudflared、缺账号授权都是
+		// 用户要去界面里处理的事，而界面得先能用。
+		st := d.tunnelMgr.Status()
+		d.log.Error("隧道启动失败", "state", st.State, "err", err)
+		return
 	}
 }

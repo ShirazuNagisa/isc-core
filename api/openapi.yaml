@@ -1736,6 +1736,70 @@ paths:
   # 反向代理
   # ---------------------------------------------------------------------------
 
+  /v1/tunnel:
+
+    get:
+      tags: [Proxy]
+      operationId: getTunnelStatus
+      summary: 读取 Cloudflare 隧道的状态
+      description: |
+        隧道是为了让**没有公网地址**的网络也能发布站点：本机主动向
+        Cloudflare 建一条长连接，外面来的请求顺着它进来。
+
+        `state` 有六种取值，客户端要分别说明，因为它们要用户采取的动作
+        完全不同：
+
+        - `disabled` —— 用户没开；
+        - `no_binary` —— 找不到 cloudflared；
+        - `no_account` —— 缺账号授权；
+        - `starting` —— 进程起来了，还没连上边缘；
+        - `running` —— 至少有一条到边缘的连接；
+        - `failed` —— 启动或运行失败（看 `last_error`）。
+
+        只把 `enabled` 当布尔量用的界面会把后四种混成"开着但没用"，
+        而用户需要知道的是**卡在哪一步**。
+      responses:
+        "200":
+          description: 状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TunnelStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/tunnel/enable:
+
+    post:
+      tags: [Proxy]
+      operationId: enableTunnel
+      summary: 开启隧道
+      responses:
+        "200":
+          description: 开启后的状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TunnelStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/tunnel/disable:
+
+    post:
+      tags: [Proxy]
+      operationId: disableTunnel
+      summary: 关闭隧道
+      responses:
+        "200":
+          description: 关闭后的状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TunnelStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /v1/proxy/status:
 
     get:
@@ -3609,6 +3673,25 @@ components:
 
             开启它需要同时配置 ACME（DNS-01 凭据），否则证书签不出来，
             而症状是"浏览器报证书错误"。
+        tunnel_enabled:
+          type: boolean
+          description: |
+            是否用 Cloudflare 隧道发布站点。
+
+            它解决的是直连模型解决不了的那类网络：大内网（CGNAT）后的
+            家宽、校园网、公司网 —— 入站连接在网关上就被丢掉了，本机
+            怎么配都没用。隧道换方向：本机主动向 Cloudflare 建一条长
+            连接，外面来的请求顺着它进来。
+
+            与 proxy_enabled 是**叠加**关系：隧道把流量送到本机反代上，
+            因此两个要一起开。
+        tunnel_binary:
+          type: string
+          description: |
+            cloudflared 的路径；留空则按常见位置自动寻找。
+
+            留这个入口是因为"找不到 cloudflared"是这条链路上最常见的
+            一步卡住，而用户装在一个非常规位置时，直接指过去比去猜快。
         acme_email:
           type: string
           description: |
@@ -4251,6 +4334,40 @@ components:
     # ------------------------------------------------------------------
     # 反向代理
     # ------------------------------------------------------------------
+
+    TunnelStatus:
+      type: object
+      required: [enabled, state, name, connections, proxy_port]
+      properties:
+        enabled: {type: boolean}
+        state:
+          type: string
+          enum: [disabled, no_binary, no_account, starting, running, failed]
+        name:
+          type: string
+          description: 隧道名。内核固定用同一个名字，便于识别与复用。
+        id:
+          type: string
+          description: 隧道 id；没有隧道时缺省。
+        hostname:
+          type: string
+          description: |
+            DNS 上 CNAME 应该指向的目标（`<id>.cfargotunnel.com`）。
+            域名绑定用它；没有隧道时缺省。
+        connections:
+          type: integer
+          description: 最近一次看到的到 Cloudflare 边缘的连接数。
+        binary:
+          type: string
+          description: 实际会用到的 cloudflared 路径；找不到时缺省。
+        proxy_port: {type: integer}
+        last_error:
+          type: string
+          description: 最近一次失败的原因。
+        log_tail:
+          type: array
+          description: 隧道进程最近几行输出，供排查。
+          items: {type: string}
 
     ProxyStatus:
       type: object

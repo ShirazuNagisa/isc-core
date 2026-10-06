@@ -25,6 +25,8 @@ const (
 	KeyProxyEnabled     = "proxy_enabled"
 	KeyProxyPort        = "proxy_port"
 	KeyProxyTLS         = "proxy_tls"
+	KeyTunnelEnabled    = "tunnel_enabled"
+	KeyTunnelBinary     = "tunnel_binary"
 	KeyACMEEmail        = "acme_email"
 	KeyACMEDirectory    = "acme_directory"
 	KeyACMEDNSCred      = "acme_dns_credential_id"
@@ -121,6 +123,25 @@ type Settings struct {
 	// 手写端口，而用户分享出去的链接很容易忘。
 	ProxyPort int `json:"proxy_port"`
 
+	// TunnelEnabled 控制是否用 Cloudflare 隧道把站点发布出去。
+	//
+	// # 它解决的是直连模型解决不了的那类网络
+	//
+	// 直连模型的前提是"这台机器有一个可被路由到的地址"。大内网（CGNAT）
+	// 后的家宽、校园网、公司网都不满足：入站连接在网关上就被丢掉了，
+	// 本机怎么配都没用。隧道换方向 —— 本机主动向 Cloudflare 建一条长
+	// 连接并保持住，外面来的请求顺着它进来。
+	//
+	// 与 ProxyEnabled 的关系是**叠加**而不是替代：隧道把流量送到本机
+	// 的反向代理上，所以两者要一起开。
+	TunnelEnabled bool `json:"tunnel_enabled"`
+
+	// TunnelBinary 是 cloudflared 的路径，留空则按常见位置自动寻找。
+	//
+	// 留一个显式入口是因为"内核找不到它"是这条链路上最常见的一步卡住：
+	// 用户装在一个非常规位置时，能直接指过去比去猜快得多。
+	TunnelBinary string `json:"tunnel_binary"`
+
 	// --- 远程访问（ISC Mizar）---
 
 	// RemoteEnabled 控制是否启动远程监听。
@@ -203,6 +224,8 @@ type Patch struct {
 	ProxyEnabled        *bool   `json:"proxy_enabled,omitempty"`
 	ProxyPort           *int    `json:"proxy_port,omitempty"`
 	ProxyTLS            *bool   `json:"proxy_tls,omitempty"`
+	TunnelEnabled       *bool   `json:"tunnel_enabled,omitempty"`
+	TunnelBinary        *string `json:"tunnel_binary,omitempty"`
 	ACMEEmail           *string `json:"acme_email,omitempty"`
 	ACMEDirectory       *string `json:"acme_directory,omitempty"`
 	ACMEDNSCredentialID *string `json:"acme_dns_credential_id,omitempty"`
@@ -295,6 +318,12 @@ func (s *Service) Update(ctx context.Context, p Patch) (Settings, error) {
 	}
 	if p.ProxyTLS != nil {
 		next.ProxyTLS = *p.ProxyTLS
+	}
+	if p.TunnelEnabled != nil {
+		next.TunnelEnabled = *p.TunnelEnabled
+	}
+	if p.TunnelBinary != nil {
+		next.TunnelBinary = *p.TunnelBinary
 	}
 	if p.ACMEEmail != nil {
 		next.ACMEEmail = *p.ACMEEmail
@@ -478,6 +507,14 @@ func merge(base Settings, kv map[string]string) Settings {
 			base.ProxyTLS = b
 		}
 	}
+	if v, ok := kv[KeyTunnelEnabled]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.TunnelEnabled = b
+		}
+	}
+	if v, ok := kv[KeyTunnelBinary]; ok {
+		base.TunnelBinary = v
+	}
 	// 邮箱与目录地址直接取用，不做格式校验 ——
 	// 校验交给 ACME 服务器，它的错误信息比我们的猜测准确。
 	if v, ok := kv[KeyACMEEmail]; ok {
@@ -523,6 +560,8 @@ func encode(s Settings) map[string]string {
 		KeyProxyEnabled:     strconv.FormatBool(s.ProxyEnabled),
 		KeyProxyPort:        strconv.Itoa(s.ProxyPort),
 		KeyProxyTLS:         strconv.FormatBool(s.ProxyTLS),
+		KeyTunnelEnabled:    strconv.FormatBool(s.TunnelEnabled),
+		KeyTunnelBinary:     s.TunnelBinary,
 		KeyACMEEmail:        s.ACMEEmail,
 		KeyACMEDirectory:    s.ACMEDirectory,
 		KeyACMEDNSCred:      s.ACMEDNSCredentialID,
