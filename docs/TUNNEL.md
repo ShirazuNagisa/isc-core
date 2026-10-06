@@ -1,8 +1,13 @@
-# Cloudflare 隧道（设计，**尚未实现**）
+# Cloudflare 隧道
 
-> 状态：**设计文档，代码未写**。
-> 当前仓库里没有任何隧道相关的实现 —— 别把这个文件当成"已经有了"。
-> 它记的是已经验证过的机制与已经定位好的集成点，供接下来动手时不必重推。
+> 状态：**已实现并端到端验证**（Core；界面尚未接）。
+>
+> - `internal/tunnel` —— 隧道生命周期与进程监管；
+> - `internal/settings` —— `tunnel_enabled` / `tunnel_binary`；
+> - `internal/daemon` —— 装配、启停顺序、以及 `binder` 的自动 CNAME；
+> - REST —— `GET /v1/tunnel`、`POST /v1/tunnel/enable|disable`。
+>
+> 仍然缺的是界面：目前只能经 REST 控制。
 
 ## 1. 为什么需要它
 
@@ -62,8 +67,8 @@ ingress:
 | `internal/daemon/binder.go` `EnsureDNS` | 建动态解析任务（A/AAAA 跟着地址变） | 改为建一条 **CNAME → `<id>.cfargotunnel.com`（橙云）** |
 | `internal/daemon/binder.go` `EnsureRoute` | 建反代规则 | **不变** —— 隧道正需要它 |
 | `internal/settings` | `proxy_enabled` / `proxy_port` / `proxy_tls` | 新增 `tunnel_enabled`、`tunnel_binary`（可选） |
-| `internal/api` | — | `/v1/tunnel`（状态）、enable/disable |
-| Phecda | 设置页 | 隧道开关 + 状态（连接数、缺什么） |
+| `internal/api` | — | ✅ `GET /v1/tunnel`、`POST /v1/tunnel/enable\|disable` |
+| Phecda | 设置页 | ⬜ **未做** —— 界面上的开关与状态还没接 |
 
 `dns.Service` 已经提供 `CreateRecord` / `UpdateRecord` / `ListRecords`，
 `dns.Record` 带 `Proxied` 字段，因此建 CNAME 不需要新的 DNS 能力。
@@ -80,7 +85,7 @@ cloudflared tunnel run    --config <path> <name>
 `--origincert` 与 `TUNNEL_ORIGIN_CERT` 都可用，因此内核可以把授权文件
 放在**自己的**数据目录里，完全不碰用户的 `~/.cloudflared`。
 
-## 6. 尚未定的两件事
+## 6. 尚未定的两件事（仍是待办）
 
 1. **账号授权怎么来。** 两条路：
    - 交互式：`cloudflared tunnel login` 打开浏览器，用户在页面上选 zone
@@ -100,13 +105,23 @@ cloudflared tunnel run    --config <path> <name>
   但意味着 Mizar 的远程管理面**不能**简单地挂上去（它是自签证书 +
   SPKI 固定的 TLS，而 Cloudflare 会终结 TLS）。这一条要单独设计。
 
-## 8. 当前这台机器上的实际状态
+## 8. 验证记录
 
-为了让验证结果活过重启，隧道暂时由 launchd 拉起：
+端到端跑过一遍（校园网，无公网地址）：
+
+- 内核重启后按设置**自动**拉起隧道，`state=running`，3 条到边缘的连接；
+- 删掉 `html` 的 CNAME 后**重新部署**该站点，内核自动把记录建了回来
+  （`CNAME → <id>.cfargotunnel.com`，橙云），且公网 3/3 次可达；
+- 途中抓到一个真 bug：`HasAccount` 用"可执行"判断一张 0600 的 PEM
+  证书，于是明明授权好了却一直报 `no_account`。已修并补测试。
+
+## 9. 这台机器上曾经有过的临时安排
+
+在内核具备隧道能力之前，验证结果一度由 launchd 保活：
 
 ```
 ~/Library/LaunchAgents/app.isc.phecda.tunnel.plist
 ```
 
-**这是权宜之计。** 内核接管之后应当删掉它 —— 两个监管者同时拉同一个
-隧道会让"谁在管它"变得没有答案，而排查问题时那正是第一个要回答的问题。
+**已经删除。** 两个监管者同时拉同一个隧道会让"谁在管它"变得没有答案，
+而排查问题时那正是第一个要回答的问题。现在的唯一监管者是内核。
