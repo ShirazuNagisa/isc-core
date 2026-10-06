@@ -154,4 +154,5 @@ var apiMessagesEn = map[string]string{
 	"api.remote_public_reachable":       "an external client connected",
 	"api.remote_public_unreachable":     "an external client could not connect",
 	"api.remote_public_check_failed":    "failed to record the reachability check",
+	"api.preset.runtime_unavailable":    "This build does not include the %s runtime, so this preset cannot run.",
 }

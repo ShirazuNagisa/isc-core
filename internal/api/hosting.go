@@ -28,15 +28,15 @@ func (s *Server) ListPresets(w http.ResponseWriter, r *http.Request) {
 	cat := i18n.FromContext(r.Context())
 	items := make([]gen.Preset, 0, len(presets.WebsitePresets()))
 	for _, preset := range presets.WebsitePresets() {
-		items = append(items, toGenPreset(preset, cat))
+		items = append(items, s.toGenPreset(r.Context(), preset, cat))
 	}
 	// 自定义服务器不是目录里的一项（它的命令由用户提供），但界面需要
 	// 一个统一的"选项"概念，因此一并返回。
-	items = append(items, toGenPreset(presets.CustomPreset(), cat))
+	items = append(items, s.toGenPreset(r.Context(), presets.CustomPreset(), cat))
 	writeJSON(w, s.Log, http.StatusOK, "application/json", gen.PresetCatalog{Items: items})
 }
 
-func toGenPreset(preset presets.Preset, cat *i18n.Catalog) gen.Preset {
+func (s *Server) toGenPreset(ctx context.Context, preset presets.Preset, cat *i18n.Catalog) gen.Preset {
 	item := gen.Preset{
 		Id:               preset.ID,
 		Version:          preset.Version,
@@ -54,6 +54,22 @@ func toGenPreset(preset presets.Preset, cat *i18n.Catalog) gen.Preset {
 		note := cat.T(preset.NoteKey)
 		item.Note = &note
 	}
+
+	// 能不能跑起来。
+	//
+	// 静态站点（kind 为空）由内核直接托管，不需要运行时，永远可用；
+	// 其余去问运行时管理器 —— 它知道本机有没有、包里有没有、能不能下载。
+	available := true
+	if preset.Kind != "" && s.Runtimes != nil {
+		got := s.Runtimes.Availability(ctx, runtime.Kind(preset.Kind), preset.MinVersion)
+		available = got.Available
+		if !available {
+			// T 是位置参数（fmt.Sprintf 风格），不要传 map。
+			reason := cat.T("api.preset.runtime_unavailable", string(preset.Kind))
+			item.UnavailableReason = &reason
+		}
+	}
+	item.Available = &available
 	return item
 }
 
@@ -83,7 +99,7 @@ func (s *Server) InspectSource(w http.ResponseWriter, r *http.Request) {
 	}
 	candidates := make([]gen.Preset, 0, len(result.Candidates))
 	for _, preset := range result.Candidates {
-		candidates = append(candidates, toGenPreset(preset, cat))
+		candidates = append(candidates, s.toGenPreset(r.Context(), preset, cat))
 	}
 	warnings := presets.MessagesIn(result.Warnings, cat)
 	if warnings == nil {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShirazuNagisa/isc-core/internal/api/gen"
 	"github.com/ShirazuNagisa/isc-core/internal/event"
 	"github.com/ShirazuNagisa/isc-core/internal/job"
 	hosting "github.com/ShirazuNagisa/isc-core/internal/runtime"
@@ -298,4 +299,34 @@ func TestRemoveRuntimeIsIdempotentAndNeedsAManager(t *testing.T) {
 func jsonString(value string) string {
 	body, _ := json.Marshal(value)
 	return string(body)
+}
+
+// 预设要如实报告"这一版跑不跑得起来"。
+//
+// 上架版本把运行时随包内置，而包装不下所有技术栈。没有这个字段，界面就会
+// 让用户填完整张建站表单、直到部署中途才失败 —— 而那时错误说的是"这个
+// 运行时没被打进包里"，与他在界面上做的事看不出关系。
+func TestPresetsReportAvailability(t *testing.T) {
+	runtimes, _ := offlineRuntimesWithRoot(t)
+	srv := newHostingServer(t, runtimes, nil)
+	rec := doJSON(t, srv, http.MethodGet, "/v1/presets", "", (*Server).ListPresets)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d", rec.Code)
+	}
+	var body gen.PresetCatalog
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) == 0 {
+		t.Fatal("预设目录不该是空的")
+	}
+	for _, item := range body.Items {
+		if item.Available == nil {
+			t.Fatalf("预设 %s 没有报告可用性 —— 界面就没法提前拦", item.Id)
+		}
+		// 静态站点不需要运行时，永远可用。
+		if item.Kind == gen.PresetKind("") && !*item.Available {
+			t.Fatalf("静态站点 %s 不该被判为不可用", item.Id)
+		}
+	}
 }

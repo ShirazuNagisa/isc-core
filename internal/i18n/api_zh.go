@@ -159,4 +159,5 @@ var apiMessagesZh = map[string]string{
 	"api.remote_public_reachable":       "外部客户端连上了",
 	"api.remote_public_unreachable":     "外部客户端连不上",
 	"api.remote_public_check_failed":    "记录可达性自检结果失败",
+	"api.preset.runtime_unavailable":    "这一版没有内置 %s 运行时，装了也跑不起来。",
 }

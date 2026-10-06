@@ -1719,6 +1719,16 @@ type PairingSession struct {
 
 // Preset defines model for Preset.
 type Preset struct {
+	// Available 这个预设**现在能不能跑起来**。
+	//
+	// 上架版本把运行时随包内置，而包装不下所有技术栈，于是会出现
+	// "某个预设在这份构建里根本跑不起来"。把这个判断放在这里，界面
+	// 就能在**选预设时**标出来 —— 而不是让用户填完整张表单，直到部署
+	// 中途才失败。那时错误说的是"这个运行时没被打进包里"，与他在界面上
+	// 做的事看不出关系。
+	//
+	// 静态站点（kind 为空）不需要运行时，永远为真。
+	Available        *bool     `json:"available,omitempty"`
 	DefaultPort      int       `json:"default_port"`
 	DetectorFiles    *[]string `json:"detector_files,omitempty"`
 	DetectorSuffixes *[]string `json:"detector_suffixes,omitempty"`
@@ -1731,7 +1741,10 @@ type Preset struct {
 	MinVersion *string    `json:"min_version,omitempty"`
 	Note       *string    `json:"note,omitempty"`
 	Title      string     `json:"title"`
-	Version    string     `json:"version"`
+
+	// UnavailableReason 跑不起来的原因，面向用户，已按请求语言生成。
+	UnavailableReason *string `json:"unavailable_reason,omitempty"`
+	Version           string  `json:"version"`
 }
 
 // PresetKind 所需的运行时类型；空串表示静态站点（由内核直接托管，无需下载）。
