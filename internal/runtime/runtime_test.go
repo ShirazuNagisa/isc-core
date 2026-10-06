@@ -441,3 +441,58 @@ func TestBundleDirRequiresTheDirectoryToExist(t *testing.T) {
 		t.Fatal("目录不存在时不该认为有内置运行时")
 	}
 }
+
+// --- 供给能力判断（上架版本的"这个预设跑不起来"要提前说）------------------
+
+// 没下载能力、包里也没有 → 不可用，且原因是构建配置问题。
+func TestAvailabilityReportsWhyARuntimeIsMissingInAnOfflineBuild(t *testing.T) {
+	m, _ := testManager(t, nil)
+	m.UseBundle(t.TempDir()) // 空的
+	m.SetDownloader(nil)
+
+	got := m.Availability(context.Background(), KindNode, "")
+	if got.Available {
+		t.Fatalf("包里没有、又不能下载，不该报可用：%+v", got)
+	}
+	if got.Reason == "" {
+		t.Fatal("不可用时必须给出原因，界面要显示它")
+	}
+}
+
+// 包里有归档 → 可用，来源是 bundled（而不是 download）。
+//
+// 区分这两者是有意义的：它决定"这个运行时的可用性依不依赖网络"。
+func TestAvailabilityPrefersTheBundledArchive(t *testing.T) {
+	m, _ := testManager(t, nil)
+	artifact, ok := ArtifactFor(KindNode, m.platform)
+	if !ok {
+		t.Skipf("%s 上没有 node 的固定发行版", m.platform)
+	}
+	bundle := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bundle, artifact.Archive), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.UseBundle(bundle)
+
+	got := m.Availability(context.Background(), KindNode, "")
+	if !got.Available || got.Source != "bundled" {
+		t.Fatalf("包内有归档时来源应当是 bundled，得到 %+v", got)
+	}
+}
+
+// 判断本身不该有副作用：问一次不等于装一次。
+func TestAvailabilityDoesNotInstallAnything(t *testing.T) {
+	m, _ := testManager(t, nil)
+	before, err := m.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = m.Availability(context.Background(), KindNode, "")
+	after, err := m.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("Availability 装了东西：%d → %d", len(before), len(after))
+	}
+}

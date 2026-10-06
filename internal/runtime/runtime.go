@@ -649,3 +649,70 @@ func (m *Manager) Platform() string { return m.platform }
 
 // CurrentPlatform 返回本机平台键。
 func CurrentPlatform() string { return platformOf(runtime.GOOS, runtime.GOARCH) }
+
+// Availability 报告某个运行时**现在能不能被供给**，以及不能时的原因。
+//
+// # 为什么需要它
+//
+// 上架版本把运行时随包内置，而包不可能装下所有技术栈（全装约 1 GB）。
+// 于是会出现一种以前不存在的情况：**某个预设在这份构建里根本跑不起来** ——
+// 用户选了 .NET，一路填完，直到部署中途才失败。
+//
+// 那是最坏的时机：他已经做完了所有决定，而错误说的是"这个运行时没被打进
+// 包里"，与他在界面上做的事看不出关系。
+//
+// 因此把判断**提前**到"选预设"那一步：界面据此把跑不了的预设标出来，
+// 而不是等用户撞上去。
+type Availability struct {
+	Kind Kind
+	// Available 表示现在能不能拿到它。
+	Available bool
+	// Source 说明从哪来：system / managed / bundled / download；不可用时为空。
+	Source string
+	// Reason 是不可用的原因，英文，面向内部诊断（用户可见文案走 i18n）。
+	Reason string
+}
+
+// Availability 判断某个运行时能不能被供给。
+//
+// 顺序与 Provision 一致，只是**不产生副作用**：已经有的算有、包内有的算有、
+// 能下载的算有，其余算没有。
+func (m *Manager) Availability(ctx context.Context, kind Kind, minVersion string) Availability {
+	out := Availability{Kind: kind}
+
+	if kind == KindDocker {
+		// Docker 不由内核供给，能不能用取决于本机装没装。
+		if found, ok, err := m.Resolve(ctx, kind, minVersion); err == nil && ok {
+			out.Available, out.Source = true, found.Source
+			return out
+		}
+		out.Reason = "docker is not installed and the kernel does not provision it"
+		return out
+	}
+
+	if found, ok, err := m.Resolve(ctx, kind, minVersion); err == nil && ok {
+		out.Available, out.Source = true, found.Source
+		return out
+	}
+
+	artifact, ok := m.artifactFor(kind)
+	if !ok {
+		out.Reason = "no pinned build for this platform"
+		return out
+	}
+
+	if _, bundled := m.bundleArchive(artifact); bundled {
+		out.Available, out.Source = true, "bundled"
+		return out
+	}
+
+	if m.CanDownload() {
+		out.Available, out.Source = true, "download"
+		return out
+	}
+
+	// 剩下的只有一种：这份构建没有下载能力，而包里也没有它。
+	// 说清楚是**构建配置**问题 —— 重试不会让它变得可用。
+	out.Reason = "not bundled in this build and downloading is unavailable"
+	return out
+}
