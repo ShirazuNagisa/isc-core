@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -162,4 +163,69 @@ func TestGPUUtilizationIsReadable(t *testing.T) {
 		t.Fatalf("utilization = %v, outside 0..100", *sample.Utilization)
 	}
 	t.Logf("GPU %q 占用 %v%%（backend %s）", sample.Name, *sample.Utilization, sample.Backend)
+}
+
+// 进程树必须真的取得到。
+//
+// 与上面两条同一个理由：解析逻辑对不代表命令跑得通。这里断言的是
+// "包含自己"这个最低限度的正确性 —— 一个返回空集的实现会让 footprint
+// 只剩下站点、把内核自己漏掉，而单元测试喂的假 Source 永远发现不了。
+func TestDescendantsIncludesSelfAndCompletesQuickly(t *testing.T) {
+	source := newPlatformSource()
+	start := time.Now()
+	pids, err := source.(TreeSource).Descendants(context.Background(), []int{os.Getpid()})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("process tree sampling failed: %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("一次进程树采样花了 %v，太接近 5 秒的采样间隔", elapsed)
+	}
+	found := false
+	for _, pid := range pids {
+		if pid == os.Getpid() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("结果里没有自己：%v", pids)
+	}
+}
+
+// nettop 必须真的能在一份采样内返回。
+//
+// # 守的是一个真实踩过的坑
+//
+// nettop **不带 `-n`** 时会去反向解析每个远端地址，在有活动连接时根本
+// 不返回（本机实测超过 30 秒）。而它的症状是**静默的**：命令被杀、输出为
+// 空、footprint 的网络永远是"没读到"，界面上看不出任何异常。
+//
+// 所以这里同时断言"没报错"和"够快"——后者才是真正守住这条的地方。
+func TestNettopSamplingCompletesWithinTheInterval(t *testing.T) {
+	source := newPlatformSource()
+	start := time.Now()
+	counters, err := source.(ProcessNetwork).NetworkCounters(context.Background())
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("nettop sampling failed: %v", err)
+	}
+	// 采样间隔 5 秒，nettop 自己的超时是 4 秒：必须明显快于两者。
+	if elapsed > 3*time.Second {
+		t.Fatalf("一次 nettop 采样花了 %v，会拖住整条采样链", elapsed)
+	}
+	if len(counters) == 0 {
+		t.Fatal("一个进程都没解析出来，多半是命令的参数不对")
+	}
+	// 至少有一个进程报了非零流量 —— 全零说明解析到了错误的列。
+	var moved bool
+	for _, c := range counters {
+		if c.RxBytes > 0 || c.TxBytes > 0 {
+			moved = true
+			break
+		}
+	}
+	if !moved {
+		t.Fatal("所有进程的收发都是 0，多半是列解析错了")
+	}
 }

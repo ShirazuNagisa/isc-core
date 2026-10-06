@@ -1275,6 +1275,56 @@ type ExposeRequest struct {
 // ExposeRequestProtocol defines model for ExposeRequest.Protocol.
 type ExposeRequestProtocol string
 
+// FootprintMetrics **内核自己 + 它托管的站点**的合计占用。
+//
+// 与 `HostMetrics` 回答的是两个不同的问题：后者是整台机器，前者是
+// "这套东西占了多少"。界面拿 footprint 当主数字、host 当对照，用户
+// 才不会在机器变卡时先去怀疑 Phecda（或者反过来，以为它什么都没占）。
+//
+// 口径的三条边界：
+//
+//   - 进程集合是内核自身 + 站点的**进程树**（含后代）。预设里的
+//     `npm start` 会再 fork 出 node，只看被监管的那个 PID 会把占用
+//     算成一个零头；
+//   - `cpu_percent` 是各进程之和，**可能超过 100**：macOS 上单进程的
+//     100% 指"一个核跑满"，10 核机器上的 180% 读作 1.8 个核。这里不
+//     归一化，否则就再也看不出是几个核了；
+//   - `memory_bytes` 是各进程 RSS 之和，共享页会被重复计入 —— 它是
+//     一个上界，不是精确值。
+type FootprintMetrics struct {
+	At *time.Time `json:"at,omitempty"`
+
+	// CpuPercent 各进程占用率之和；多核机器上可能超过 100。
+	CpuPercent float64 `json:"cpu_percent"`
+
+	// MemoryBytes 各进程 RSS 之和（上界，共享页会重复计入）。
+	MemoryBytes int `json:"memory_bytes"`
+
+	// NetBackend 网络数字的来源，沿用其它指标的后端约定：
+	//
+	// - 后端名（如 `darwin-nettop`）—— 数字有效；
+	// - `unsupported` —— 这个平台没有进程级网络采样（Linux 的
+	//   `/proc/net/dev` 是接口级的，没有等价物）；
+	// - `unavailable` —— 实现了，但这一次没读到（命令超时等）。
+	//
+	// 三态必须分开：把"没读到"显示成 0，会让用户以为它不占网络。
+	//
+	//
+	// Examples: darwin-nettop, unsupported, unavailable
+	NetBackend string `json:"net_backend"`
+
+	// NetRxBytesPerSec 按进程归因后求和的接收速率。**仅当 `net_backend` 是后端名时
+	// 才存在**：`unsupported` 与 `unavailable` 两种情况下字段缺省，
+	// 界面据此显示"不支持"/"未读到"，而不是显示一个假的 0。
+	NetRxBytesPerSec *float64 `json:"net_rx_bytes_per_sec,omitempty"`
+
+	// NetTxBytesPerSec 按进程归因后求和的发送速率（存在条件同上）。
+	NetTxBytesPerSec *float64 `json:"net_tx_bytes_per_sec,omitempty"`
+
+	// Processes 参与合计的进程数，供界面解释"这个数字算了几个人"。
+	Processes int `json:"processes"`
+}
+
 // GpuMetrics defines model for GpuMetrics.
 type GpuMetrics struct {
 	// Backend 采样后端名；`unsupported` 表示此平台没有实现 GPU 采样。
@@ -1477,7 +1527,28 @@ type Meta struct {
 type MetricsSnapshot struct {
 	Apps []AppMetrics `json:"apps"`
 
+	// Footprint **内核自己 + 它托管的站点**的合计占用。
+	//
+	// 与 `HostMetrics` 回答的是两个不同的问题：后者是整台机器，前者是
+	// "这套东西占了多少"。界面拿 footprint 当主数字、host 当对照，用户
+	// 才不会在机器变卡时先去怀疑 Phecda（或者反过来，以为它什么都没占）。
+	//
+	// 口径的三条边界：
+	//
+	// - 进程集合是内核自身 + 站点的**进程树**（含后代）。预设里的
+	//   `npm start` 会再 fork 出 node，只看被监管的那个 PID 会把占用
+	//   算成一个零头；
+	// - `cpu_percent` 是各进程之和，**可能超过 100**：macOS 上单进程的
+	//   100% 指"一个核跑满"，10 核机器上的 180% 读作 1.8 个核。这里不
+	//   归一化，否则就再也看不出是几个核了；
+	// - `memory_bytes` 是各进程 RSS 之和，共享页会被重复计入 —— 它是
+	//   一个上界，不是精确值。
+	Footprint *FootprintMetrics `json:"footprint,omitempty"`
+
 	// History 主机指标的近期历史（最旧在前）。
+	//
+	// 只有 host，**没有 footprint**：曲线只用到标量，多带一份 60 点
+	// 的历史会让一次轮询的响应体凭空翻倍。
 	History *[]HostMetrics `json:"history,omitempty"`
 	Host    HostMetrics    `json:"host"`
 }

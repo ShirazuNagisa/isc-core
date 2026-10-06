@@ -142,3 +142,45 @@ func TestListAdvisoriesWithoutAnyManagerStillAnswers(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// footprint 必须真的发出去，而且"没读到速率"与"速率是 0"要能分辨。
+//
+// 后者是这条测试真正守的东西：如果速率用一个非指针的 0 表示，
+// 界面就无法区分"这台机器没有进程级网络采样"和"它现在没占网络"，
+// 只能二选一地猜 —— 猜错的那一半会让用户得出相反的结论。
+func TestGetMetricsCarriesFootprintAndItsNetworkState(t *testing.T) {
+	source := stubSource{
+		host:  metrics.HostSample{CPUPercent: 90, MemoryUsedBytes: 7000, MemoryTotalBytes: 8000},
+		procs: map[int]metrics.ProcessSample{9: {PID: 9, CPUPercent: 5, MemoryBytes: 4096}},
+	}
+	sampler := metrics.NewSampler(source, time.Hour, 5)
+	// stubSource 没有实现 ProcessNetwork，因此网络应当是 unsupported。
+	sampler.SampleNow(func() []metrics.AppRef {
+		return []metrics.AppRef{{AppID: "app-1", PID: 9}}
+	})
+
+	s := newInsightsServer(t, sampler)
+	rec := callApp(t, s, http.MethodGet, "/v1/metrics", "", func(s *Server, w http.ResponseWriter, r *http.Request) {
+		s.GetMetrics(w, r)
+	})
+	var snapshot gen.MetricsSnapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Footprint == nil {
+		t.Fatal("快照里没有 footprint：界面拿不到'这套东西占了多少'")
+	}
+	fp := *snapshot.Footprint
+	// footprint 只含内核自身（stub 的进程表里只有 9，而 9 属于站点；
+	// 内核自身那个 PID 不在 procs 里，因此不计入）—— 关键是它**不等于**
+	// 整机数字，否则就是拿 host 冒充 footprint。
+	if fp.CpuPercent == snapshot.Host.CpuPercent {
+		t.Fatalf("footprint 与整机 CPU 相同（%v），口径没分开", fp.CpuPercent)
+	}
+	if fp.NetBackend != "unsupported" {
+		t.Fatalf("NetBackend = %q，期望 unsupported", fp.NetBackend)
+	}
+	if fp.NetRxBytesPerSec != nil || fp.NetTxBytesPerSec != nil {
+		t.Fatalf("没有速率时不该发这两个字段：%#v", fp)
+	}
+}

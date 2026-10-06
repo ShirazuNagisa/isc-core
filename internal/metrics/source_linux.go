@@ -124,6 +124,38 @@ func (s *linuxSource) Host(ctx context.Context) (HostSample, error) {
 	return sample, nil
 }
 
+// Descendants 返回 roots 及其全部后代。
+//
+// 走 /proc 而不是 ps：这个后端的设计前提就是"不起任何短命进程"
+// （见包顶部说明），在容器里也未必装了 ps。
+//
+// 遍历过程中进程会来会走，读不到就跳过 —— 少一个刚退出的 PID 不影响
+// 求和，而因此返回错误会让整块 footprint 消失。
+func (s *linuxSource) Descendants(ctx context.Context, roots []int) ([]int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	children := map[int][]int{}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		body, err := os.ReadFile("/proc/" + entry.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		if ppid, ok := parseProcPPID(string(body)); ok {
+			children[ppid] = append(children[ppid], pid)
+		}
+	}
+	return expandDescendants(roots, children), nil
+}
+
 func (s *linuxSource) Processes(ctx context.Context, pids []int) (map[int]ProcessSample, error) {
 	now := time.Now()
 	out := make(map[int]ProcessSample, len(pids))

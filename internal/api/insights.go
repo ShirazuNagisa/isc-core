@@ -36,6 +36,8 @@ func (s *Server) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		Host: toGenHostMetrics(snapshot.Host, backend, true),
 		Apps: make([]gen.AppMetrics, 0, len(snapshot.Apps)),
 	}
+	footprint := toGenFootprintMetrics(snapshot.Footprint)
+	out.Footprint = &footprint
 	for _, item := range snapshot.Apps {
 		out.Apps = append(out.Apps, toGenAppMetrics(item))
 	}
@@ -99,6 +101,31 @@ func toGenHostMetrics(sample metrics.HostSample, backend string, withDetail bool
 	// GPU 为 nil 时**不发**这个字段：缺省表示"这台机器没有可采样的 GPU"，
 	// 而 `backend: unsupported` 是它的一种显式写法。客户端两种都要认，
 	// 但内核这边不该把"没有"伪装成一个空对象。
+	return out
+}
+
+// toGenFootprintMetrics 转换一次 footprint 采样。
+//
+// 两个网络速率只在**有速率**时发出：`net_backend` 的三态（后端名 /
+// unsupported / unavailable）是给界面判断怎么显示的，而一个缺省的速率
+// 字段让"没读到"不可能被误读成 0。
+func toGenFootprintMetrics(sample metrics.FootprintSample) gen.FootprintMetrics {
+	backend := sample.NetBackend
+	out := gen.FootprintMetrics{
+		CpuPercent:  sample.CPUPercent,
+		MemoryBytes: int(sample.MemoryBytes),
+		NetBackend:  backend,
+		Processes:   sample.Processes,
+	}
+	if !sample.At.IsZero() {
+		at := sample.At
+		out.At = &at
+	}
+	if sample.HasNetwork {
+		rx, tx := sample.NetRxBytesPerSec, sample.NetTxBytesPerSec
+		out.NetRxBytesPerSec = &rx
+		out.NetTxBytesPerSec = &tx
+	}
 	return out
 }
 

@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 )
@@ -935,3 +936,247 @@ func TestParseIOAcceleratorPrefersAnEntryWithAValue(t *testing.T) {
 // floatPtr 返回指向 value 的指针：GPUSample.Utilization 用 nil 表示
 // "没读到值"，因此测试里必须能表达"读到了"。
 func floatPtr(value float64) *float64 { return &value }
+
+// --- footprint -------------------------------------------------------------
+
+// 一条 nettop 的真实输出（本机采集，已截断到需要的列）。
+const nettopSample = `                                                                     bytes_in       bytes_out
+apsd.399                                                               112734          128672
+mDNSResponder.507                                                     1062670          619956
+com.apple.WebKit.Networking.1234                                       500000          600000
+`
+
+func TestParseNettopHandlesDotsInProcessNames(t *testing.T) {
+	got := parseNettop(nettopSample)
+	if len(got) != 3 {
+		t.Fatalf("解析出 %d 个进程，期望 3（表头不该被当成数据）", len(got))
+	}
+	// 进程名里有三个点：必须按**最后一个**点切 pid，
+	// 按第一个点切会把 pid 解析成 "apple" 并丢掉这一行。
+	if c, ok := got[1234]; !ok || c.RxBytes != 500000 || c.TxBytes != 600000 {
+		t.Fatalf("com.apple.WebKit.Networking.1234 没解析对：%+v (ok=%v)", c, ok)
+	}
+	if c := got[507]; c.RxBytes != 1062670 || c.TxBytes != 619956 {
+		t.Fatalf("mDNSResponder.507 = %+v", c)
+	}
+}
+
+func TestParseNettopSkipsMalformedLines(t *testing.T) {
+	text := "header\nno-pid-here.abc 1 2\n.123 4 5\n999. 6 7\n42 8 9\n7.42 10 11\n"
+	got := parseNettop(text)
+	if len(got) != 1 {
+		t.Fatalf("只该留下 7.42，得到 %+v", got)
+	}
+	if got[42].RxBytes != 10 || got[42].TxBytes != 11 {
+		t.Fatalf("7.42 = %+v", got[42])
+	}
+}
+
+func TestParsePPIDAndExpandDescendants(t *testing.T) {
+	// pid ppid
+	text := "1 0\n100 1\n200 100\n300 100\n400 200\n500 999\n"
+	children := parsePPID(text)
+
+	got := expandDescendants([]int{100}, children)
+	want := map[int]bool{100: true, 200: true, 300: true, 400: true}
+	if len(got) != len(want) {
+		t.Fatalf("expandDescendants = %v，期望 %d 个", got, len(want))
+	}
+	for _, pid := range got {
+		if !want[pid] {
+			t.Fatalf("不该包含 %d：%v", pid, got)
+		}
+	}
+	// 根节点自己要在结果里：调用方要的是"这个站点涉及的进程"，不只是子孙。
+	if len(expandDescendants([]int{999}, map[int][]int{})) != 1 {
+		t.Fatal("没有子进程时应当只返回根节点自己")
+	}
+}
+
+func TestExpandDescendantsSurvivesCycles(t *testing.T) {
+	// 坏掉的父子表（ppid 成环）不能把采样卡死。
+	cycles := map[int][]int{1: {2}, 2: {1}}
+	got := expandDescendants([]int{1}, cycles)
+	if len(got) != 2 {
+		t.Fatalf("成环时应当各返回一次，得到 %v", got)
+	}
+}
+
+// fakeNetSource 在 fakeSource 之上实现 TreeSource 与 ProcessNetwork。
+type fakeNetSource struct {
+	fakeSource
+	children map[int][]int
+	counters map[int]NetCounters
+	netErr   error
+	treeErr  error
+	netCalls int
+}
+
+func (f *fakeNetSource) Descendants(_ context.Context, roots []int) ([]int, error) {
+	if f.treeErr != nil {
+		return nil, f.treeErr
+	}
+	if f.children == nil {
+		return roots, nil
+	}
+	return expandDescendants(roots, f.children), nil
+}
+
+func (f *fakeNetSource) NetworkCounters(context.Context) (map[int]NetCounters, error) {
+	f.netCalls++
+	if f.netErr != nil {
+		return nil, f.netErr
+	}
+	return f.counters, nil
+}
+
+func (f *fakeNetSource) NetworkBackend() string { return "fake-nettop" }
+
+// footprint 必须把**子进程**算进去。
+//
+// 这不是理论问题：内核按预设拉起的是 `npm start`，真正干活的是它 fork 出来的
+// node。只看被监管的那个 PID，站点占用会低到看不出有人在用。
+func TestFootprintSumsTheWholeProcessTree(t *testing.T) {
+	self := os.Getpid()
+	source := &fakeNetSource{
+		fakeSource: fakeSource{procs: map[int]ProcessSample{
+			self: {PID: self, CPUPercent: 1, MemoryBytes: 100},
+			100:  {PID: 100, CPUPercent: 2, MemoryBytes: 200},
+			4242: {PID: 4242, CPUPercent: 3, MemoryBytes: 300},
+			4243: {PID: 4243, CPUPercent: 4, MemoryBytes: 400},
+		}},
+		children: map[int][]int{self: {100}, 4242: {4243}},
+	}
+	sampler := NewSampler(source, time.Hour, 10)
+	sampler.sampleOnce(context.Background(), func() []AppRef {
+		return []AppRef{{AppID: "site", PID: 4242}}
+	})
+
+	fp := sampler.Latest().Footprint
+	if fp.CPUPercent != 10 {
+		t.Fatalf("CPUPercent = %v，期望 10（1+2+3+4）", fp.CPUPercent)
+	}
+	if fp.MemoryBytes != 1000 {
+		t.Fatalf("MemoryBytes = %d，期望 1000", fp.MemoryBytes)
+	}
+	if fp.Processes != 4 {
+		t.Fatalf("Processes = %d，期望 4", fp.Processes)
+	}
+}
+
+// 速率来自两次累计值的差分；计数回退（站点重启）时归零而不是报负数。
+func TestFootprintNetworkRateDiffsAndClampsResets(t *testing.T) {
+	self := os.Getpid()
+	source := &fakeNetSource{
+		fakeSource: fakeSource{procs: map[int]ProcessSample{self: {PID: self}}},
+		counters:   map[int]NetCounters{self: {RxBytes: 1000, TxBytes: 2000}},
+	}
+	sampler := NewSampler(source, time.Hour, 10)
+	now := time.Unix(1_700_000_000, 0)
+	sampler.now = func() time.Time { return now }
+
+	// 第一次采样：没有上一轮可比，速率必须缺省而不是 0。
+	sampler.sampleOnce(context.Background(), nil)
+	if fp := sampler.Latest().Footprint; fp.HasNetwork {
+		t.Fatalf("首次采样不该报出速率：%+v", fp)
+	}
+
+	// 10 秒后多了 1000 字节收、2000 字节发 → 100 / 200 B/s。
+	now = now.Add(10 * time.Second)
+	source.counters = map[int]NetCounters{self: {RxBytes: 2000, TxBytes: 4000}}
+	sampler.sampleOnce(context.Background(), nil)
+	fp := sampler.Latest().Footprint
+	if !fp.HasNetwork || fp.NetRxBytesPerSec != 100 || fp.NetTxBytesPerSec != 200 {
+		t.Fatalf("速率算错了：%+v", fp)
+	}
+	if fp.NetBackend != "fake-nettop" {
+		t.Fatalf("NetBackend = %q", fp.NetBackend)
+	}
+
+	// 进程重启：累计值归零。差值直接算会得到一条巨大的负速率。
+	now = now.Add(10 * time.Second)
+	source.counters = map[int]NetCounters{}
+	sampler.sampleOnce(context.Background(), nil)
+	if fp := sampler.Latest().Footprint; fp.NetRxBytesPerSec != 0 || fp.NetTxBytesPerSec != 0 {
+		t.Fatalf("计数回退必须钳到 0：%+v", fp)
+	}
+}
+
+// 平台没实现按进程网络时，必须说"不支持"，而不是拿整机速率顶替。
+func TestFootprintNetworkUnsupportedWithoutProcessNetwork(t *testing.T) {
+	source := &fakeSource{procs: map[int]ProcessSample{}}
+	sampler := NewSampler(source, time.Hour, 10)
+	sampler.sampleOnce(context.Background(), nil)
+
+	fp := sampler.Latest().Footprint
+	if fp.HasNetwork {
+		t.Fatal("不该有速率")
+	}
+	if fp.NetBackend != "unsupported" {
+		t.Fatalf("NetBackend = %q，期望 unsupported", fp.NetBackend)
+	}
+}
+
+// 实现了但这次读失败：是"没读到"，不是"不支持"，也不是 0。
+func TestFootprintNetworkUnavailableOnReadFailure(t *testing.T) {
+	source := &fakeNetSource{
+		fakeSource: fakeSource{procs: map[int]ProcessSample{}},
+		netErr:     errors.New("nettop timed out"),
+	}
+	sampler := NewSampler(source, time.Hour, 10)
+	sampler.sampleOnce(context.Background(), nil)
+
+	fp := sampler.Latest().Footprint
+	if fp.HasNetwork {
+		t.Fatal("读失败时不该有速率")
+	}
+	if fp.NetBackend != "unavailable" {
+		t.Fatalf("NetBackend = %q，期望 unavailable", fp.NetBackend)
+	}
+}
+
+// 进程树展开失败要退回根节点，而不是让整块 footprint 消失。
+func TestFootprintFallsBackWhenTreeExpansionFails(t *testing.T) {
+	self := os.Getpid()
+	source := &fakeNetSource{
+		fakeSource: fakeSource{procs: map[int]ProcessSample{
+			self: {PID: self, CPUPercent: 1, MemoryBytes: 100},
+		}},
+		treeErr: errors.New("ps failed"),
+	}
+	sampler := NewSampler(source, time.Hour, 10)
+	sampler.sampleOnce(context.Background(), nil)
+
+	fp := sampler.Latest().Footprint
+	if fp.Processes != 1 {
+		t.Fatalf("Processes = %d，期望退回只有内核自身", fp.Processes)
+	}
+	if fp.CPUPercent != 1 {
+		t.Fatalf("CPUPercent = %v，期望 1", fp.CPUPercent)
+	}
+}
+
+// footprint 与站点采样共用同一次进程查询：多一个 ps 不值得。
+func TestFootprintSharesOneProcessQueryWithApps(t *testing.T) {
+	self := os.Getpid()
+	source := &countingSource{fakeSource: fakeSource{procs: map[int]ProcessSample{
+		self: {PID: self}, 4242: {PID: 4242},
+	}}}
+	sampler := NewSampler(source, time.Hour, 10)
+	sampler.sampleOnce(context.Background(), func() []AppRef {
+		return []AppRef{{AppID: "site", PID: 4242}}
+	})
+	if source.calls != 1 {
+		t.Fatalf("Processes 被调用了 %d 次，期望 1", source.calls)
+	}
+}
+
+type countingSource struct {
+	fakeSource
+	calls int
+}
+
+func (c *countingSource) Processes(ctx context.Context, pids []int) (map[int]ProcessSample, error) {
+	c.calls++
+	return c.fakeSource.Processes(ctx, pids)
+}

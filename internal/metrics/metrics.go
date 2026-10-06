@@ -24,6 +24,7 @@ package metrics
 import (
 	"context"
 	"errors"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -117,10 +118,66 @@ type AppSample struct {
 	UptimeSeconds int64
 }
 
+// NetCounters 是一个进程的**累计**收发字节。
+//
+// 累计而不是增量：来源（macOS 的 nettop）给的就是进程生命周期内的总和，
+// 速率必须由两次采样差分得到 —— 和 CPU、主机网络速率的做法一致。
+type NetCounters struct {
+	RxBytes uint64
+	TxBytes uint64
+}
+
+// FootprintSample 是"内核自己 + 它托管的站点"的合计占用。
+//
+// # 为什么要单独有一个口径，而不是复用 HostSample
+//
+// HostSample 描述的是**整台机器**：用户在界面上看到"CPU 60%"，会以为
+// 那是 Phecda 吃的，于是机器一卡就去怀疑它。这里回答的是另一个问题：
+// 这套东西自己占了多少。两者的差值才是"别的程序占的"。
+//
+// # 口径的三条边界
+//
+//  1. **进程集合**是内核自身 + 被托管站点的进程树（含后代）。必须含后代：
+//     预设里 `npm start` 这类命令的监管 PID 是 npm，真正干活的是它的
+//     子进程 node —— 只看监管 PID 会把占用算成零头。
+//  2. **内存是各进程 RSS 之和**，共享页会被重复计入。它是一个上界，
+//     不是一个精确值；宁可偏大也不要漏掉一个正在吃内存的站点。
+//  3. **CPUPercent 可能超过 100**：它是各进程占用率之和，而单个进程的
+//     100% 在 macOS 上指"一个核跑满"。10 核机器上的 180% 读作 1.8 个核。
+//     这里不做归一化，因为归一化之后就再也看不出是几个核了。
+//
+// # 为什么没有 GPU 字段
+//
+// macOS 没有任何按进程归因 GPU 的途径（powermetrics 需要 root）。把设备级
+// 利用率塞进这里，就是把"整机 GPU 56%"冒充成"Phecda 用了 56% GPU" ——
+// 那正是这个口径要消灭的误导。GPU 仍由 HostSample.GPU 提供，界面标注"整机"。
+type FootprintSample struct {
+	At         time.Time
+	CPUPercent float64
+	// MemoryBytes 是各进程 RSS 之和（见上面的口径说明）。
+	MemoryBytes uint64
+	// NetRxBytesPerSec / NetTxBytesPerSec 是按进程归因后求和的速率。
+	// HasNetwork 为 false 时这两个值无意义（平台不支持、首次采样还没有
+	// 上一轮可比、或本次读取失败）。
+	NetRxBytesPerSec float64
+	NetTxBytesPerSec float64
+	HasNetwork       bool
+	// NetBackend 报告网络数字的来源，取值与既有约定一致：
+	// 后端名（如 "darwin-nettop"）、"unsupported"（平台没实现）、
+	// "unavailable"（实现了但这次没读到）。
+	//
+	// 三种状态必须分开：把"没读到"显示成 0 会让用户以为 Phecda 不占网络。
+	NetBackend string
+	// Processes 是参与合计的进程数，供界面解释"这个数字算了几个人"。
+	Processes int
+}
+
 // Snapshot 是某一时刻的完整视图。
 type Snapshot struct {
 	Host HostSample
 	Apps []AppSample
+	// Footprint 是内核自身 + 站点的合计占用（见 FootprintSample）。
+	Footprint FootprintSample
 }
 
 // AppRef 是采样器需要知道的、关于一个正在运行的站点的最小信息。
@@ -128,6 +185,27 @@ type AppRef struct {
 	AppID     string
 	PID       int
 	StartedAt time.Time
+}
+
+// ProcessNetwork 是能按进程给出网络字节数的 Source（可选实现）。
+//
+// 单独一个可选接口，而不是塞进 Source：Linux 上 /proc/net/dev 是**接口级**
+// 的，没有等价的进程级来源，硬加进 Source 会逼着那边返回假数据。
+type ProcessNetwork interface {
+	// NetworkCounters 返回各进程的累计收发字节；没有网络活动的进程可以缺席。
+	NetworkCounters(ctx context.Context) (map[int]NetCounters, error)
+	// NetworkBackend 报告来源名（如 "darwin-nettop"）。
+	NetworkBackend() string
+}
+
+// TreeSource 是能给出进程父子关系的 Source（可选实现）。
+//
+// 需要它是因为"一个站点的占用"不止它自己：内核按预设拉起的是 `npm start`，
+// 而 npm 会再 fork 出 node。不展开后代的话，站点占用的 CPU 与内存会严重偏低，
+// 而且偏得毫无规律 —— 取决于该预设是直接执行还是经过一层包装。
+type TreeSource interface {
+	// Descendants 返回 roots 及其全部后代的 PID。
+	Descendants(ctx context.Context, roots []int) ([]int, error)
 }
 
 // Source 提供平台相关的原始采样。
@@ -162,6 +240,12 @@ type Sampler struct {
 	mu       sync.RWMutex
 	latest   Snapshot
 	hostRing []HostSample
+
+	// 上一次的按进程累计字节与取样时刻，用来差分出速率。
+	//
+	// 只有网络需要这个：CPU 与内存是即时量，速率不是。
+	prevNet   map[int]NetCounters
+	prevNetAt time.Time
 }
 
 // NewSampler 构造采样器。interval <= 0 时用 DefaultInterval。
@@ -223,17 +307,21 @@ func (s *Sampler) sampleOnce(ctx context.Context, apps func() []AppRef) {
 	if apps != nil {
 		refs = apps()
 	}
-	pids := make([]int, 0, len(refs))
+	appPIDs := make([]int, 0, len(refs))
 	for _, ref := range refs {
 		if ref.PID > 0 {
-			pids = append(pids, ref.PID)
+			appPIDs = append(appPIDs, ref.PID)
 		}
 	}
 
+	// footprint 的进程集合要在采样**之前**算出来，这样站点与 footprint
+	// 能共用同一次 ps —— 多一个子进程不值得，而两者本来就看着同一批进程。
+	footprintPIDs := s.footprintPIDs(ctx, appPIDs)
+
 	samples := make([]AppSample, 0, len(refs))
 	byPID := map[int]ProcessSample{}
-	if len(pids) > 0 {
-		if found, err := s.source.Processes(ctx, pids); err == nil {
+	if all := unionPIDs(appPIDs, footprintPIDs); len(all) > 0 {
+		if found, err := s.source.Processes(ctx, all); err == nil {
 			byPID = found
 		}
 	}
@@ -250,9 +338,146 @@ func (s *Sampler) sampleOnce(ctx context.Context, apps func() []AppRef) {
 		samples = append(samples, item)
 	}
 
+	footprint := s.footprint(ctx, footprintPIDs, byPID, now)
+
 	s.mu.Lock()
 	s.latest.Apps = samples
+	s.latest.Footprint = footprint
 	s.mu.Unlock()
+}
+
+// footprintPIDs 返回"内核自身 + 站点进程树"的 PID 集合。
+//
+// 展开失败时退回只含根节点：一个少算了子进程的数字，仍然比整块缺失有用，
+// 而且它偏小的方向是**可解释**的（用户能看到进程数变少）。
+func (s *Sampler) footprintPIDs(ctx context.Context, appPIDs []int) []int {
+	roots := make([]int, 0, len(appPIDs)+1)
+	roots = append(roots, os.Getpid())
+	roots = append(roots, appPIDs...)
+
+	tree, ok := s.source.(TreeSource)
+	if !ok {
+		return roots
+	}
+	all, err := tree.Descendants(ctx, roots)
+	if err != nil || len(all) == 0 {
+		return roots
+	}
+	return all
+}
+
+// footprint 汇总一次 footprint 采样。
+//
+// byPID 是已经采好的进程样本（与站点共用），counters 现取。
+func (s *Sampler) footprint(
+	ctx context.Context,
+	pids []int,
+	byPID map[int]ProcessSample,
+	now time.Time,
+) FootprintSample {
+	out := FootprintSample{At: now, Processes: len(pids)}
+	for _, pid := range pids {
+		if proc, ok := byPID[pid]; ok {
+			out.CPUPercent += proc.CPUPercent
+			out.MemoryBytes += proc.MemoryBytes
+		}
+	}
+	out.NetRxBytesPerSec, out.NetTxBytesPerSec, out.HasNetwork, out.NetBackend =
+		s.footprintNetwork(ctx, pids, now)
+	return out
+}
+
+// footprintNetwork 用两次采样的差值算出被归因到这套进程上的速率。
+//
+// 返回的 HasNetwork 表示速率是否有效。三种"没有速率"必须区分开，
+// 因为界面上的三句话完全不同：平台不支持 / 首次采样还没得比 / 这次没读到。
+func (s *Sampler) footprintNetwork(ctx context.Context, pids []int, now time.Time) (rx, tx float64, ok bool, backend string) {
+	net, supported := s.source.(ProcessNetwork)
+	if !supported {
+		return 0, 0, false, "unsupported"
+	}
+	counters, err := net.NetworkCounters(ctx)
+	if err != nil {
+		// 读失败**不**沿用上一轮的速率：那会让一个已经停掉的站点继续
+		// 显示流量，而用户正盯着面板判断"现在还有没有在跑"。
+		return 0, 0, false, "unavailable"
+	}
+
+	s.mu.Lock()
+	prev, prevAt := s.prevNet, s.prevNetAt
+	s.prevNet, s.prevNetAt = counters, now
+	s.mu.Unlock()
+
+	if prevAt.IsZero() {
+		// 第一次采样没有可比的上一次，速率留空而不是报 0。
+		return 0, 0, false, net.NetworkBackend()
+	}
+	elapsed := now.Sub(prevAt).Seconds()
+	if elapsed <= 0 {
+		return 0, 0, false, net.NetworkBackend()
+	}
+	for _, pid := range pids {
+		rx += rateDelta(prev[pid].RxBytes, counters[pid].RxBytes, elapsed)
+		tx += rateDelta(prev[pid].TxBytes, counters[pid].TxBytes, elapsed)
+	}
+	return rx, tx, true, net.NetworkBackend()
+}
+
+// rateDelta 把两个累计值变成速率。
+//
+// 计数回退（cur < prev）时返回 0，而不是算出一个负数：站点的进程重启之后
+// 累计值会归零，差值直接算就是一条巨大的负速率 —— 界面上表现为曲线刺穿
+// 坐标轴，或者更糟，被取绝对值之后变成一个凭空出现的尖峰。
+func rateDelta(prev, cur uint64, elapsed float64) float64 {
+	if cur <= prev {
+		return 0
+	}
+	return float64(cur-prev) / elapsed
+}
+
+// expandDescendants 返回 roots 加上它们的全部后代。
+//
+// 结果里带 roots 自己：调用方要的是"这个站点涉及的所有进程"，而不是
+// 只要它的子孙。用显式栈而不是递归 —— 进程树的深度理论上没有上限，
+// 而一个坏掉的 ppid 环会让递归直接爆栈。
+func expandDescendants(roots []int, children map[int][]int) []int {
+	seen := make(map[int]bool, len(roots))
+	out := make([]int, 0, len(roots))
+	stack := make([]int, 0, len(roots))
+	for _, pid := range roots {
+		if pid > 0 && !seen[pid] {
+			seen[pid] = true
+			stack = append(stack, pid)
+		}
+	}
+	for len(stack) > 0 {
+		pid := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		out = append(out, pid)
+		for _, child := range children[pid] {
+			if child > 0 && !seen[child] {
+				seen[child] = true
+				stack = append(stack, child)
+			}
+		}
+	}
+	return out
+}
+
+// unionPIDs 合并两组 PID 并去重，保持稳定顺序（先 appPIDs）。
+func unionPIDs(a, b []int) []int {
+	seen := make(map[int]bool, len(a)+len(b))
+	out := make([]int, 0, len(a)+len(b))
+	for _, group := range [][]int{a, b} {
+		for _, pid := range group {
+			if pid <= 0 || seen[pid] {
+				continue
+			}
+			seen[pid] = true
+			out = append(out, pid)
+		}
+	}
+	return out
 }
 
 // SampleNow 立刻采一次。
@@ -273,6 +498,7 @@ func (s *Sampler) Latest() Snapshot {
 	// 是为了让"没有磁盘"仍然是 nil 而不是一个长度 0 的切片。
 	out.Host.Disks = append([]DiskSample(nil), s.latest.Host.Disks...)
 	out.Apps = append([]AppSample{}, s.latest.Apps...)
+	out.Footprint = s.latest.Footprint
 	return out
 }
 

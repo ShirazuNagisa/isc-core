@@ -201,6 +201,38 @@ func (s *darwinSource) Processes(ctx context.Context, pids []int) (map[int]Proce
 	return parsePS(text, s.rssUnit), nil
 }
 
+// Descendants 返回 roots 及其全部后代。
+//
+// 用 ps 全量取一次父子关系（见 parsePPID 的说明）。
+func (s *darwinSource) Descendants(ctx context.Context, roots []int) ([]int, error) {
+	text, err := runCommand(ctx, "ps", "-A", "-o", "pid=,ppid=")
+	if err != nil {
+		return nil, err
+	}
+	return expandDescendants(roots, parsePPID(text)), nil
+}
+
+// NetworkBackend 报告按进程网络数字的来源。
+func (s *darwinSource) NetworkBackend() string { return "darwin-nettop" }
+
+// NetworkCounters 用 nettop 取各进程的累计收发字节。
+//
+// # -n 不是可选的
+//
+// 不加 -n 时 nettop 会去反向解析每一个远端地址，在有活动连接的情况下
+// **会一直卡着不返回**（本机实测超过 30 秒）。采样本该在几百毫秒内结束，
+// 卡住的后果是整个指标循环停摆 —— 而界面上看不出任何异常。
+//
+// -x 去掉交互式界面，-l 1 取一份就退出，-J 只保留需要的两列。
+func (s *darwinSource) NetworkCounters(ctx context.Context) (map[int]NetCounters, error) {
+	text, err := runCommandWithTimeout(ctx, nettopTimeout,
+		"nettop", "-n", "-P", "-l", "1", "-x", "-J", "bytes_in,bytes_out")
+	if err != nil {
+		return nil, err
+	}
+	return parseNettop(text), nil
+}
+
 func joinPIDs(pids []int) string {
 	parts := make([]string, 0, len(pids))
 	for _, pid := range pids {
@@ -216,9 +248,21 @@ func joinPIDs(pids []int) string {
 // 界面上看不出任何异常。宁可偶尔慢一点，也不要安静地报错值。
 const commandTimeout = 8 * time.Second
 
+// nettopTimeout 是 nettop 的上限。
+//
+// 比 commandTimeout 短得多，因为它必须**短于采样间隔**（5 秒）：超时只是
+// 少一个数字，而阻塞会把整条采样链拖住 —— 用户会看到所有指标一起卡住。
+// 正常调用约 0.5 秒返回。
+const nettopTimeout = 4 * time.Second
+
 // runCommand 执行一条短命命令并合并两路输出。
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
-	probeCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	return runCommandWithTimeout(ctx, commandTimeout, name, args...)
+}
+
+// runCommandWithTimeout 与 runCommand 相同，只是超时可指定。
+func runCommandWithTimeout(ctx context.Context, timeout time.Duration, name string, args ...string) (string, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, name, args...)
 	cmd.Stdin = nil

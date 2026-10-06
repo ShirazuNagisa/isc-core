@@ -931,3 +931,90 @@ func matchQuote(text string) (string, bool) {
 	}
 	return "", false
 }
+
+// parseNettop 解析 macOS `nettop -n -P -l 1 -x -J bytes_in,bytes_out` 的输出。
+//
+// 输出形如（第一行是表头）：
+//
+//	                     bytes_in       bytes_out
+//	apsd.399               112734          128672
+//	mDNSResponder.507     1062670          619956
+//
+// # 两个坑
+//
+//  1. 进程名里**可以有点**（`com.apple.WebKit.Networking.1234`），所以必须
+//     按**最后一个**点切分 pid —— 按第一个点切会把 pid 解析成 "apple"。
+//  2. nettop 只列出**有网络活动**的进程。缺席不等于 0 字节，但对求和而言
+//     两者等价：调用方按 0 处理即可，前提是别把"没出现"当成"这次没读到"。
+func parseNettop(text string) map[int]NetCounters {
+	out := map[int]NetCounters{}
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		dot := strings.LastIndexByte(fields[0], '.')
+		if dot <= 0 || dot == len(fields[0])-1 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0][dot+1:])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		rx, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		tx, err := strconv.ParseUint(fields[2], 10, 64)
+		if err != nil {
+			continue
+		}
+		out[pid] = NetCounters{RxBytes: rx, TxBytes: tx}
+	}
+	return out
+}
+
+// parsePPID 解析 `ps -A -o pid=,ppid=` 的输出，得到"父 → 子"表。
+//
+// 用 -A 全量取一次而不是按 pid 逐个问：一次调用就能建出完整的进程树，
+// 而逐个查询在站点多起来之后会变成几十次 fork。
+func parsePPID(text string) map[int][]int {
+	children := map[int][]int{}
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		ppid, err := strconv.Atoi(fields[1])
+		if err != nil {
+			continue
+		}
+		children[ppid] = append(children[ppid], pid)
+	}
+	return children
+}
+
+// parseProcPPID 从 /proc/<pid>/stat 里取出父进程号。
+//
+// 与 parseProcPIDStat 同样从最后一个右括号之后切分（进程名里可能有空格
+// 与括号）。ppid 是紧随 state 之后的那一项，在切片里下标为 1。
+func parseProcPPID(text string) (int, bool) {
+	close := strings.LastIndex(text, ")")
+	if close < 0 || close+2 >= len(text) {
+		return 0, false
+	}
+	fields := strings.Fields(text[close+2:])
+	const ppidIndex = 1
+	if len(fields) <= ppidIndex {
+		return 0, false
+	}
+	ppid, err := strconv.Atoi(fields[ppidIndex])
+	if err != nil {
+		return 0, false
+	}
+	return ppid, true
+}
