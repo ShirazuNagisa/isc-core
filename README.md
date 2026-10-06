@@ -228,6 +228,18 @@ isc notify deliveries  # 看最近的投递记录
 
 GPLv3。第三方组件的许可证见 `THIRD_PARTY_NOTICES.md`。
 
+### App Store 分发
+
+三个仓库均为 GPLv3，而 App Store 的分发条款与 GPLv3 §10 不相容（Apple 附加的
+使用限制正是该条所禁止的）。为此项目附有一份 **§7 附加许可**：
+
+    LICENSE-EXCEPTION-APPSTORE.md
+
+它**只增加权限、不改变许可**：仍以 GPLv3 发布，只是额外允许经由 App Store 分发。
+它不覆盖第三方组件（各自许可见 `THIRD_PARTY_NOTICES.md`），也不豁免 Apple 自己的
+规则（App Review 与沙箱是另一回事）。
+
+
 内核与图形界面是**分离的两个仓库**：GUI 通过版本化的 `libisc` C ABI 以**库**的形式
 嵌入内核（D24），不 import 任何 Go 包，也不使用内核源码。
 
