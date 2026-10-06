@@ -27,6 +27,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
+	"github.com/ShirazuNagisa/isc-core/internal/reachcheck"
 	"github.com/ShirazuNagisa/isc-core/internal/remote"
 	"github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/settings"
@@ -101,6 +102,13 @@ type Deps struct {
 
 	// Proxy 是反向代理的管理器。
 	Proxy *proxy.Manager
+
+	// ReachCheck 是**公网可达性**探测器；为空时该接口返回空列表。
+	//
+	// 名字与上面的 Reach 分开是有必要的：那个是"本机配置对不对"的
+	// 检查清单（reach.Registry），这个是"外面的人能不能连上"的实测。
+	// 两者回答不同的问题，混在一个名字下早晚会被当成同一件事。
+	ReachCheck *reachcheck.Prober
 
 	// Tunnel 是 Cloudflare 隧道的管理器。
 	//

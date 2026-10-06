@@ -600,6 +600,32 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /v1/reachability:
+
+    get:
+      tags: [Insights]
+      operationId: getReachability
+      summary: 每个站点的公网可达性
+      description: |
+        内核定期从**公网那一侧**确认每个站点还活着：站点进程活着、反代
+        也配好了，域名却可能从外面打不开（隧道断了、DNS 记录被改、证书
+        过期）。这些都不反映在本机的健康检查里。
+
+        `trustworthy` 说明这次检查是否真的走了公网路径。**隧道模式下是
+        真的** —— 请求会出机器、到 Cloudflare 边缘、再顺着隧道回来，
+        途经的每一段都是公网用户会经过的。没有隧道时则走 NAT 发夹，
+        运营商放不放行都会"成功"，因此只能说明 DNS 与证书是否正常，
+        不能当成"公网可达"的证据。界面必须区分这两者。
+      responses:
+        "200":
+          description: 最近一轮的检查结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachabilityList"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /v1/advisories:
 
     get:
@@ -3176,6 +3202,45 @@ components:
           type: object
           additionalProperties: true
 
+
+    ReachabilityItem:
+      type: object
+      required: [app_id, name, domain, ok, checked_at, trustworthy, consecutive_failures]
+      properties:
+        app_id: {type: string}
+        name: {type: string}
+        domain: {type: string}
+        ok:
+          type: boolean
+          description: 拿到了 2xx/3xx。
+        status_code: {type: integer}
+        latency_ms:
+          type: integer
+          description: 从发出请求到拿到响应头的时间。
+        checked_at: {type: string, format: date-time}
+        error:
+          type: string
+          description: 失败原因（连接超时、证书问题等）。
+        trustworthy:
+          type: boolean
+          description: |
+            这次检查是否真的走了公网路径。隧道模式下为真；否则走的是
+            NAT 发夹，只能说明 DNS 与证书正常。
+        consecutive_failures:
+          type: integer
+          description: |
+            连续失败次数。单次失败通常只是网络抖动，界面应当据此决定
+            要不要把它当成"坏了"来显示 —— 每次都报会让用户学会忽略。
+            成功一次即归零。
+
+    ReachabilityList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReachabilityItem"
 
     Advisory:
       type: object

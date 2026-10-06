@@ -2000,6 +2000,38 @@ type ReachReadiness struct {
 	Viable bool `json:"viable"`
 }
 
+// ReachabilityItem defines model for ReachabilityItem.
+type ReachabilityItem struct {
+	AppId     string    `json:"app_id"`
+	CheckedAt time.Time `json:"checked_at"`
+
+	// ConsecutiveFailures 连续失败次数。单次失败通常只是网络抖动，界面应当据此决定
+	// 要不要把它当成"坏了"来显示 —— 每次都报会让用户学会忽略。
+	// 成功一次即归零。
+	ConsecutiveFailures int    `json:"consecutive_failures"`
+	Domain              string `json:"domain"`
+
+	// Error 失败原因（连接超时、证书问题等）。
+	Error *string `json:"error,omitempty"`
+
+	// LatencyMs 从发出请求到拿到响应头的时间。
+	LatencyMs *int   `json:"latency_ms,omitempty"`
+	Name      string `json:"name"`
+
+	// Ok 拿到了 2xx/3xx。
+	Ok         bool `json:"ok"`
+	StatusCode *int `json:"status_code,omitempty"`
+
+	// Trustworthy 这次检查是否真的走了公网路径。隧道模式下为真；否则走的是
+	// NAT 发夹，只能说明 DNS 与证书正常。
+	Trustworthy bool `json:"trustworthy"`
+}
+
+// ReachabilityList defines model for ReachabilityList.
+type ReachabilityList struct {
+	Items []ReachabilityItem `json:"items"`
+}
+
 // Record defines model for Record.
 type Record struct {
 	Comment *string `json:"comment,omitempty"`
@@ -3097,6 +3129,9 @@ type ServerInterface interface {
 	// ProbeReachProvider 探测某种可达方式当前是否可用
 	// (GET /v1/reach/providers/{name}/probe)
 	ProbeReachProvider(w http.ResponseWriter, r *http.Request, name ReachProviderName)
+	// GetReachability 每个站点的公网可达性
+	// (GET /v1/reachability)
+	GetReachability(w http.ResponseWriter, r *http.Request)
 	// DeleteRemoteApns 删除 APNs 凭据
 	// (DELETE /v1/remote/apns)
 	DeleteRemoteApns(w http.ResponseWriter, r *http.Request)
@@ -4913,6 +4948,20 @@ func (siw *ServerInterfaceWrapper) ProbeReachProvider(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// GetReachability operation middleware
+func (siw *ServerInterfaceWrapper) GetReachability(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReachability(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteRemoteApns operation middleware
 func (siw *ServerInterfaceWrapper) DeleteRemoteApns(w http.ResponseWriter, r *http.Request) {
 
@@ -5684,6 +5733,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/apps/{id}/restart", wrapper.RestartApp)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/apps/{id}/logs", wrapper.GetAppLogs)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/metrics", wrapper.GetMetrics)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/reachability", wrapper.GetReachability)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/advisories", wrapper.ListAdvisories)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/debug/noop", wrapper.RunNoopJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/providers", wrapper.ListProviders)

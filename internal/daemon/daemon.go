@@ -41,6 +41,7 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/provider"
 	"github.com/ShirazuNagisa/isc-core/internal/proxy"
 	"github.com/ShirazuNagisa/isc-core/internal/reach"
+	"github.com/ShirazuNagisa/isc-core/internal/reachcheck"
 	"github.com/ShirazuNagisa/isc-core/internal/remote"
 	hosting "github.com/ShirazuNagisa/isc-core/internal/runtime"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
@@ -132,6 +133,7 @@ type Daemon struct {
 	verifyMgr    *verify.Manager
 	proxyMgr     *proxy.Manager
 	tunnelMgr    *tunnel.Manager
+	reachProber  *reachcheck.Prober
 
 	notifier     *notify.Manager
 	notifyConfig *notify.ConfigManager
@@ -370,6 +372,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Cloudflare 隧道。与反向代理是**叠加**关系：隧道把流量送到反代上，
 	// 因此它要知道反代端口，而那个端口在设置里、会变 —— 所以这里传一个
 	// 取值函数而不是当下这一份。
+	// 公网可达性探测器。它问的是"外面的人能不能打开"，与本机健康检查
+	// 是两件事：内核能连上 127.0.0.1:端口，而公网用户可能看到的是一个
+	// 打不开的域名（隧道断了、DNS 被改、证书过期）。
+	d.reachProber = reachcheck.New(reachcheck.Config{
+		Targets:  d.reachTargets,
+		Tunneled: func() bool { return d.tunnelMgr != nil && d.tunnelMgr.Ready() },
+		Log:      d.log,
+	})
+
 	d.tunnelMgr = tunnel.New(tunnel.Config{
 		DataDir:   d.opts.Paths.Root(),
 		ProxyPort: d.currentProxyPort(),
@@ -577,6 +588,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Verify:         d.verifyMgr,
 		Proxy:          d.proxyMgr,
 		Tunnel:         d.tunnelMgr,
+		ReachCheck:     d.reachProber,
 		ProxyRoutes:    d.proxyMgr.RouteStore(),
 		Notify:         d.notifier,
 		NotifyConfig:   d.notifyConfig,
@@ -631,6 +643,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 而用户可能正依赖那部分（例如他已经通过新开的端口连上了服务）。
 	// 内核擅自撤掉会把用户正在用的东西拿走，而他完全不知道发生了什么。
 	d.reportInterruptedChanges(runCtx)
+
+	// 15.5 公网可达性。
+	//
+	// 同样放后台，而且它自己还会再等 30 秒才查第一次 —— 内核刚起来时
+	// 反代与隧道都还在起，立刻查会得到一片"不可达"，而那是假的。
+	if d.reachProber != nil {
+		go d.reachProber.Run(runCtx)
+	}
 
 	// 16. 指标采样。
 	//
@@ -1520,4 +1540,28 @@ func (d *Daemon) startTunnel(ctx context.Context) {
 		d.log.Error("隧道启动失败", "state", st.State, "err", err)
 		return
 	}
+}
+
+// reachTargets 列出当前要检查公网可达性的站点。
+//
+// 每个**域名**一条而不是每个站点一条：一个站点可以绑多个域名，而
+// "哪个域名打不开"正是这个功能要回答的。站点级的汇总由界面去做。
+func (d *Daemon) reachTargets(ctx context.Context) []reachcheck.Target {
+	if d.apps == nil {
+		return nil
+	}
+	list, err := d.apps.List(ctx)
+	if err != nil {
+		d.log.Warn("could not list sites for the reachability check", "err", err)
+		return nil
+	}
+	out := make([]reachcheck.Target, 0, len(list))
+	for _, app := range list {
+		for _, domain := range app.Domains {
+			out = append(out, reachcheck.Target{
+				AppID: app.ID, Name: app.Name, Domain: domain,
+			})
+		}
+	}
+	return out
 }
