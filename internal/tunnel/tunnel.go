@@ -157,7 +157,14 @@ func (m *Manager) CredentialsPath(id string) string {
 }
 
 // HasAccount 报告是否已经完成过账号授权。
-func (m *Manager) HasAccount() bool { return fileExecutable(m.OriginCertPath()) }
+//
+// 判断"文件在且非空"，**不是**判断它可执行 —— 授权文件是一张 PEM 证书，
+// 权限是 0600。这里踩过一次：用可执行性去判断它，会让一个明明已经授权
+// 好的机器一直报"缺授权"，而错误信息指的路径上文件就在那里。
+func (m *Manager) HasAccount() bool {
+	info, err := os.Stat(m.OriginCertPath())
+	return err == nil && !info.IsDir() && info.Size() > 0
+}
 
 // FindBinary 按固定顺序找一个可用的 cloudflared。
 //

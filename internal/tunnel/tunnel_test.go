@@ -151,3 +151,32 @@ func TestStopReturnsToDisabled(t *testing.T) {
 		t.Fatal("停掉之后不该还报就绪")
 	}
 }
+
+// 授权文件是一张 PEM 证书，不是可执行文件。
+//
+// 踩过一次：用"可执行"去判断它，于是明明已经授权好的机器一直报
+// "缺授权"，而错误信息指的路径上文件就在那里 —— 用户会去反复重新授权，
+// 因为界面说缺的就是这个东西。
+func TestHasAccountAcceptsANonExecutableCert(t *testing.T) {
+	dir := t.TempDir()
+	m := New(Config{DataDir: dir})
+	if err := os.MkdirAll(m.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if m.HasAccount() {
+		t.Fatal("文件还不存在时就报有授权")
+	}
+	if err := os.WriteFile(m.OriginCertPath(), []byte("-----BEGIN CERTIFICATE-----\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !m.HasAccount() {
+		t.Fatal("0600 的证书文件应当算已授权")
+	}
+	// 空文件不算：那多半是上次写到一半被打断。
+	if err := os.WriteFile(m.OriginCertPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if m.HasAccount() {
+		t.Fatal("空文件不该算已授权")
+	}
+}
