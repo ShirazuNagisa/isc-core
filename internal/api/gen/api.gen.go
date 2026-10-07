@@ -2527,8 +2527,14 @@ type Settings struct {
 
 	// ProxyTls 反向代理是否用 HTTPS 提供服务。
 	//
-	// 开启它需要同时配置 ACME（DNS-01 凭据），否则证书签不出来，
-	// 而症状是"浏览器报证书错误"。
+	// 默认**开启**：证书自动申请已经是产品默认，不再是留给用户的
+	// 选择 —— 界面上的那个开关已经去掉。它同时决定反代用不用
+	// HTTPS，所以关掉意味着退回明文 HTTP，只留给确实不需要证书的
+	// 部署（命令行 `isc settings set --no-proxy-tls`）。
+	//
+	// 反代打开时需要能拿到证书：ACME 邮箱必填（反代关着时不要求），
+	// DNS-01 凭据留空表示按域名自动反查；签不出来时的症状是
+	// "浏览器报证书错误"。
 	ProxyTls *bool `json:"proxy_tls,omitempty"`
 
 	// RemotePublicDomain 子域名挂在哪个域名下（用户选的），例如 `example.com`。

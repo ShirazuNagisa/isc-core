@@ -93,8 +93,18 @@ type Settings struct {
 
 	// ProxyTLS 表示反向代理是否用 HTTPS 提供服务。
 	//
-	// 开启它需要同时配置 ACME（邮箱 + DNS-01 凭据），否则证书签不出来，
-	// 而症状是"浏览器报证书错误"。
+	// 默认**开启**：证书自动申请已经是产品默认，不再是留给用户的
+	// 选择 —— 界面上那个「为绑定的域名自动申请证书」的开关因此被
+	// 去掉了。它同时控制反代用不用 HTTPS，所以默认值必须是 true：
+	// 否则新装出来的实例既不会去申请证书，用户也没有任何地方能
+	// 把它打开。
+	//
+	// 仍然保留为可写字段：命令行（`isc settings set --no-proxy-tls`）
+	// 与已有部署可以显式退回明文 HTTP。
+	//
+	// 反代打开时需要能拿到证书：ACME 邮箱必填（反代关着时内核不会去
+	// 签，因此不要求），DNS-01 凭据留空表示按域名自动反查。签不出来
+	// 时的症状是"浏览器报证书错误"。
 	ProxyTLS bool `json:"proxy_tls"`
 
 	// ACMEEmail 是 ACME 账户的联系邮箱。
@@ -190,13 +200,27 @@ type Settings struct {
 // Default 返回默认设置。
 func Default() Settings {
 	return Settings{
-		Lang:                LangZhCN,
-		LogLevel:            LevelInfo,
-		EventBufferSize:     DefaultEventBufferSize,
-		NotifyOnIPChange:    true,
-		ProxyEnabled:        false,
-		ProxyPort:           DefaultProxyPort,
-		ProxyTLS:            false,
+		Lang:             LangZhCN,
+		LogLevel:         LevelInfo,
+		EventBufferSize:  DefaultEventBufferSize,
+		NotifyOnIPChange: true,
+		ProxyEnabled:     false,
+		ProxyPort:        DefaultProxyPort,
+		// ProxyTLS 默认**开启**。
+		//
+		// 证书自动申请已经是产品默认，不再是一个用户开关：界面上那个
+		// 「为绑定的域名自动申请证书」已经被去掉，因此内核这边也必须
+		// 默认开着 —— 否则新装的实例不会去申请证书，而用户没有任何
+		// 地方能把它打开。
+		//
+		// 这一条**不是 GUI 专属**：ProxyTLS 同时决定反代是否用 HTTPS
+		// 提供服务，所以命令行部署与无界面部署同样按这个默认值走 ——
+		// 它们是同一个 Default()，没有第二份默认值。
+		//
+		// 显式存过 false 的旧部署仍然保持 false（见 merge：存储里的值
+		// 覆盖默认值），退回明文 HTTP 的口子因此留在
+		// `isc settings set --no-proxy-tls` 上。
+		ProxyTLS:            true,
 		ACMEDirectory:       "", // 空 = 生产环境
 		RemoteEnabled:       false,
 		RemotePort:          DefaultRemotePort,
@@ -440,7 +464,16 @@ func (s Settings) Validate() error {
 		// "远程访问莫名其妙连不上"。在这里挡住才能给出真正的理由。
 		return fmt.Errorf(i18n.T("settings.remote_port_conflict"), s.RemotePort)
 	}
-	if s.ProxyTLS {
+	// 邮箱只在**反代真的会去签证书**时才要求。
+	//
+	// ProxyTLS 现在默认就是 true（证书自动申请是产品默认），它因此
+	// 不再表达"用户想要 HTTPS"这个意图 —— 只看它的话，新装的实例
+	// 连改语言、改日志级别、从备份恢复设置都会被这句话挡下来，而
+	// 那些动作与证书毫无关系。
+	//
+	// 会去签证书的是"反代在监听"，所以连 ProxyEnabled 一起看：
+	// 用户打开反代而没填邮箱时，仍然会在这里拿到同一句话。
+	if s.ProxyEnabled && s.ProxyTLS {
 		// HTTPS 必须有证书来源，而签证书需要 ACME 账号（邮箱）。
 		//
 		// 而**凭据不必填**：为空表示自动 —— 内核按域名反查它属于哪个
