@@ -56,7 +56,7 @@ type Marker struct {
 type Installed struct {
 	Kind    Kind
 	Version string
-	// Source 是 "system" 或 "managed"。
+	// Source 是 "system"、"bundled" 或 "managed"。
 	Source string
 	// Root 是托管运行时的根目录；系统解释器为空。
 	Root string
@@ -252,6 +252,14 @@ func (m *Manager) Resolve(ctx context.Context, kind Kind, minVersion string) (In
 	if found, ok := m.resolveSystem(ctx, kind, minVersion); ok {
 		return found, true, nil
 	}
+	// 包内**先于**数据目录。
+	//
+	// 不只是偏好问题：App Store 版只能执行包里的那份，而容器里可能还留着
+	// 更早一次（直接分发版装出来的）托管副本 —— 它可读、可 stat，
+	// 偏偏执行时 EPERM。先取包内的，这种残留就不会被选中。
+	if found, ok := m.resolveBundled(kind, minVersion); ok {
+		return found, true, nil
+	}
 	if found, ok := m.resolveManaged(kind, minVersion); ok {
 		return found, true, nil
 	}
@@ -314,6 +322,62 @@ func (m *Manager) resolveManaged(kind Kind, minVersion string) (Installed, bool)
 		}
 		if best.Version == "" || compareVersions(marker.Version, best.Version) > 0 {
 			best = Installed{Kind: kind, Version: marker.Version, Source: "managed", Root: dir, Executable: exe}
+		}
+	}
+	if best.Version == "" {
+		return Installed{}, false
+	}
+	return best, true
+}
+
+// resolveBundled 在应用包里找**已经解压好的**运行时。
+//
+// # 为什么包里放的是解压好的树，而不是归档
+//
+// 沙箱进程的 process-exec 只放行 /Applications 子树与系统目录，而数据目录
+// （应用的容器）不在其中。于是"从包里取归档 → 解压到容器 → 执行"这条链路
+// 每一步都合法，只有最后一步必然失败，报错是一句与沙箱毫无字面关系的
+// `fork/exec …: operation not permitted`。
+//
+// 所以上架版的运行时必须以**可执行文件的形态**待在包里。这条路不碰容器，
+// 也就不受那条规则影响。
+//
+// # 布局与判定
+//
+//	<bundleDir>/<kind>/<version>/<artifact.Executable>
+//
+// 目录名即版本号。这里**刻意不要求**标记文件（对比 resolveManaged）：
+// 包里的树是构建期产生的、不是内核装的，要求标记只会多一个"构建脚本与
+// Go 结构体不同步就静默失效"的耦合点。判定标准只有一条 —— 期望的可执行
+// 文件真的在那里。
+func (m *Manager) resolveBundled(kind Kind, minVersion string) (Installed, bool) {
+	if m.bundleDir == "" {
+		return Installed{}, false
+	}
+	artifact, ok := m.artifactFor(kind)
+	if !ok || artifact.Executable == "" {
+		return Installed{}, false
+	}
+	entries, err := os.ReadDir(filepath.Join(m.bundleDir, string(kind)))
+	if err != nil {
+		return Installed{}, false
+	}
+	best := Installed{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		version := entry.Name()
+		if minVersion != "" && compareVersions(version, minVersion) < 0 {
+			continue
+		}
+		root := filepath.Join(m.bundleDir, string(kind), version)
+		exe := filepath.Join(root, artifact.Executable)
+		if info, err := os.Stat(exe); err != nil || info.IsDir() {
+			continue
+		}
+		if best.Version == "" || compareVersions(version, best.Version) > 0 {
+			best = Installed{Kind: kind, Version: version, Source: "bundled", Root: root, Executable: exe}
 		}
 	}
 	if best.Version == "" {
@@ -462,18 +526,23 @@ func (m *Manager) Provision(ctx context.Context, kind Kind, minVersion string, p
 	}, nil
 }
 
-// Inventory 列出当前可用的运行时：系统探测到的 + 已供给的。
+// Inventory 列出当前可用的运行时：系统探测到的 + 包内的 + 已供给的。
 func (m *Manager) Inventory(ctx context.Context) ([]Installed, error) {
 	out := make([]Installed, 0)
 
-	// 已供给的（按类型取最新的一个）。
+	// 包内与已供给的（按类型取最新的一个）。包内优先，理由同 Resolve：
+	// 包外的副本在沙箱里执行会被拒。
 	for _, kind := range Kinds() {
+		if found, ok := m.resolveBundled(kind, ""); ok {
+			out = append(out, found)
+			continue
+		}
 		if found, ok := m.resolveManaged(kind, ""); ok {
 			out = append(out, found)
 		}
 	}
-	// 系统解释器：只报"没有托管版本"的那些，避免同一个运行时出现两条
-	// 看起来重复的条目。
+	// 系统解释器：只报"没有包内/托管版本"的那些，避免同一个运行时出现
+	// 两条看起来重复的条目。
 	managed := map[Kind]bool{}
 	for _, item := range out {
 		managed[item.Kind] = true

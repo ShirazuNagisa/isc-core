@@ -8,7 +8,13 @@
 //
 //	go run ./Scripts/manifestdump darwin/arm64
 //
-// 输出每行六列：kind、version、archive、sizeBytes、digest、url
+// 输出每行十列，制表符分隔：
+//
+//	kind、version、archive、sizeBytes、digest、url、executable、stripRoot、license、source
+//
+// 前六列的历史顺序**不能改**：ISC-Phecda 的打包脚本按列号取值。后四列是
+// 构建期解压运行时需要的（去哪找可执行文件、要不要剥顶层目录、许可与来源
+// 要登记进包内说明）。
 package main
 
 import (
@@ -29,8 +35,9 @@ func main() {
 		if !ok {
 			continue
 		}
-		fmt.Printf("%s\t%s\t%s\t%d\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%d\t%s\t%s\t%s\t%t\t%s\t%s\n",
 			artifact.Kind, artifact.Version, artifact.Archive,
-			artifact.SizeBytes, artifact.Digest, artifact.URL)
+			artifact.SizeBytes, artifact.Digest, artifact.URL,
+			artifact.Executable, artifact.StripRoot, artifact.License, artifact.Source)
 	}
 }
