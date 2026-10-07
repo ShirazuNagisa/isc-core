@@ -294,8 +294,13 @@ var messagesZh = map[string]string{
 		"例：\n" +
 		"  isc settings set --acme-email you@example.com --acme-dns-credential-id <凭据ID>\n" +
 		"  isc settings set --proxy-enabled --proxy-port 443 --proxy-tls\n\n" +
-		"ACME 设置是 HTTPS 的前置条件：启用 proxy-tls 之前必须先指定\n" +
-		"DNS-01 凭据，否则证书签不出来，而症状是「浏览器报证书错误」。",
+		// 这句话在 proxy_tls 默认开启之后必须重写：原文把"必须先指定 DNS-01
+		// 凭据"说成保存的前置条件，而 (a) proxy-tls 现在默认就是开的，
+		// (b) 保存时真正被校验的是 ACME **邮箱**，DNS-01 凭据是签发证书时
+		// 才需要。两件事混在一起会让用户对着错误信息找错地方。
+		"ACME 是 HTTPS 的前置条件：反向代理开着且走 HTTPS 时，必须先填 ACME\n" +
+		"邮箱（否则保存会被拒）；而证书真正签得出来还需要一个支持 DNS-01 的\n" +
+		"凭据，缺了它的症状是「浏览器报证书错误」。",
 	"cli.settings.conflict_proxy":  "--proxy-enabled 与 --proxy-disabled 不能同时给出",
 	"cli.settings.conflict_tls":    "--proxy-tls 与 --no-proxy-tls 不能同时给出",
 	"cli.settings.nothing":         "没有给出任何要修改的字段。用 isc settings 查看当前值。",

@@ -299,9 +299,14 @@ var messagesEn = map[string]string{
 		"Examples:\n" +
 		"  isc settings set --acme-email you@example.com --acme-dns-credential-id <id>\n" +
 		"  isc settings set --proxy-enabled --proxy-port 443 --proxy-tls\n\n" +
-		"ACME is a prerequisite for HTTPS: a DNS-01 credential must be set before\n" +
-		"enabling proxy-tls, otherwise no certificate can be issued and the\n" +
-		"symptom is \"the browser reports a certificate error\".",
+		// proxy_tls 默认开启之后这句话必须重写：原文把 "must set a DNS-01
+		// credential before enabling proxy-tls" 说成保存的前置条件，而
+		// (a) proxy-tls 现在默认就是开的，(b) 保存时真正被校验的是 ACME
+		// **email**，DNS-01 凭据是签发证书时才需要。
+		"ACME is a prerequisite for HTTPS: with the reverse proxy on and serving\n" +
+		"HTTPS, an ACME email must be set (saving is rejected without one).\n" +
+		"Issuing a certificate also needs a credential that supports DNS-01;\n" +
+		"without it the symptom is a browser certificate error.",
 	"cli.settings.conflict_proxy":  "--proxy-enabled and --proxy-disabled cannot be given together",
 	"cli.settings.conflict_tls":    "--proxy-tls and --no-proxy-tls cannot be given together",
 	"cli.settings.nothing":         "No field to change was given. Use isc settings to see the current values.",
