@@ -80,7 +80,36 @@ type Options struct {
 	//
 	// 由调用方（CLI）提前创建，这样进程最早期的日志也能被捕获；
 	// 守护进程会在事件总线就绪后把总线接上去，使日志同时进入事件流。
+	// 库（cmd/libisc）不填这一项，由 New 自己建一个。
+	//
+	// 它内部的级别取自 LogLevelVar，见那个字段。
 	LogHandler *logx.BusHandler
+
+	// LogLevelVar 是日志级别的可变载体，**必须与 LogHandler 用的是同一个**。
+	//
+	// 日志级别不是一成不变的：内核启动时要按 settings.LogLevel 定级，
+	// 之后用户在界面上改 log_level 还要立刻生效。而 slog 的级别一旦
+	// 写进 handler 就改不动了 —— 唯一的例外是 *slog.LevelVar。
+	//
+	// 因此这里把它显式暴露给调用方：守护进程会在 Run 里 Set 它，
+	// 而测试与 CLI 可以提前 Set（例如 --verbose 想要从第一行就是 debug）。
+	//
+	// 为 nil 表示由 New 自己建一个初值为 info 的（库与多数测试都不需要
+	// 关心它）。**只在同时传了 LogHandler 时才需要填这一项**：那种情况下
+	// 它必须就是那个 handler 构造时用的同一个 LevelVar，否则 Run 里 Set
+	// 的是另一个对象，handler 会一直停在构造时的级别上 —— 而"设置改了
+	// 也没反应"正是这次要修的毛病。
+	LogLevelVar *slog.LevelVar
+
+	// LogLevel 是命令行**显式**指定的日志级别，取值同 settings 的
+	// level 名（debug / info / warn / error）。
+	//
+	// 留空表示沿用已保存的设置 —— 与 Lang 同一个约定。若这里总填一个
+	// 默认值，用户通过界面把级别改成 error 之后，每次重启都会被改回来。
+	//
+	// 只在命令行真的传了 --verbose 时才填，因为那是用户的即时意图：
+	// 命令行 > 已保存的设置。
+	LogLevel string
 
 	// Lang 是用户界面语言。
 	//
@@ -178,8 +207,18 @@ type Daemon struct {
 
 // New 构造守护进程。此时不会产生任何副作用。
 func New(opts Options) *Daemon {
+	// 级别载体先就位：handler 与调用方必须共享**同一个** LevelVar，
+	// 否则运行期改级别只会改到其中一个（另一个仍在按旧级别过滤）。
+	if opts.LogLevelVar == nil {
+		// 构造时的级别是临时的：settings 一读出来就会被覆盖
+		// （见 Run 的"日志级别"一步）。这里取 Info 而不是 Debug ——
+		// 那一段窗口里的日志包括数据库、主密钥与设置的加载，
+		// 用 Debug 会让每次启动都刷屏，而用户并没有要求。
+		opts.LogLevelVar = new(slog.LevelVar)
+		opts.LogLevelVar.Set(slog.LevelInfo)
+	}
 	if opts.LogHandler == nil {
-		opts.LogHandler = logx.New(os.Stderr, slog.LevelInfo, nil)
+		opts.LogHandler = logx.New(os.Stderr, opts.LogLevelVar, nil)
 	}
 	if opts.LoopbackAddr == "" {
 		opts.LoopbackAddr = defaultLoopbackAddr
@@ -207,6 +246,13 @@ func (d *Daemon) Handler() http.Handler { return d.handler }
 //
 // 未就绪时返回 nil。
 func (d *Daemon) Events() *event.Bus { return d.bus }
+
+// LogHandler 返回内核正在用的日志处理器。
+//
+// 存在的理由是"日志级别有没有真的生效"需要一个能被检查的抓手：
+// 级别是共享可变的（见 Options.LogLevelVar），问处理器本身
+// "现在放行到哪一级"比去猜日志里该不该有某一行更直接。
+func (d *Daemon) LogHandler() *logx.BusHandler { return d.opts.LogHandler }
 
 // Ready 返回一个在守护进程完全就绪后关闭的通道，供测试同步。
 func (d *Daemon) Ready() <-chan struct{} { return d.ready }
@@ -282,6 +328,29 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	i18n.SetDefault(i18n.Parse(settingsSvc.Get().Lang))
 
+	// 先把**打算**用的级别说出来，再改级别。
+	//
+	// 顺序不能反：这一行本身是 Info，而下一行可能是 error ——
+	// 级别一旦收紧到 error，这行确认信息就再也写不出来了，用户会以为
+	// "级别根本没被读到"。先把设置里的值说出来，任何级别下都看得见。
+	d.log.Info("正在应用日志级别",
+		"from_settings", settingsSvc.Get().LogLevel,
+		"from_cli", d.opts.LogLevel)
+
+	// 日志级别按**已保存的设置**生效。
+	//
+	// 在此之前 handler 是用一个临时的 info 级别建的（见 New）——
+	// 那一段窗口只能那样：级别存在数据库里，而数据库与设置本身要先被
+	// 打开。从这里开始，用户设置的级别才是真的。
+	//
+	// 命令行显式指定的级别优先：`isc daemon run --verbose` 是用户的
+	// 即时意图，不该被几个月前存下的 info 盖掉 —— 与 --lang 同一个约定。
+	if d.opts.LogLevel != "" {
+		d.opts.LogLevelVar.Set(logx.ParseLevel(d.opts.LogLevel))
+	} else {
+		d.opts.LogLevelVar.Set(logx.ParseLevel(settingsSvc.Get().LogLevel))
+	}
+
 	// 语言设置**在运行期改了也要立刻生效**。
 	//
 	// 早先只在启动时应用过一次，于是用户在界面上把语言改成 English 之后：
@@ -294,6 +363,21 @@ func (d *Daemon) Run(ctx context.Context) error {
 	//（(required) [secret]），而服务端解析的字段说明仍是中文。
 	settingsSvc.SetOnChange(func(s settings.Settings) {
 		i18n.SetDefault(i18n.Parse(s.Lang))
+
+		// 日志级别同样要在运行期立刻生效。
+		//
+		// 用户把 log_level 从 info 改成 debug 之后想要的是"现在开始
+		// 记详细一点，好让我复现刚才那个问题"——若这里不 Set，
+		// 他只能重启内核，而重启会把出问题的现场清掉。
+		//
+		// LevelVar 是共享的可变状态，Set 立刻对**所有**已经拿到
+		// logger 的组件生效（它们持有的 handler 都指向这一块）；
+		// 重建 handler 做不到这一点，见 logx.New 的说明。
+		//
+		// 命令行的 --verbose 在这里**不**参与：它只在启动时压过设置
+		// 一次。否则用户在界面上把级别调回 info 会被那条标志反复
+		// 顶掉，而他会以为界面坏了。
+		d.opts.LogLevelVar.Set(logx.ParseLevel(s.LogLevel))
 	})
 
 	d.log.Info(i18n.T("daemon.starting"),

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ShirazuNagisa/isc-core/internal/daemon"
 	"github.com/ShirazuNagisa/isc-core/internal/i18n"
+	"github.com/ShirazuNagisa/isc-core/internal/settings"
 )
 
 func newDaemonCmd(app *App) *cobra.Command {
@@ -47,9 +48,22 @@ func newDaemonRunCmd(app *App) *cobra.Command {
 				lang = app.lang
 			}
 
+			// 级别同理，只有真的传了 --verbose 才交给内核。
+			//
+			// 必须显式传：内核随后会按 settings.LogLevel 覆盖 handler
+			// 上的级别，若不说"这次要 verbose"，用户加的那个 -v 会被
+			// 数据库里存下的 info 静默吃掉 —— 他拿到的是一份没有调试
+			// 信息的日志，而命令行上明明写着 -v。
+			var level string
+			if app.verbose {
+				level = settings.LevelDebug
+			}
+
 			d := daemon.New(daemon.Options{
 				Paths:           app.paths,
 				LogHandler:      app.logHandler,
+				LogLevelVar:     app.logLevel,
+				LogLevel:        level,
 				Lang:            lang,
 				LoopbackAddr:    loopbackAddr,
 				DisableLoopback: disableLoopback,

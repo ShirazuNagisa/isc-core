@@ -60,6 +60,12 @@ type App struct {
 	// logHandler 在守护进程模式下创建，供 daemon 接管。
 	logHandler *logx.BusHandler
 
+	// logLevel 是 logHandler 的可变级别。
+	//
+	// 交给 daemon 之后，内核会按 settings.LogLevel Set 它；
+	// CLI 自己也用它把 --verbose 表达出来。
+	logLevel *slog.LevelVar
+
 	// log 是 CLI 自身的日志器。
 	log *slog.Logger
 }
@@ -204,9 +210,13 @@ func (a *App) init(cmd *cobra.Command) error {
 	if a.verbose {
 		level = slog.LevelDebug
 	}
+	// 级别放在 LevelVar 里而不是直接写进 handler：内核启动后要按
+	// settings.LogLevel 改它（`isc daemon run`），而写死的级别改不动。
+	a.logLevel = new(slog.LevelVar)
+	a.logLevel.Set(level)
 	// 日志写 stderr：stdout 要留给命令的结构化输出，
 	// 混在一起会破坏 --json 的可解析性。
-	a.logHandler = logx.New(os.Stderr, level, nil)
+	a.logHandler = logx.New(os.Stderr, a.logLevel, nil)
 	a.log = slog.New(a.logHandler)
 
 	return nil

@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,8 @@ import (
 	"github.com/ShirazuNagisa/isc-core/internal/paths"
 	"github.com/ShirazuNagisa/isc-core/internal/platform"
 	"github.com/ShirazuNagisa/isc-core/internal/runtimeinfo"
+	"github.com/ShirazuNagisa/isc-core/internal/settings"
+	"github.com/ShirazuNagisa/isc-core/internal/store"
 	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
 
@@ -45,6 +49,24 @@ type harness struct {
 	stopped bool
 	// paths 让测试能直接检查数据目录里的产物（数据库、密钥文件等）。
 	paths paths.Paths
+}
+
+// debugLevel 返回一个初值为 Debug 的级别载体。
+//
+// handler 用的那个与 Options.LogLevelVar 必须是**两个**独立的实例：
+// 内核启动时会按 settings.LogLevel 覆盖后者，若共用一块状态，
+// "只让事件流里有日志"的意图会被覆盖掉，测试随即失去它的前提。
+func debugLevel() *slog.LevelVar {
+	v := new(slog.LevelVar)
+	v.Set(slog.LevelDebug)
+	return v
+}
+
+// errorLevel 与 debugLevel 同理，供"只关心生命周期、不看日志"的用例。
+func errorLevel() *slog.LevelVar {
+	v := new(slog.LevelVar)
+	v.Set(slog.LevelError)
+	return v
 }
 
 // startDaemon 在临时数据目录里启动一个真实的内核实例。
@@ -76,8 +98,16 @@ func startDaemonIn(t *testing.T, dir string) *harness {
 		// 级别刻意设为 Debug 而非 Error —— 日志同时会被桥接成
 		// log.appended 事件，Debug 级别保证事件流里有日志可断言
 		// （见 TestJobLifecycleOverEventStream）。
-		LogHandler: logx.New(io.Discard, slog.LevelDebug, nil),
-		Lang:       i18n.ZhCN,
+		//
+		// handler 与 LogLevelVar 刻意用**两个独立**的 LevelVar，
+		// 并显式传 LogLevel=debug：内核启动时会按 settings.LogLevel
+		// 覆盖 LogLevelVar，若共用一块状态、又不显式指定级别，
+		// 新建数据库里那份默认的 info 会把 Debug 悄悄降回去 ——
+		// 事件流里于是再没有一条日志，而那看起来像是"桥接坏了"。
+		LogHandler:  logx.New(io.Discard, debugLevel(), nil),
+		LogLevelVar: debugLevel(),
+		LogLevel:    settings.LevelDebug,
+		Lang:        i18n.ZhCN,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -632,9 +662,10 @@ func TestDaemonShutdownRemovesRuntimeFile(t *testing.T) {
 	}
 
 	d := daemon.New(daemon.Options{
-		Paths:      p,
-		LogHandler: logx.New(io.Discard, slog.LevelError, nil),
-		Lang:       i18n.ZhCN,
+		Paths:       p,
+		LogHandler:  logx.New(io.Discard, errorLevel(), nil),
+		LogLevelVar: errorLevel(),
+		Lang:        i18n.ZhCN,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -679,9 +710,10 @@ func TestSecondInstanceRefusesToStart(t *testing.T) {
 
 	// 复用同一个数据目录启动第二个实例。
 	d2 := daemon.New(daemon.Options{
-		Paths:      p,
-		LogHandler: logx.New(io.Discard, slog.LevelError, nil),
-		Lang:       i18n.ZhCN,
+		Paths:       p,
+		LogHandler:  logx.New(io.Discard, errorLevel(), nil),
+		LogLevelVar: errorLevel(),
+		Lang:        i18n.ZhCN,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -738,10 +770,294 @@ func itoa(v int64) string {
 	return string(buf[i:])
 }
 
+// ---------------------------------------------------------------------------
+// 日志级别
+// ---------------------------------------------------------------------------
+
+// seedLogLevel 在一个还没被内核打开的数据目录里写下 log_level。
+//
+// 必须在 daemon.New 之前调用：级别是**启动时**从数据库里读出来的，
+// 而"启动时读对了"正是这几条用例要验证的事。内核跑起来之后再改，
+// 验证的就是另一条路径了（见 TestLogLevelChangeTakesEffectImmediately）。
+func seedLogLevel(t *testing.T, dir, level string) {
+	t.Helper()
+
+	st, err := store.Open(context.Background(), filepath.Join(dir, "isc.db"))
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	if err := st.SaveSettings(context.Background(), map[string]string{
+		settings.KeyLogLevel: level,
+	}); err != nil {
+		_ = st.Close()
+		t.Fatalf("写入 log_level 失败: %v", err)
+	}
+	// 必须关掉：SQLite 的连接不共享，留着会让随后启动的内核拿不到写锁。
+	if err := st.Close(); err != nil {
+		t.Fatalf("关闭数据库失败: %v", err)
+	}
+}
+
+// TestLogLevelFromSettingsAppliesAtStartup 验证启动时会**真的按设置**定级。
+//
+// 这条用例之所以能证伪原来那个 bug，靠的是两件事：
+//
+//   - handler 自带的初值是 Debug，而设置里是 error。若内核启动时**不**
+//     去读设置（改之前的样子），级别会停在 Debug，用例立刻失败；
+//   - 设置取 error 而不是 debug，是为了让"没生效"与"生效了"两个方向
+//     都能被观察到：既断言 debug 被挡下，也断言 error 仍放行。
+//
+// 日志不写文件也不读文件，而是收进内存缓冲区 —— 判据是处理器有没有
+// 放行记录，落盘会引入磁盘与权限这些与本问题无关的变量。
+func TestLogLevelFromSettingsAppliesAtStartup(t *testing.T) {
+	dir := testsupport.ShortTempDir(t)
+	seedLogLevel(t, dir, settings.LevelError)
+
+	t.Setenv(paths.EnvDataDir, dir)
+	p, err := paths.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf := new(strings.Builder)
+	var mu sync.Mutex
+	// 初值刻意设成 Debug：内核应当在读出设置之后把它收紧到 error。
+	// 反过来（初值 error、设置 debug）在这里分不出"没生效"与"生效了"，
+	// 因为两者都不会让 debug 日志多出来。
+	levelVar := new(slog.LevelVar)
+	levelVar.Set(slog.LevelDebug)
+
+	d := daemon.New(daemon.Options{
+		Paths:       p,
+		LogHandler:  logx.New(syncWriter{w: buf, mu: &mu}, levelVar, nil),
+		LogLevelVar: levelVar,
+		Lang:        i18n.ZhCN,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+
+	select {
+	case <-d.Ready():
+	case err := <-done:
+		cancel()
+		t.Fatalf("内核启动失败: %v", err)
+	case <-time.After(15 * time.Second):
+		cancel()
+		t.Fatal("等待内核就绪超时")
+	}
+
+	// 拿一个**真实的**日志器来问"现在放行到哪一级"：它由内核自己创建，
+	// 与各领域服务用的是同一个 handler。这比直接看 levelVar 更有说服力 ——
+	// 后者只证明那个变量被 Set 了，不证明 handler 真的跟着它走。
+	effective := slog.New(d.LogHandler())
+
+	// 级别来自设置（error），因此不该有 debug 日志。
+	if effective.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("设置的 log_level=error 没有生效：debug 仍被放行")
+	}
+	// 而 error 本身必须还在 —— 否则"看日志排查"这条路就断了。
+	if !effective.Enabled(context.Background(), slog.LevelError) {
+		t.Error("error 级别下 error 日志被误挡")
+	}
+
+	// 停稳之后再检查输出：从"按设置定级"到"写下那一行"是同步的，
+	// 因此不需要 sleep 去赌。
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("内核关闭超时")
+	}
+
+	mu.Lock()
+	got := buf.String()
+	mu.Unlock()
+
+	if !strings.Contains(got, "正在应用日志级别") {
+		t.Fatalf("启动日志里没有级别确认那一行:\n%s", firstLines(got, 20))
+	}
+	if want := "from_settings=error"; !strings.Contains(got, want) {
+		t.Errorf("级别确认那一行不对，期望 %q：\n%s", want, firstLines(got, 20))
+	}
+	// 反向判据：如果级别被读成 debug，这里一定会出现 DEBUG 行 ——
+	// 只有 level >= 生效级别的记录才会被写进缓冲区。
+	if strings.Contains(got, "level=DEBUG") {
+		t.Errorf("日志里出现了 DEBUG 行 —— 级别没有按设置收紧:\n%s", firstLines(got, 20))
+	}
+}
+
+// TestLogLevelChangeTakesEffectImmediately 验证运行期改级别**立刻**生效，
+// 不必重启内核。
+//
+// 判据是一个真实的 HTTP 请求：中间件给每个请求都记一条 debug 日志
+// （见 api.LogRequests），因此"改成 error 之后还有没有请求日志"
+// 直接回答了"级别有没有改到"。全程不重启内核 —— 重启就不是热更新了。
+func TestLogLevelChangeTakesEffectImmediately(t *testing.T) {
+	dir := testsupport.ShortTempDir(t)
+	t.Setenv(paths.EnvDataDir, dir)
+	p, err := paths.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 数据库里不写 log_level：走 Default()，也就是 info。
+	// 这同时钉住了"默认不是 debug"——需求要求缺失/非法时退回 info，
+	// 而不是静默变成最吵的那一档。
+	buf := new(strings.Builder)
+	var mu sync.Mutex
+	levelVar := new(slog.LevelVar)
+	levelVar.Set(slog.LevelInfo)
+
+	d := daemon.New(daemon.Options{
+		Paths:       p,
+		LogHandler:  logx.New(syncWriter{w: buf, mu: &mu}, levelVar, nil),
+		LogLevelVar: levelVar,
+		Lang:        i18n.ZhCN,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+
+	select {
+	case <-d.Ready():
+	case err := <-done:
+		cancel()
+		t.Fatalf("内核启动失败: %v", err)
+	case <-time.After(15 * time.Second):
+		cancel()
+		t.Fatal("等待内核就绪超时")
+	}
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(15 * time.Second):
+			t.Error("内核关闭超时")
+		}
+	})
+
+	h := &harness{t: t, daemon: d, paths: p, stopped: true}
+
+	// 客户端要拿运行时文件里的令牌才能调本地接口。
+	info, err := runtimeinfo.Read(p.RuntimeFile())
+	if err != nil {
+		t.Fatalf("读取 runtime.json 失败: %v", err)
+	}
+	ep := platform.Endpoint(info.Endpoint)
+	hc, err := ep.HTTPClient(10 * time.Second)
+	if err != nil {
+		t.Fatalf("构造 HTTP 客户端失败: %v", err)
+	}
+	h.info = info
+	h.endpoint = ep
+	h.client = hc
+	h.baseURL = ep.HTTPBaseURL()
+
+	// 拿内核自己的日志器来问级别。它取自内核持有的那份 handler ——
+	// 级别由内核按设置接管，这里要验的正是后者。
+	log := slog.New(d.LogHandler())
+
+	// 默认（info）：debug 必须被挡下。
+	if log.Enabled(context.Background(), slog.LevelDebug) {
+		t.Fatal("没有设置过 log_level 时按默认应当只到 info，debug 不该被放行")
+	}
+
+	// 改设置：这是界面上那一步真正走的路径（PATCH /v1/settings）。
+	resp := h.do(http.MethodPatch, "/v1/settings", []byte(`{"log_level":"debug"}`))
+	_ = resp.Body.Close() //nolint:errcheck // 测试清理
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("改 log_level 失败：HTTP %d", resp.StatusCode)
+	}
+
+	// 回调是**同步**跑的（见 settings.SetOnChange 的说明），因此
+	// POST 返回之后级别必须已经改好，不需要等待、也不需要重试。
+	if !log.Enabled(context.Background(), slog.LevelDebug) {
+		t.Fatal("改成 debug 之后 debug 仍被挡下 —— 设置没有传播到日志级别")
+	}
+
+	// 不止问 Enabled，还真的发一次请求，看中间件那条 debug 日志
+	// 有没有被写出来。
+	//
+	// 这是"级别真的生效"最直接的证据：中间件用的是与各领域服务同一个
+	// handler，日志进的是这里给的缓冲区。只断言 Enabled 的话，
+	// 一个"Enabled 说放行、Handle 却仍丢弃"的实现会漏过去。
+	got, err := h.get("/v1/health")
+	if err != nil {
+		t.Fatalf("请求 /v1/health 失败: %v", err)
+	}
+	_ = got.Body.Close() //nolint:errcheck // 测试清理
+
+	mu.Lock()
+	out := buf.String()
+	mu.Unlock()
+	if !strings.Contains(out, "path=/v1/health") {
+		t.Fatalf("改成 debug 之后没有看到请求日志 —— 级别没有真的作用到输出上:\n%s",
+			firstLines(out, 20))
+	}
+
+	// 再改回 error：反方向同样要立刻生效。只测一个方向的话，
+	// "级别只会变宽、不会收紧"这种半对的实现会漏过去。
+	//
+	// 判据取"切换那一刻之后新写进来的那一段"：上面的请求已经完整返回
+	// （中间件在响应写完才记日志），因此这一段里除了设置变更本身的
+	// 副作用之外，不该再有任何 DEBUG 行。
+	mu.Lock()
+	mark := buf.Len()
+	mu.Unlock()
+
+	resp = h.do(http.MethodPatch, "/v1/settings", []byte(`{"log_level":"error"}`))
+	_ = resp.Body.Close() //nolint:errcheck // 测试清理
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("改 log_level 失败：HTTP %d", resp.StatusCode)
+	}
+
+	if log.Enabled(context.Background(), slog.LevelInfo) {
+		t.Error("改成 error 之后 info 仍被放行 —— 级别只放宽不收紧")
+	}
+	if !log.Enabled(context.Background(), slog.LevelError) {
+		t.Error("改成 error 之后 error 本身被误挡")
+	}
+
+	// 再打一次接口：这次不该再留下请求日志。级别是同步改好的，
+	// 因此这一条也是确定性的，不靠 sleep 去赌。
+	got, err = h.get("/v1/health")
+	if err != nil {
+		t.Fatalf("请求 /v1/health 失败: %v", err)
+	}
+	_ = got.Body.Close() //nolint:errcheck // 测试清理
+
+	mu.Lock()
+	after := buf.String()[mark:]
+	mu.Unlock()
+	if strings.Contains(after, "level=DEBUG") {
+		t.Errorf("改成 error 之后仍在输出 DEBUG 日志 —— 级别只放宽不收紧:\n%s",
+			firstLines(after, 20))
+	}
+}
+
 func firstLines(s string, n int) string {
 	lines := strings.SplitN(s, "\n", n+1)
 	if len(lines) > n {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// syncWriter 让内存缓冲区可以被内核的后台 goroutine 安全地写。
+//
+// strings.Builder 本身不是并发安全的，而内核会在多个 goroutine 里记日志；
+// 不加锁的话 -race 下会报数据竞争，而那种失败看起来与本用例要验证的
+// 东西毫无关系。
+type syncWriter struct {
+	w  io.Writer
+	mu *sync.Mutex
+}
+
+func (s syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
 }

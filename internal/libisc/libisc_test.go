@@ -3,11 +3,18 @@ package libisc
 // 这一层不依赖 cgo，因此这些用例在默认 CI（CGO_ENABLED=0）里就会跑。
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/ShirazuNagisa/isc-core/internal/settings"
+	"github.com/ShirazuNagisa/isc-core/internal/store"
 	"github.com/ShirazuNagisa/isc-core/internal/testsupport"
 )
 
@@ -158,6 +165,162 @@ func TestCallCanWrite(t *testing.T) {
 	if restore := Call("PATCH", "/v1/settings", `{"lang":"zh-CN"}`); restore["ok"] != true {
 		t.Errorf("恢复语言设置失败: %v", restore)
 	}
+}
+
+// seedLogLevel 在库还没启动内核时，先把 log_level 写进数据目录里的库。
+//
+// 必须趁内核没起来的时候写：级别是**启动时**读出来的，这也是这条用例
+// 真正要验的那一步（运行期改级别走的是另一条路径，见下面的 PATCH）。
+func seedLogLevel(t *testing.T, dir, level string) {
+	t.Helper()
+
+	st, err := store.Open(context.Background(), filepath.Join(dir, "isc.db"))
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	if err := st.SaveSettings(context.Background(), map[string]string{
+		settings.KeyLogLevel: level,
+	}); err != nil {
+		_ = st.Close()
+		t.Fatalf("写入 log_level 失败: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("关闭数据库失败: %v", err)
+	}
+}
+
+// TestLogLevelAppliesOnLibraryPath 验证**库（c-shared）这条路**上
+// log_level 同样是真的在生效。
+//
+// # 为什么这条用例非有不可
+//
+// Phecda 是把内核当 c-shared 库嵌进同一个进程用的（cmd/libisc），
+// 它与 CLI 走的不是同一个入口：库调用 daemon.New 时**不传 handler**
+// （见 internal/libisc.Start），由内核自己建一个写 stderr 的。
+// 也就是说，"CLI 那条路上级别生效"并不能推出"库这条路上也生效" ——
+// 而用户在界面上看到的恰恰是库这一条路。
+//
+// # 为什么捕获 stderr
+//
+// 库没有、也不该有"把日志处理器交给我"的注入点（那会把内部结构
+// 暴露给 GUI）。而用户看到的日志就是 stderr 上那一份，因此这里直接
+// 接管 stderr 的文件描述符来观察**真实产物**，而不是去问某个内部
+// 变量"你觉得级别是多少"。
+func TestLogLevelAppliesOnLibraryPath(t *testing.T) {
+	_ = Stop()
+	dir := testsupport.ShortTempDir(t)
+
+	// 设置里写 debug，但内核自己的临时初值是 info ——
+	// 因此"看到 DEBUG 行"只可能来自"启动时读了设置"。
+	seedLogLevel(t, dir, settings.LevelDebug)
+
+	capture := captureStderr(t)
+
+	if res := Start(dir); res["ok"] != true {
+		t.Fatalf("启动失败: %v", res)
+	}
+	t.Cleanup(func() { _ = Stop() })
+
+	// 一次真实调用。中间件给每个请求都记一条 debug 日志
+	// （见 internal/api.LogRequests），它进的就是捕获到的 stderr。
+	if res := Call("GET", "/v1/health", ""); res["ok"] != true {
+		t.Fatalf("GET /v1/health 失败: %v", res)
+	}
+
+	// 等在途的写落下来。stderr 是文件描述符，写入与读取之间没有
+	// happens-before 关系，因此这里只能等一小会儿 —— 给的是宽裕的
+	// 余量，不是在赌某个精确的时序。
+	time.Sleep(300 * time.Millisecond)
+
+	got := capture.text()
+	if !strings.Contains(got, "level=DEBUG") {
+		t.Fatalf("库路径上没有按设置输出 debug 日志 —— log_level 没生效:\n%s", got)
+	}
+	if !strings.Contains(got, "path=/v1/health") {
+		t.Errorf("debug 日志里没有这次请求的记录:\n%s", got)
+	}
+
+	// 运行期改级别：库的调用入口就是 GUI 用的那个（契约里的 PATCH）。
+	patched := Call("PATCH", "/v1/settings", `{"log_level":"error"}`)
+	if patched["ok"] != true {
+		t.Fatalf("改 log_level 失败: %v", patched)
+	}
+
+	// 切换那一刻之后新写进来的那一段：不该再有 DEBUG 行。
+	mark := capture.len()
+	if res := Call("GET", "/v1/health", ""); res["ok"] != true {
+		t.Fatalf("第二次 GET /v1/health 失败: %v", res)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	if after := capture.text()[mark:]; strings.Contains(after, "level=DEBUG") {
+		t.Errorf("改成 error 之后库路径上仍在输出 DEBUG 日志:\n%s", after)
+	}
+}
+
+// captureStderr 把 stderr 重定向到一个管道，返回可读取其内容的句柄。
+//
+// 必须在 Start **之前**调用：内核的 handler 是在启动时建的，
+// 它捕获的是当时的 os.Stderr。
+type stderrCapture struct {
+	mu  sync.Mutex
+	buf strings.Builder
+	// orig 是原来的 stderr，清理时还回去 —— 不还的话测试失败信息
+	// 就再也打不出来了，排查时看到的是"没有任何输出"。
+	orig *os.File
+	pipe *os.File
+}
+
+func captureStderr(t *testing.T) *stderrCapture {
+	t.Helper()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("创建管道失败: %v", err)
+	}
+
+	c := &stderrCapture{orig: os.Stderr, pipe: r}
+	os.Stderr = w
+
+	// 后台把管道抽干：内核的日志量会超过管道的缓冲，
+	// 不抽干会让写日志的那一方**阻塞**，表现成内核卡住。
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				c.mu.Lock()
+				c.buf.Write(buf[:n])
+				c.mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	t.Cleanup(func() {
+		_ = Stop()
+		os.Stderr = c.orig
+		_ = w.Close()
+		<-done
+		_ = r.Close()
+	})
+	return c
+}
+
+func (c *stderrCapture) text() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
+
+func (c *stderrCapture) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Len()
 }
 
 func TestCallBeforeStartIsNotRunning(t *testing.T) {
